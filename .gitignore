@@ -1,0 +1,13 @@
+# Local build output
+/lole
+
+# Generated previews
+/artifacts/
+
+# Go tooling output
+*.test
+*.out
+coverage.out
+
+# macOS metadata
+.DS_Store
