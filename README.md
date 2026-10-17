@@ -1,20 +1,27 @@
-# lole — LoL Esports CLI
+# esterm — Esports Terminal CLI
 
-League of Legends 프로 대회(MSI, Worlds, LCK, LPL, LEC, LCS 등)의
-일정·결과·**실시간 인게임 보드**를 터미널에서 보는 싱글 바이너리 CLI.
+이스포츠 경기를 터미널에서 보는 싱글 바이너리 CLI. 명령은 `esterm <게임> <명령>` 구조이며,
+현재 지원하는 게임은 League of Legends(`lol`)다.
 
+`lol` 은 프로 대회(MSI, Worlds, LCK, LPL, LEC, LCS 등)의 일정·결과·**실시간 인게임 보드**를 보여 준다.
 lolesports.com 이 쓰는 비공식 엔드포인트를 그대로 사용한다. API 키는 사이트에
 하드코딩된 공용 키이므로 별도 발급/설정 불필요.
 
 ## 설치
 
 ```bash
-cd ~/workspace/lole
-go build -o lole .
+go install github.com/m16khb-org/esterm@latest   # $(go env GOPATH)/bin 이 PATH 에 있어야 함
+```
+
+소스에서 직접 빌드:
+
+```bash
+git clone git@github.com:m16khb-org/esterm.git && cd esterm
+go build -o esterm .
 # macOS: Gatekeeper quarantine 해제
-xattr -d com.apple.quarantine ./lole 2>/dev/null
+xattr -d com.apple.quarantine ./esterm 2>/dev/null
 # 어디서든 쓰려면
-ln -sf "$PWD/lole" ~/.local/bin/lole   # ~/.local/bin 이 PATH 에 있어야 함
+ln -sf "$PWD/esterm" ~/.local/bin/esterm   # ~/.local/bin 이 PATH 에 있어야 함
 ```
 
 의존성 없음 (Go 표준 라이브러리만 사용).
@@ -22,10 +29,20 @@ ln -sf "$PWD/lole" ~/.local/bin/lole   # ~/.local/bin 이 PATH 에 있어야 함
 ## 사용법
 
 ```
-lole relay     [-l <league>] [-1]          풀스크린 ASCII 실시간 중계 (1초 갱신)
-lole live      [-l <league>] [-w]          실시간 경기 + 인게임 보드
-lole schedule  [-l <league>] [-n N] [-a]   다가오는 경기 (-a = 최근 결과)
-lole leagues                               리그 슬러그/ID 목록
+esterm <game> <command> [flags]
+esterm help                 지원 게임 목록
+esterm <game> help          게임별 명령 목록
+```
+
+### lol (League of Legends)
+
+```
+esterm lol relay      [-l <league>] [-i Dur] [-1]   풀스크린 ASCII 실시간 중계 (1초 갱신)
+esterm lol live       [-l <league>] [-w]            실시간 경기 + 인게임 보드
+esterm lol streams    [-l <league>]                 중계 스트림 링크
+esterm lol standings  [-l <league>]                 대회 브래킷 / 순위
+esterm lol schedule   [-l <league>] [-n N] [-a]     다가오는 경기 (-a = 최근 결과)
+esterm lol leagues                                  리그 슬러그/ID 목록
 ```
 
 플래그
@@ -38,13 +55,13 @@ lole leagues                               리그 슬러그/ID 목록
 ## 예시
 
 ```bash
-lole relay -l msi          # MSI 풀스크린 실시간 중계 (1초 갱신, Ctrl+C 종료)
-lole relay -1              # 단일 프레임만 캡처 (미리보기)
-lole demo                  # 라이브 게임 없이 중계 화면 미리보기
-lole live -l msi -w        # MSI 실시간 보드를 30초 간격으로 갱신
-lole schedule -l lck -n 10 # LCK 다음 10경기
-lole schedule -a -n 8      # 모든 리그 최근 결과
-lole leagues               # 전체 리그 슬러그 확인
+esterm lol relay -l msi          # MSI 풀스크린 실시간 중계 (1초 갱신, Ctrl+C 종료)
+esterm lol relay -1              # 단일 프레임만 캡처 (미리보기)
+esterm lol demo                  # 라이브 게임 없이 중계 화면 미리보기
+esterm lol live -l msi -w        # MSI 실시간 보드를 30초 간격으로 갱신
+esterm lol schedule -l lck -n 10 # LCK 다음 10경기
+esterm lol schedule -a -n 8      # 모든 리그 최근 결과
+esterm lol leagues               # 전체 리그 슬러그 확인
 ```
 
 ## 반응형 (responsive)
@@ -60,13 +77,13 @@ lole leagues               # 전체 리그 슬러그 확인
 
 레이아웃 미리보기(임의 크기 지정):
 ```bash
-lole demo -w 120        # 넓은 화면(좌우 2단) 미리보기
-lole demo -w 60 -h 20   # 좁고 낮은 터미널 미리보기
+esterm lol demo -w 120        # 넓은 화면(좌우 2단) 미리보기
+esterm lol demo -w 60 -h 20   # 좁고 낮은 터미널 미리보기
 ```
 
 ## 토글로 여는 디테일 (relay 실행 중 키 입력)
 
-`lole relay` 실행 중 누르면 해당 패널이 열리고 다시 누르면 닫힌다
+`esterm lol relay` 실행 중 누르면 해당 패널이 열리고 다시 누르면 닫힌다
 (diff 렌더러가 바뀐 부분만 갱신).
 
 | 키 | 보기 |
@@ -82,7 +99,7 @@ lole demo -w 60 -h 20   # 좁고 낮은 터미널 미리보기
 
 ## relay (실시간 중계)
 
-`lole relay` 는 터미널 전체를 쓰는 풀스크린 중계 화면이다.
+`esterm lol relay` 는 터미널 전체를 쓰는 풀스크린 중계 화면이다.
 
 - **1초마다 화면 재생성**: 게임 클럭(스폰 이후 경과)과 LIVE 펄스가 매 초 갱신되고,
   인게임 데이터는 Riot 피드가 새 프레임을 줄 때마다(약 10초 단위) 반영된다.

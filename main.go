@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// lole — a tiny CLI for League of Legends esports.
-// Uses the same unofficial lolesports endpoints that lolesports.com renders.
+// esterm — a tiny terminal client for esports, organized as `esterm <game> <command>`.
+// The lol game uses the same unofficial lolesports endpoints that lolesports.com renders.
 // All times are shown in KST (Asia/Seoul).
 
 const (
@@ -234,41 +234,70 @@ func main() {
 		os.Exit(1)
 	}
 	switch os.Args[1] {
-	case "bench":
-		cmdBench(os.Args[2:])
-	case "demo":
-		cmdDemo(os.Args[2:])
-	case "relay":
-		cmdRelay(os.Args[2:])
-	case "live":
-		cmdLive(os.Args[2:])
-	case "streams":
-		cmdStreams(os.Args[2:])
-	case "standings":
-		cmdStandings(os.Args[2:])
-	case "schedule":
-		cmdSchedule(os.Args[2:])
-	case "leagues":
-		cmdLeagues(os.Args[2:])
+	case "lol":
+		runLoL(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown game: %s\n\n", os.Args[1])
 		usage()
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Println(`lole — LoL Esports CLI (https://lolesports.com endpoints)
+	fmt.Println(`esterm — esports terminal client
 
 Usage:
-  lole relay     [-l <league>] [-i Dur] [-1]     ASCII live broadcast (tick 1s · poll 10s)
-  lole live      [-l <league>] [-w]            live games + real-time board
-  lole streams    [-l <league>]                 broadcast stream links (where to watch)
-  lole standings  [-l <league>]                 tournament bracket / standings
-  lole schedule  [-l <league>] [-n N] [-a]     upcoming matches (-a = recent)
-  lole leagues                               list leagues & slugs
+  esterm <game> <command> [flags]
+
+Games:
+  lol    League of Legends (https://lolesports.com endpoints)
+
+Run 'esterm <game> help' for game commands.`)
+}
+
+func runLoL(args []string) {
+	if len(args) < 1 {
+		lolUsage()
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "bench":
+		cmdBench(args[1:])
+	case "demo":
+		cmdDemo(args[1:])
+	case "relay":
+		cmdRelay(args[1:])
+	case "live":
+		cmdLive(args[1:])
+	case "streams":
+		cmdStreams(args[1:])
+	case "standings":
+		cmdStandings(args[1:])
+	case "schedule":
+		cmdSchedule(args[1:])
+	case "leagues":
+		cmdLeagues(args[1:])
+	case "-h", "--help", "help":
+		lolUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown lol command: %s\n\n", args[0])
+		lolUsage()
+		os.Exit(1)
+	}
+}
+
+func lolUsage() {
+	fmt.Println(`esterm lol — League of Legends esports (https://lolesports.com endpoints)
+
+Usage:
+  esterm lol relay      [-l <league>] [-i Dur] [-1]   ASCII live broadcast (tick 1s · poll 10s)
+  esterm lol live       [-l <league>] [-w]            live games + real-time board
+  esterm lol streams    [-l <league>]                 broadcast stream links (where to watch)
+  esterm lol standings  [-l <league>]                 tournament bracket / standings
+  esterm lol schedule   [-l <league>] [-n N] [-a]     upcoming matches (-a = recent)
+  esterm lol leagues                                  list leagues & slugs
 
 Flags:
   -l <league>   filter by slug (msi, worlds, lck, lpl, lec, lcs, ...)
@@ -277,9 +306,9 @@ Flags:
   -a            show recent/completed instead of upcoming
 
 Examples:
-  lole live -l msi -w
-  lole schedule -l lck -n 10
-  lole leagues`)
+  esterm lol live -l msi -w
+  esterm lol schedule -l lck -n 10
+  esterm lol leagues`)
 }
 
 func cmdLeagues(args []string) {
@@ -302,7 +331,7 @@ func cmdLeagues(args []string) {
 }
 
 func cmdLive(args []string) {
-	fs := flag.NewFlagSet("live", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol live", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	watch := fs.Bool("w", false, "refresh every 30s")
 	fs.Parse(args)
@@ -336,7 +365,7 @@ func renderLive(leagueSlug string) {
 	events := lr.Data.Schedule.Events
 	if len(events) == 0 {
 		fmt.Println("  ⌛ No live games right now.")
-		fmt.Println("    try: lole schedule")
+		fmt.Println("    try: esterm lol schedule")
 		return
 	}
 	for i, ev := range events {
@@ -462,7 +491,7 @@ func mapMeta(m teamMeta) map[int]struct {
 }
 
 func cmdSchedule(args []string) {
-	fs := flag.NewFlagSet("schedule", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol schedule", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	n := fs.Int("n", 15, "number of matches")
 	past := fs.Bool("a", false, "show recent/completed")
@@ -500,7 +529,7 @@ func cmdSchedule(args []string) {
 		}
 	}
 	if len(shown) == 0 {
-		fmt.Println("  (no matches found — try a different league: lole leagues)")
+		fmt.Println("  (no matches found — try a different league: esterm lol leagues)")
 		return
 	}
 	sort.SliceStable(shown, func(i, j int) bool {

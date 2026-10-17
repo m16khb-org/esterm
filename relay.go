@@ -550,7 +550,7 @@ func buildCanvas(ev event, w windowResp, det detailsResp, spawn, now time.Time, 
 		rows = append(rows, borderedL(joinLR(line{}, line{C("○  NO LIVE GAMES RIGHT NOW", cBold+cYel)}, W), t))
 		bl()
 		rows = append(rows, borderedL(joinLR(line{}, line{C("polling for a match to start…", cDim)}, W), t))
-		rows = append(rows, borderedL(joinLR(line{}, line{C("try: lole schedule", cDim)}, W), t))
+		rows = append(rows, borderedL(joinLR(line{}, line{C("try: esterm lol schedule", cDim)}, W), t))
 		rows = append(rows, blankL(t))
 		return finishCanvas(rows, t, now, compact, interval, tg)
 	}
@@ -753,7 +753,7 @@ func fetchSpawn(gameID string) time.Time {
 
 // ---------------- command ----------------
 func cmdRelay(args []string) {
-	fs := flag.NewFlagSet("relay", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol relay", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	once := fs.Bool("1", false, "render a single frame and exit (for screenshots/scripts)")
 	interval := fs.Duration("i", 10*time.Second, "poll/render interval (feed updates ~10s)")
@@ -927,7 +927,7 @@ func cmdRelay(args []string) {
 
 // ---------------- demo (synthetic frame for preview/screenshot) ----------------
 func cmdDemo(args []string) {
-	fs := flag.NewFlagSet("demo", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol demo", flag.ExitOnError)
 	w := fs.Int("w", 0, "force terminal width (0 = detect)")
 	hh := fs.Int("h", 0, "force terminal height (0 = detect)")
 	rf := fs.Bool("r", false, "runes view")
@@ -1030,7 +1030,7 @@ func itoa(i int) string { return fmt.Sprintf("%d", i) }
 
 // bench proves the double-buffer diff: full repaint vs 1-second diff byte cost.
 func cmdBench(args []string) {
-	fs := flag.NewFlagSet("bench", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol bench", flag.ExitOnError)
 	wf := fs.Int("w", 0, "force width")
 	hf := fs.Int("h", 0, "force height")
 	fs.Parse(args)

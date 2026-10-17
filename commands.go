@@ -116,7 +116,7 @@ func streamURL(provider, param string) string {
 }
 
 func cmdStreams(args []string) {
-	fs := flag.NewFlagSet("streams", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol streams", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	fs.Parse(args)
 	lid, ok := leagueID(*league)
@@ -126,7 +126,7 @@ func cmdStreams(args []string) {
 	}
 	eid := findEventID(lid)
 	if eid == "" {
-		fmt.Println("  no event found — try: lole schedule")
+		fmt.Println("  no event found — try: esterm lol schedule")
 		return
 	}
 	var ed eventDetailsResp
@@ -169,7 +169,7 @@ func cmdStreams(args []string) {
 }
 
 func cmdStandings(args []string) {
-	fs := flag.NewFlagSet("standings", flag.ExitOnError)
+	fs := flag.NewFlagSet("lol standings", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	fs.Parse(args)
 	lid, ok := leagueID(*league)
