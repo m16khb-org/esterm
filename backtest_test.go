@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -84,6 +85,9 @@ const (
 	btRelockTol    = 1.5  // seconds: a relock is right when the kill flips moved by the sync's step within this (each flip carries about ±1 s)
 	btFlickerSpan  = 6.0  // seconds: a marker that is back within this long flickered
 	btEdgeMargin   = 3.0  // seconds around a death or respawn where alive/dead is ambiguous
+	btDeathTol     = 0.03 // normalized map: the dead marker must stand this close to the last measured position of the champion
+	btDeathShown   = 6.0  // seconds after a death within which the dead marker is looked for
+	btDeathLate    = 1.0  // seconds after the feed's death tick up to which a measurement still counts as the champion's last position
 	btClusterScale = 0.8  // champions closer than this many icon diameters overlap
 	btPreRoll      = 45.0 // seconds of video kept before the game's first feed frame (with At)
 	btApiPreRoll   = 150.0
@@ -178,6 +182,7 @@ type btPrep struct {
 	spawn  time.Time
 	endSec float64 // feed seconds from spawn to the game's last frame
 	clip   string  // cached video clip
+	atClip float64 // video second of the clip at which the game's first feed frame shows
 	vodURL string
 	err    error
 }
@@ -277,9 +282,19 @@ func btPrepare(ctx context.Context, g btGame, dl chan struct{}) *btPrep {
 		p.vodURL, at, pre, post = vods[0].URL, vods[0].SpawnAt, btApiPreRoll, btApiPostRoll
 	}
 	from := math.Max(0, math.Floor(at-pre))
+	p.atClip = at - from
 	dur := math.Ceil(at + p.endSec + post - from)
 	name := regexp.MustCompile(`[^A-Za-z0-9]+`).ReplaceAllString(p.vodURL[strings.LastIndexAny(p.vodURL, "=/")+1:], "_")
 	p.clip = filepath.Join(btCacheDir("vod"), fmt.Sprintf("%s_%d_%d.mkv", name, int(from), int(dur)))
+	if ov := os.Getenv("ESTERM_BACKTEST_CLIP"); ov != "" { // path@from: an existing clip of this game's VOD that starts at video second from
+		var f float64
+		if i := strings.LastIndex(ov, "@"); i > 0 {
+			f, _ = strconv.ParseFloat(ov[i+1:], 64)
+			p.clip, p.atClip = ov[:i], at-f
+			fmt.Fprintf(os.Stderr, "  [%s] clip override %s: game starts at video second %.0f of the clip\n", p.label, p.clip, p.atClip)
+			return p
+		}
+	}
 	if fi, err := os.Stat(p.clip); err == nil && fi.Size() > 0 {
 		return p
 	}

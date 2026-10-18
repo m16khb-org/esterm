@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"image/color"
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -55,7 +56,9 @@ func newGateRig(t *testing.T) *gateRig {
 		t.Fatalf("a live map with a readable clock is not shown: %+v", r)
 	}
 	// the champion was found on that frame
-	g.p.marks[0] = mmMark{x: 0.3, y: 0.4, idx: 0, ok: true}
+	tr := &g.p.trk.trk[0]
+	tr.kf.init(0.3*mmFrameSize, 0.4*mmFrameSize)
+	tr.init, tr.lastIdx, tr.measIdx, tr.sim = true, 0, 0, 1
 	return g
 }
 
@@ -69,7 +72,7 @@ func TestProcessKeepsChampionsThroughAnObjectiveBanner(t *testing.T) {
 	g := newGateRig(t)
 	for i := 1; i <= mmCoverMax; i++ {
 		r := g.step(g.covered, g.clock)
-		if !r.visible || len(r.dets) != 1 || !r.dets[0].Visible || r.dets[0].X != 0.3 || r.dets[0].Y != 0.4 || r.dets[0].Age != i {
+		if !r.visible || len(r.dets) != 1 || !r.dets[0].Visible || math.Abs(r.dets[0].X-0.3) > 1e-9 || math.Abs(r.dets[0].Y-0.4) > 1e-9 || r.dets[0].Age != i {
 			t.Fatalf("banner frame %d: %+v", i, r)
 		}
 	}
@@ -100,16 +103,16 @@ func TestProcessHidesReplaysAtOnce(t *testing.T) {
 	g := newGateRig(t)
 	// a replay shows the minimap but replaces the scoreboard: gone on the first frame,
 	// although the clock was read one frame ago
-	for i := 0; i < 3*mmAbsentReset; i++ {
+	for i := 0; i < 20*mmFPS; i++ {
 		if r := g.step(g.live, g.replay); r.visible || r.dets != nil {
 			t.Fatalf("replay frame %d shown: %+v", i, r)
 		}
 	}
-	if g.p.marks != nil {
-		t.Fatal("champion positions from before the replay must be forgotten")
-	}
-	if r := g.step(g.live, g.clock); !r.visible || (r.dets[0].Visible && r.dets[0].Age != 0) {
-		t.Fatalf("after the replay only a fresh sighting may be shown, never the old position: %+v", r.dets)
+	// the tracks live on through the replay: the champion is still where it was, but its
+	// age says it was not seen since, so it is never shown as a fresh sighting
+	r := g.step(g.live, g.clock)
+	if !r.visible || len(r.dets) != 1 || !r.dets[0].Visible || r.dets[0].Age < 20*mmFPS {
+		t.Fatalf("after the replay the old position must be kept, aged: %+v", r.dets)
 	}
 }
 
@@ -144,33 +147,5 @@ func TestHUDLiveNeedsPlateAndClockAge(t *testing.T) {
 		if got := p.hudLive(c.idx, c.hud, false); got != c.want {
 			t.Errorf("%s: hudLive = %v, want %v", c.name, got, c.want)
 		}
-	}
-}
-
-func TestHoldMarksKeepsLostChampionsAtTheLastPosition(t *testing.T) {
-	icons := []champIcon{{ref: champRef{PID: 1}}, {ref: champRef{PID: 2}}, {ref: champRef{PID: 3}}}
-	p := newMMPipeline(icons, nil)
-	found := func(x, y float64) mmDet { return mmDet{X: x, Y: y, Visible: true} }
-	// frame 10: champions 1 and 2 found, 3 not yet
-	got := p.holdMarks(10, []mmDet{found(0.1, 0.2), found(0.5, 0.5), {}})
-	if got[0].Age != 0 || got[1].Age != 0 || got[2].Visible {
-		t.Fatalf("frame 10: %+v", got)
-	}
-	// frame 13: champion 1 moved, 2 is lost, 3 was never seen
-	got = p.holdMarks(13, []mmDet{found(0.15, 0.25), {}, {}})
-	if got[0].Age != 0 || got[0].X != 0.15 || !got[1].Visible || got[1].X != 0.5 || got[1].Y != 0.5 || got[1].Age != 3 || got[2].Visible {
-		t.Fatalf("frame 13: %+v", got)
-	}
-	// covered map: the tracker did not run, everybody seen before is held
-	got = p.holdMarks(20, nil)
-	if len(got) != 3 || got[0].PID != 1 || got[0].Age != 7 || got[1].Age != 10 || got[2].Visible {
-		t.Fatalf("frame 20 (covered): %+v", got)
-	}
-	// a champion lost for longer than mmHoldMax is dropped
-	if got := p.holdMarks(10+mmHoldMax+1, nil); got[1].Visible {
-		t.Fatalf("held beyond mmHoldMax: %+v", got[1])
-	}
-	if got := p.holdMarks(13+mmHoldMax, nil); !got[0].Visible || got[0].Age != mmHoldMax {
-		t.Fatalf("held up to mmHoldMax: %+v", got[0])
 	}
 }

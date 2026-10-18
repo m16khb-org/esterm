@@ -272,6 +272,7 @@ func (v *replayVideo) prepare() bool {
 	}
 	r.mm.attach(mmLabels(refs), ver, r.sy)
 	v.pipe = newMMPipeline(icons, r.sy)
+	v.pipe.livesAt = func(t time.Time) mmLives { return r.st.livesAt(t, r.sy.Skew()) }
 	return true
 }
 
@@ -344,7 +345,7 @@ func (v *replayVideo) startSeg(ss float64, probe bool) {
 	ss = float64(base) / mmFPS
 	ctx, cancel := context.WithCancel(r.ctx)
 	r.mm.setStatus("seeking video to " + fmtClock(ss))
-	frames, err := startMMVideo(ctx, mmVideoOpts{Src: v.media, SS: ss, FPS: mmFPS, IdxBase: base, VOD: true}, r.mm.setStatus)
+	frames, err := startMMVideo(ctx, mmVideoOpts{Src: v.media, SS: ss, FPS: mmFPS, IdxBase: base, VOD: true, Main: true}, r.mm.setStatus)
 	if err != nil {
 		cancel()
 		r.mm.setStatus("error: " + err.Error())

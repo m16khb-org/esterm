@@ -34,7 +34,7 @@ This is the reference document agents should read before writing or modifying te
 
 실제 방송으로 하는 검증은 일반 `go test`에 넣지 않고, 빌드 태그 `backtest`가 붙은 영구 백테스트(`backtest_test.go`, `backtest_run_test.go`, `backtest_metrics_test.go`)로 한다.
 
-- 실행: `go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=결과.json`. `ESTERM_BACKTEST_GAMES=<정규식>` 으로 경기를 고르고 `ESTERM_BACKTEST_V=1` 로 어긋난 킬 플립·깜빡임·재잠금을 모두 본다. 영상과 피드 응답은 `os.UserCacheDir()/esterm/backtest`(약 19 GB)에 캐시한다.
+- 실행: `go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=결과.json`. `ESTERM_BACKTEST_GAMES=<정규식>` 으로 경기를 고르고 `ESTERM_BACKTEST_RANGE=시작-끝`(경기 시작부터 초)으로 구간만 돌리고(빠른 반복용) `ESTERM_BACKTEST_NOMV=1` 로 메인 뷰를 끄고 `ESTERM_BACKTEST_DOWNLOAD_ONLY=1` 로 영상 캐시만 채우고 `ESTERM_BACKTEST_V=1` 로 어긋난 킬 플립·깜빡임·재잠금을 모두 본다. 영상과 피드 응답은 `os.UserCacheDir()/esterm/backtest`(약 19 GB)에 캐시한다.
 - 경기 목록(`btGames`)의 공식 완료 16경기(Worlds 2026 7, LCK 3, LPL 3, LEC 3)를 앱과 같은 `mmPipeline`·`mmSync`·`deaths.go`로 영상 전체에 돌리고, 피드를 정답으로 동기 오차, 검출률, 부활 오차, 깜빡임, 공백 원인을 잰다. 기준과 기준선 수치는 README 백테스트 절에 있다.
 - 트래커, 동기, HUD, 사망 로직을 바꾸면 변경 전후 `-backtest.out` JSON을 비교해 보고한다. 새 리그나 레이아웃을 추가하면 그 경기를 `btGames`에 넣고(API에 VOD가 없으면 `Vod`와 `At` 지정) 같은 지표를 잰다. 측정 없이 지원한다고 쓰지 않는다.
 - 일회용 스크립트와 프레임은 `/tmp` 아래에 두고 검증 후 지운다. 저장소에는 방송 화면을 넣지 않는다.

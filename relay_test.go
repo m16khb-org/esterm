@@ -153,10 +153,10 @@ func syncPlayout(feedEdge, videoFrom, videoLead time.Duration, locked bool) *rel
 	mm.cancel = func() {}
 	mm.sy = newMMSync(t0, mmFPS, nil)
 	now := time.Unix(5000, 0)
-	for i := 0; videoFrom+time.Duration(i)*500*time.Millisecond <= videoEdge; i++ {
+	for i := 0; videoFrom+mmFrameTime(i) <= videoEdge; i++ {
 		mm.push(mmResult{idx: i, layout: "lck", visible: true, dets: det(1)}, now)
 		if locked { // the HUD shows the feed clock minus the prior skew
-			g := int((videoFrom + time.Duration(i)*500*time.Millisecond - feedPriorSkew).Seconds())
+			g := int((videoFrom + mmFrameTime(i) - feedPriorSkew).Seconds())
 			mm.sy.ObserveHUD(i, mmHUD{ClockSec: g, ClockOK: true})
 		}
 	}

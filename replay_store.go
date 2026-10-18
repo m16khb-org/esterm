@@ -358,6 +358,15 @@ func (s *replayStore) metadata() windowResp {
 	return s.meta
 }
 
+// livesAt is who is dead at feed time t, with the respawns the whole game shows; skew is
+// the sync's feed-minus-HUD clock skew (see snapshot).
+func (s *replayStore) livesAt(t time.Time, skew time.Duration) mmLives {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clock := func(ts time.Time) time.Duration { return ts.Sub(s.spawn) - skew - pauseShift(s.pauses, ts) }
+	return livesAt(s.frames, t, clock, true)
+}
+
 // snapshot builds the board state at feed time t: the latest frame not past t (the first
 // one before the game's own start), the gold series up to it, the lives of the champions
 // (exact respawns: the store holds the whole game) and game as the header clock.

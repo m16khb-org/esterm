@@ -21,7 +21,7 @@ Canonical index: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 1. 일정과 라이브 경기: lolesports `gw` API → `fetchLiveEvent`, `fetchSpawn`.
 2. 실시간 통계: `feed.go`가 `feed.lolesports.com/livestats/v1/{window,details}/{gameId}`를 백그라운드로 동시에 가져오고, 10초 창 안의 0.5초 간격 프레임을 `Snapshot`/`SnapshotAt`으로 재생한다. 현재 창과 다음 창을 함께 폴링한다.
-3. 미니맵 영상(선택): `yt-dlp`가 H.264 스트림 URL을 얻고 `ffmpeg`가 미니맵과 HUD 영역을 잘라 낸다(`minimap_video.go`, `mmSplitFrame`) → `minimap_layout.go`가 HUD 시계 글꼴로 방송 레이아웃(worlds/lck/lpl/lec)을 판별하고 `mmReadHUD`로 시계와 킬 수를 읽는다 → `minimap_fit.go`가 `map11` 상관 맞춤으로 지도 위치를 보정하고 `mmMapVisible`로 리플레이·드래프트 화면을 거른다 → `minimap_detect.go`가 챔피언 아이콘 템플릿 매칭과 추적으로 위치를 검출한다.
+3. 미니맵 영상(선택): `yt-dlp`가 H.264 스트림 URL을 얻고 `ffmpeg`가 미니맵과 HUD 영역을 잘라 낸다(`minimap_video.go`, `mmSplitFrame`) → `minimap_layout.go`가 HUD 시계 글꼴로 방송 레이아웃(worlds/lck/lpl/lec)을 판별하고 `mmReadHUD`로 시계와 킬 수를 읽는다 → `minimap_fit.go`가 `map11` 상관 맞춤으로 지도 위치를 보정하고 `mmMapVisible`로 리플레이·드래프트 화면을 거른다 → `minimap_detect.go`(템플릿 NCC)와 `minimap_track.go`·`minimap_kalman.go`(가설, 헝가리안 배정, 칼만 필터 추적, 5 fps)가 위치를 검출한다. 피드의 사망·부활(`mmLives`, `deaths.go`)과 메인 뷰 체력바(`mainview*.go`, `minimap_mv.go`)는 추적기의 입력이다. ffmpeg는 미니맵·HUD 묶음(5 fps)과 메인 뷰(2 fps, 두 번째 파이프)를 함께 내보낸다.
 4. 동기화: `sync.go`의 `mmSync`가 HUD 시계와 피드 킬 이벤트로 피드↔방송 오프셋을 계속 다시 추정한다. `minimap.go`의 `mmPipeline.Process`가 위 단계를 이어 붙이고, `relayPlayout.syncedTick`이 잠금 상태일 때 피드 시각과 영상 시각을 맞춘다.
 5. 그리기: `minimap_render.go`(점자 지도와 라벨), `minimap_kitty.go`(kitty 그래픽 아이콘). 공유 타입은 `minimap_types.go`.
 6. 오브젝트 타이머: `objectives.go`가 피드 프레임의 dragons 목록과 barons 수 변화로 처치 이벤트를 만들고(`objDerive`) 보여 줄 프레임의 상태를 계산한다(`objAt`). 라이브는 `feed.objs`, replay 는 `replayStore.objs` 가 이벤트를 들고 있고, `feedSnap.Obj` → `mmView.Obj` 로 보드 줄(`objTimerRow`)과 미니맵(`objectives_render.go`, `objectives_kitty.go`)에 전달된다.

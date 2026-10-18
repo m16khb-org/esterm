@@ -1098,6 +1098,7 @@ func cmdRelay(args []string) {
 	fd.FetchOnce()
 
 	mm := newMinimap(minimapCfg{Src: *src})
+	mm.SetLives(fd.LivesAt)
 	var kit kittyOut
 	tg := toggles{}
 	var prev *canvas

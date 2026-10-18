@@ -111,6 +111,16 @@ func livesAt(fr []stamped[frame], t time.Time, game func(time.Time) time.Duratio
 
 // lifeOf is the life of participant cur, as frame fr[i] shows it, at feed time at.
 func lifeOf(fr []stamped[frame], i int, cur participant, at time.Time, game func(time.Time) time.Duration, lookahead bool) mmLife {
+	lf := lifeNow(fr, i, cur, at, game, lookahead)
+	lf.Level = cur.Level
+	if cur.MaxHealth > 0 {
+		lf.HP = float64(cur.CurrentHealth) / float64(cur.MaxHealth)
+	}
+	return lf
+}
+
+// lifeNow is lifeOf without the level and health.
+func lifeNow(fr []stamped[frame], i int, cur participant, at time.Time, game func(time.Time) time.Duration, lookahead bool) mmLife {
 	pid := cur.ParticipantID
 	if cur.Deaths == 0 { // the counter never ticked: alive since the first frame
 		return mmLife{AliveFor: at.Sub(fr[0].ts).Seconds()}

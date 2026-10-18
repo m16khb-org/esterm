@@ -32,6 +32,9 @@ type mmVideoOpts struct {
 
 	// OnHeight, when set, receives the pixel height of the stream yt-dlp resolved.
 	OnHeight func(h int)
+
+	// Main asks for the main view as well (mmFrame.Main, mmMainFPS frames per second).
+	Main bool
 }
 
 const (
@@ -125,8 +128,37 @@ func mmRegionFilter(fps int) string {
 		fps, m.W, m.H, m.X, m.Y, h.W, h.H, h.X, h.Y, m.W, h.H)
 }
 
+// The main view: the game picture above the HUD, which the health bars of the champions
+// are read from (mainview*.go). It is cut at 1080p, full width, rows 0..mmMainH, and sent
+// as rgba, mmMainFPS frames per second, over a second pipe (file descriptor mmMainFD).
+const (
+	mmMainFPS   = 2
+	mmMainW     = 1920
+	mmMainH     = 816
+	mmMainBytes = mmMainW * mmMainH * 4
+	mmMainFD    = 4 // ExtraFiles[1] of the child: [0] is the watchdog's (fd 3)
+)
+
+// mmRegionFilterMain is mmRegionFilter that also yields the main view: the stacked
+// minimap and HUD frame as [mm] and the main view as [mv].
+func mmRegionFilterMain(fps int) string {
+	m, h := mmRegionMM, mmRegionHUD
+	return fmt.Sprintf("fps=%d,scale=1920:1080,split=3[m][h][v];"+
+		"[m]crop=%d:%d:%d:%d,format=rgb24[m2];"+
+		"[h]crop=%d:%d:%d:%d,format=rgb24,pad=%d:%d:0:0[h2];"+
+		"[m2][h2]vstack[mm];"+
+		"[v]fps=%d,crop=%d:%d:0:0,format=rgba[mv]",
+		fps, m.W, m.H, m.X, m.Y, h.W, h.H, h.X, h.Y, m.W, h.H, mmMainFPS, mmMainW, mmMainH)
+}
+
 // mmFFmpegArgs builds the ffmpeg command line reading media and writing raw rgb24 to stdout.
 func mmFFmpegArgs(media string, ss float64, live, hw bool, vf string, oneFrame bool) []string {
+	return mmFFmpegArgsMain(media, ss, live, hw, vf, oneFrame, false)
+}
+
+// mmFFmpegArgsMain is mmFFmpegArgs; with main, vf is a filter graph with the outputs [mm]
+// and [mv] (mmRegionFilterMain), the second written to pipe:mmMainFD.
+func mmFFmpegArgsMain(media string, ss float64, live, hw bool, vf string, oneFrame, main bool) []string {
 	args := []string{"-hide_banner", "-loglevel", "error"}
 	if live {
 		args = append(args, "-fflags", "nobuffer", "-flags", "low_delay")
@@ -139,6 +171,14 @@ func mmFFmpegArgs(media string, ss float64, live, hw bool, vf string, oneFrame b
 	}
 	if mmIsHTTP(media) {
 		args = append(args, "-rw_timeout", mmNetTimeoutUs)
+	}
+	if main {
+		args = append(args, "-i", media, "-an", "-filter_complex", vf, "-map", "[mm]")
+		if oneFrame {
+			args = append(args, "-frames:v", "1")
+		}
+		args = append(args, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1")
+		return append(args, "-map", "[mv]", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:"+strconv.Itoa(mmMainFD))
 	}
 	args = append(args, "-i", media, "-an", "-vf", vf)
 	if oneFrame {
@@ -207,7 +247,7 @@ func mmStart(ctx context.Context, cmd *exec.Cmd) (stop func(kill bool) error, er
 	}
 	cmd.Args = append([]string{"/bin/sh", "-c", `( read _ ; kill -KILL 0 ) <&3 >/dev/null 2>&1 & exec "$@" 3<&-`, "sh", cmd.Path}, cmd.Args[1:]...)
 	cmd.Path = "/bin/sh"
-	cmd.ExtraFiles = []*os.File{pr}
+	cmd.ExtraFiles = append([]*os.File{pr}, cmd.ExtraFiles...)
 	if err := cmd.Start(); err != nil {
 		pr.Close()
 		pw.Close()
@@ -271,6 +311,33 @@ const (
 	mmStackBytes = mmStackW * mmStackH * 3
 )
 
+// mmMainDue returns the main frame to attach to minimap frame n of the run (nil when none
+// is due) and the main frame still held back. Main frame k belongs to minimap frame
+// round(k*mmFPS/mmMainFPS); the newest due one is used, older ones are dropped.
+func mmMainDue(ch <-chan mmMainFrame, pending *mmMainFrame, n int) ([]byte, *mmMainFrame) {
+	var due []byte
+	for {
+		if pending == nil {
+			select {
+			case m, ok := <-ch:
+				if !ok {
+					return due, nil
+				}
+				pending = &m
+			default:
+				return due, nil
+			}
+		}
+		if (pending.k*mmFPS+mmMainFPS/2)/mmMainFPS > n {
+			return due, pending
+		}
+		if due != nil {
+			mmMainBufs.Put(due)
+		}
+		due, pending = pending.buf, nil
+	}
+}
+
 // mmSplitFrame splits one stacked ffmpeg frame (see mmRegionFilter) into region MM and
 // region HUD (the left mmRegionHUD.W columns of the lower part).
 func mmSplitFrame(idx int, buf []byte) mmFrame {
@@ -302,18 +369,73 @@ func mmGetFrameBuf() []byte {
 	return make([]byte, mmStackBytes+mmHUDBytes)
 }
 
+// mmMainBufs recycles main-view buffers.
+var mmMainBufs sync.Pool
+
+func mmGetMainBuf() []byte {
+	if b, ok := mmMainBufs.Get().([]byte); ok {
+		return b
+	}
+	return make([]byte, mmMainBytes)
+}
+
 // mmReleaseFrame hands a frame's buffers back once its consumer is done with it; the frame
 // must not be used afterwards. Frames not cut from a pooled buffer are left to the GC.
 func mmReleaseFrame(f mmFrame) {
 	if cap(f.MM) == mmStackBytes+mmHUDBytes {
 		mmFrameBufs.Put(f.MM[:cap(f.MM)])
 	}
+	if cap(f.Main) == mmMainBytes {
+		mmMainBufs.Put(f.Main[:cap(f.Main)])
+	}
+}
+
+// mmMainFrame is one main-view frame read from its pipe: the k-th of the run.
+type mmMainFrame struct {
+	k   int
+	buf []byte
+}
+
+// mmReadMain reads main-view frames from r until it ends, keeping the newest few in the
+// returned channel (it never blocks: a reader that stalls would stall ffmpeg and with it
+// the minimap frames, which are what this waits for). The channel is closed at the end.
+func mmReadMain(r io.Reader) <-chan mmMainFrame {
+	ch := make(chan mmMainFrame, 4)
+	go func() {
+		defer close(ch)
+		for k := 0; ; k++ {
+			buf := mmGetMainBuf()
+			if _, err := io.ReadFull(r, buf); err != nil {
+				mmMainBufs.Put(buf)
+				return
+			}
+			for {
+				select {
+				case ch <- mmMainFrame{k, buf}:
+				default:
+					select {
+					case old := <-ch: // full: the oldest is dropped
+						mmMainBufs.Put(old.buf)
+					default:
+					}
+					continue
+				}
+				break
+			}
+		}
+	}()
+	return ch
 }
 
 // mmRun runs one ffmpeg process and sends its frames, the first flagged Restart when
 // restart is set. It returns the number of frames sent and the reason the process ended.
 func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart bool, base int, out chan<- mmFrame) (int, error) {
-	args := mmFFmpegArgs(media, o.SS, live, hw, mmRegionFilter(o.FPS), false)
+	var args []string
+	if o.Main {
+		args = mmFFmpegArgsMain(media, o.SS, live, hw, mmRegionFilterMain(o.FPS), false, true)
+	} else {
+		args = mmFFmpegArgs(media, o.SS, live, hw, mmRegionFilter(o.FPS), false)
+	}
 	cmd := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
@@ -321,12 +443,28 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 	if err != nil {
 		return 0, err
 	}
+	var mainCh <-chan mmMainFrame
+	var mainW *os.File
+	if o.Main {
+		mr, mw, perr := os.Pipe()
+		if perr != nil {
+			return 0, perr
+		}
+		cmd.ExtraFiles = []*os.File{mw}
+		mainW = mw
+		defer mr.Close()
+		mainCh = mmReadMain(mr)
+	}
 	stop, err := mmStart(ctx, cmd)
+	if mainW != nil {
+		mainW.Close() // the child holds the write end; closing ours lets the reader see its end
+	}
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	var rerr error
+	var pending *mmMainFrame // the next main frame, held until its minimap frame is due
 	for {
 		buf := mmGetFrameBuf()
 		if _, rerr = io.ReadFull(pipe, buf[:mmStackBytes]); rerr != nil {
@@ -335,14 +473,26 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 		}
 		f := mmSplitFrame(base+n, buf)
 		f.Restart = restart && n == 0
+		if mainCh != nil {
+			f.Main, pending = mmMainDue(mainCh, pending, n)
+		}
 		select {
 		case out <- f:
 			n++
 		case <-ctx.Done():
 			mmFrameBufs.Put(buf)
+			if f.Main != nil {
+				mmMainBufs.Put(f.Main)
+			}
+			if pending != nil {
+				mmMainBufs.Put(pending.buf)
+			}
 			stop(true)
 			return n, ctx.Err()
 		}
+	}
+	if pending != nil {
+		mmMainBufs.Put(pending.buf)
 	}
 	stop(true)
 	if rerr == io.EOF && errb.Len() == 0 {

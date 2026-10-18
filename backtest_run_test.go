@@ -54,6 +54,7 @@ type btRun struct {
 	cpu       time.Duration  // user+system CPU of this process meanwhile
 	sy        *mmSync
 	icons     []champIcon
+	rangeEnd  float64 // video second after which frames are not processed (0: whole clip)
 }
 
 func btCPU() time.Duration {
@@ -76,12 +77,23 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 	sy.ObserveFeedKills(p.st.killsList())
 	sy.ObserveFeedLatest(p.st.end)
 	pipe := newMMPipeline(icons, sy)
+	pipe.livesAt = func(t time.Time) mmLives { return p.st.livesAt(t, sy.Skew()) }
 
 	run := &btRun{firstRead: -1, lockFrame: -1, syncFrame: -1, layouts: map[string]int{}, sy: sy, icons: icons}
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	wall0, cpu0 := time.Now(), btCPU()
-	frames, err := startMMVideo(cctx, mmVideoOpts{Src: p.clip, FPS: mmFPS, VOD: true}, func(s string) {
+	// ESTERM_BACKTEST_RANGE=a-b processes only game seconds a..b (feed time since spawn):
+	// quick iteration on the tracker; the sync lock and the HUD read need no earlier video.
+	vo := mmVideoOpts{Src: p.clip, FPS: mmFPS, VOD: true, Main: os.Getenv("ESTERM_BACKTEST_NOMV") == ""}
+	var ra, rb float64
+	if n, _ := fmt.Sscanf(os.Getenv("ESTERM_BACKTEST_RANGE"), "%f-%f", &ra, &rb); n == 2 {
+		vo.SS = math.Max(0, p.atClip+ra-10)
+		vo.IdxBase = int(math.Round(vo.SS * mmFPS))
+		vo.SS = float64(vo.IdxBase) / mmFPS
+		run.rangeEnd = p.atClip + rb
+	}
+	frames, err := startMMVideo(cctx, vo, func(s string) {
 		if strings.HasPrefix(s, "error") {
 			fmt.Fprintf(os.Stderr, "  [%s] %s\n", p.label, s)
 		}
@@ -92,6 +104,11 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 	for f := range frames {
 		i := len(run.frames)
 		bf := btFrame{t: float64(f.Idx) / mmFPS}
+		if run.rangeEnd > 0 && bf.t > run.rangeEnd {
+			mmReleaseFrame(f)
+			cancel()
+			continue // drain
+		}
 		if pipe.lock.cur == nil && run.firstRead < 0 && mmClockLayout(f.HUD, f.MM) != nil {
 			run.firstRead = i
 		}
@@ -177,6 +194,15 @@ func TestBacktest(t *testing.T) {
 			defer wg.Done()
 			preps[i] <- btPrepare(ctx, g, dl)
 		}(i, g)
+	}
+	if os.Getenv("ESTERM_BACKTEST_DOWNLOAD_ONLY") != "" { // fill the cache and stop
+		for i := range games {
+			if p := <-preps[i]; p.err != nil {
+				t.Errorf("%s: prepare: %v", p.label, p.err)
+			}
+		}
+		wg.Wait()
+		return
 	}
 	start := time.Now()
 	var all []*btStats

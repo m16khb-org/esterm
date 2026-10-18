@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -249,4 +250,76 @@ func TestMmStartParentDeath(t *testing.T) {
 	}
 	syscall.Kill(-pid, syscall.SIGKILL)
 	t.Fatal("child group survived parent SIGKILL")
+}
+
+func TestMMFFmpegArgsWithMainView(t *testing.T) {
+	args := strings.Join(mmFFmpegArgsMain("u", 0, false, false, mmRegionFilterMain(mmFPS), false, true), " ")
+	for _, want := range []string{"-filter_complex", "-map [mm] -f rawvideo -pix_fmt rgb24 pipe:1", "-map [mv] -f rawvideo -pix_fmt rgba pipe:4"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("missing %q in %s", want, args)
+		}
+	}
+	g := mmRegionFilterMain(mmFPS)
+	for _, want := range []string{"[mm]", "[mv]", "fps=2,crop=1920:816:0:0"} {
+		if !strings.Contains(g, want) {
+			t.Fatalf("filter graph lacks %q: %s", want, g)
+		}
+	}
+	if plain := strings.Join(mmFFmpegArgs("u", 0, false, false, "vf", false), " "); strings.Contains(plain, "pipe:4") {
+		t.Fatalf("the plain command line must not open the main-view pipe: %s", plain)
+	}
+}
+
+func TestMMMainDueAttachesEachMainFrameToItsMinimapFrame(t *testing.T) {
+	ch := make(chan mmMainFrame, 8)
+	for k := 0; k < 4; k++ {
+		ch <- mmMainFrame{k: k, buf: []byte{byte(k)}}
+	}
+	var pending *mmMainFrame
+	var got []int
+	for n := 0; n <= 9; n++ {
+		var b []byte
+		b, pending = mmMainDue(ch, pending, n)
+		if b != nil {
+			got = append(got, int(b[0])*100+n)
+		}
+	}
+	// main frame k is due at minimap frame round(k*mmFPS/mmMainFPS)
+	want := []int{0, 103, 205, 308}
+	if mmFPS != 5 || mmMainFPS != 2 {
+		t.Skip("the expected frame numbers are for 5 fps minimap and 2 fps main view")
+	}
+	if len(got) != len(want) {
+		t.Fatalf("attached %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("attached %v, want %v", got, want)
+		}
+	}
+}
+
+func TestMMReadMainNeverBlocksTheWriter(t *testing.T) {
+	pr, pw := io.Pipe()
+	ch := mmReadMain(pr)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		frame := make([]byte, mmMainBytes)
+		for k := 0; k < 12; k++ { // nobody reads the channel: the oldest frames are dropped
+			frame[0] = byte(k)
+			if _, err := pw.Write(frame); err != nil {
+				return
+			}
+		}
+		pw.Close()
+	}()
+	<-done
+	var ks []int
+	for m := range ch {
+		ks = append(ks, m.k)
+	}
+	if len(ks) == 0 || len(ks) > 4 || ks[len(ks)-1] != 11 {
+		t.Fatalf("kept frames %v, want at most 4 ending with the newest (11)", ks)
+	}
 }

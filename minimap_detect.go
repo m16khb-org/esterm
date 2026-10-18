@@ -3,10 +3,8 @@ package main
 import (
 	"image"
 	"math"
-	"runtime"
 	"sort"
 	"sync"
-	"sync/atomic"
 )
 
 // Champion detection on broadcast minimap frames: masked, zero-mean normalized
@@ -14,21 +12,7 @@ import (
 
 const (
 	mmTplSize      = 24   // default template side in px for mmFrameSize frames (Worlds)
-	mmAcquire      = 0.60 // minimum NCC to acquire a champion that was not seen recently
-	mmJumpScore    = 0.85 // minimum NCC of a full-scan match that may teleport a champion
-	mmJumpMargin   = 0.04 // full-scan match must beat the local match by this much to teleport
-	mmFixMargin    = 0.08 // ...or by this much to replace a weak local match within the motion gate
-	mmJumpDist     = 40   // px; a full-scan match farther than this away counts as a teleport
-	mmStepPx       = 8    // allowed movement per frame index step
-	mmRevalPeriod  = 5    // each champion is re-validated by a full scan every mmRevalPeriod frames
-	mmTieMargin    = 0.03 // scores closer than this are tie-broken by ring colour
-	mmAccept       = 0.60 // minimum NCC to accept a match
-	mmRecent       = 20   // frames during which a lost champion is searched near its last position
-	mmWeakFrames   = 8    // consecutive sub-mmAcquire matches after which a track is dropped
 	mmTrimPenalty  = 0.05 // discount on a three-quadrant match score (see scanTrim)
-	mmHoldFrames   = 8    // frames a champion lost beside another icon stays shown at its last position
-	mmGraceFrames  = 2    // frames any lost champion stays shown at its last position
-	mmHoldDist     = 30   // px between icon centres within which a lost champion counts as covered
 	mmVarFloor     = 144  // per-pixel luminance variance below which a window is considered flat
 	mmSureScore    = 0.90 // matches scoring at least this need no ring check
 	mmRingLean     = 4    // weaker matches need a ring leaning toward the team colour (ringLean)
@@ -370,19 +354,105 @@ func (t *champTpl) scanStep(m *mmFrameGray, w mmWin, excl []mmHit, floor float32
 	return best
 }
 
-// scanFull is scan for a window of the whole frame: every second position first (an icon
-// correlates over a few pixels, so a coarse hit is within mmCoarseSlack of the best score
-// near it), then the pixels around the best of those.
-func (t *champTpl) scanFull(m *mmFrameGray, w mmWin, excl []mmHit, floor float32, ok mmVerify) mmHit {
-	var okCoarse mmVerify
-	if ok != nil {
-		okCoarse = func(x, y int, s float32) bool { return ok(x, y, s+mmCoarseSlack) }
+// scanPeaks returns up to n matches of t over the window, best first, that score at least
+// floor and lie at least d*mmExcl apart: every second position is scored (a coarse hit is
+// within mmCoarseSlack of the best score near it), the best distinct ones are refined over
+// the pixels around them. Windows whose score cannot reach the floor, by the
+// Cauchy-Schwarz bound on the spans after the lead ones, are dropped without their full
+// dot product.
+func (t *champTpl) scanPeaks(m *mmFrameGray, w mmWin, n int, floor float32) []mmHit {
+	cut := float64(floor - mmCoarseSlack)
+	nn := float64(t.n)
+	lead, rest := t.spans[:t.nlead], t.spans[t.nlead:]
+	var cand []mmHit
+	for y := w.y0; y <= w.y1; y += 2 {
+		for x := w.x0; x <= w.x1; x += 2 {
+			var sl, ssl float64
+			for i := range lead {
+				sp := &lead[i]
+				r := (y+sp.ty)*mmPrefixStride + x
+				sl += m.ps[r+sp.b] - m.ps[r+sp.a]
+				ssl += m.pss[r+sp.b] - m.pss[r+sp.a]
+			}
+			s, ss := sl, ssl
+			for i := range rest {
+				sp := &rest[i]
+				r := (y+sp.ty)*mmPrefixStride + x
+				s += m.ps[r+sp.b] - m.ps[r+sp.a]
+				ss += m.pss[r+sp.b] - m.pss[r+sp.a]
+			}
+			v := ss - s*s/nn
+			if float32(v) < t.n*mmVarFloor {
+				continue
+			}
+			den := math.Sqrt(v) * float64(t.norm)
+			mean := s / nn
+			dl := float64(dotSpans(m.g, y, x, t.tv, lead))
+			tail := math.Sqrt(math.Max(ss-ssl-2*mean*(s-sl)+(nn-t.leadN)*mean*mean, 0)) * t.tailNorm
+			if (dl-mean*t.leadSum+tail)/den < cut-1e-4 {
+				continue
+			}
+			if sc := float32((dl + float64(dotSpans(m.g, y, x, t.tv, rest))) / den); float64(sc) >= cut {
+				cand = append(cand, mmHit{x, y, sc})
+			}
+		}
 	}
-	c := t.scanStep(m, w, excl, floor-mmCoarseSlack, okCoarse, 2)
-	if c.score < 0 {
-		return mmNoHit
+	sort.Slice(cand, func(a, b int) bool { return cand[a].score > cand[b].score })
+	ex := float64(t.d) * mmExcl
+	var out []mmHit
+	for _, c := range cand {
+		if len(out) == n {
+			break
+		}
+		if nearAny(c.x, c.y, out, ex) {
+			continue
+		}
+		h := t.scan(m, mmWin{max(c.x-1, w.x0), min(c.x+1, w.x1), max(c.y-1, w.y0), min(c.y+1, w.y1)}, nil, floor, nil)
+		if h.score >= floor && !nearAny(h.x, h.y, out, ex) {
+			out = append(out, h)
+		}
 	}
-	return t.scan(m, mmWin{max(c.x-1, w.x0), min(c.x+1, w.x1), max(c.y-1, w.y0), min(c.y+1, w.y1)}, excl, floor, ok)
+	return out
+}
+
+// scanMasked is scan for an icon partly covered by other icons: the NCC over the template
+// pixels that mask (an mmFrameSize² map of the pixels other icons cover) leaves free, at
+// least minValid of them. It returns the best match and the share of the template it was
+// scored on.
+func (t *champTpl) scanMasked(m *mmFrameGray, w mmWin, mask []bool, minValid float32) (mmHit, float32) {
+	best, bestShare := mmNoHit, float32(0)
+	for y := w.y0; y <= w.y1; y++ {
+		for x := w.x0; x <= w.x1; x++ {
+			var n, sx, sxx, st, stt, sxt float64
+			for i := range t.spans {
+				sp := &t.spans[i]
+				o := (y+sp.ty)*mmFrameSize + x + sp.a
+				for j := 0; j < sp.b-sp.a; j++ {
+					if mask[o+j] {
+						continue
+					}
+					v, tv := float64(m.g[o+j]), float64(t.raw[sp.off+j])
+					n++
+					sx += v
+					sxx += v * v
+					st += tv
+					stt += tv * tv
+					sxt += v * tv
+				}
+			}
+			if float32(n) < minValid*t.n {
+				continue
+			}
+			vx, vt := sxx-sx*sx/n, stt-st*st/n
+			if vx < n*mmVarFloor || vt <= 0 {
+				continue
+			}
+			if sc := float32((sxt - sx*st/n) / math.Sqrt(vx*vt)); sc > best.score {
+				best, bestShare = mmHit{x, y, sc}, float32(n)/t.n
+			}
+		}
+	}
+	return best, bestShare
 }
 
 // dotSpans correlates the template values tv with the frame at (x, y) over spans.
@@ -489,85 +559,6 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
-type mmTrack struct {
-	have    bool // visible on the last processed frame
-	known   bool // x, y, lastIdx are valid (champion was seen since Reset)
-	x, y    int  // template top-left of the last accepted match
-	lastIdx int
-	weak    int // consecutive accepted matches scoring below mmAcquire
-}
-
-// mmTracker follows each champion across consecutive minimap frames.
-type mmTracker struct {
-	tpls []champTpl
-	trk  []mmTrack
-	img  mmFrameGray
-	rgb  []byte  // the frame Step is processing
-	hits []mmHit // Step scratch, one per template
-}
-
-func newMMTracker(tpls []champTpl) *mmTracker {
-	t := &mmTracker{tpls: tpls, trk: make([]mmTrack, len(tpls)), hits: make([]mmHit, len(tpls))}
-	return t
-}
-
-// Reset forgets every champion position (call when the minimap disappears).
-func (t *mmTracker) Reset() {
-	for i := range t.trk {
-		t.trk[i] = mmTrack{}
-	}
-}
-
-// find locates champion k on the current gray frame. It scans locally around the last
-// position (limited by the motion gate) while it was seen within mmRecent frames, and
-// does a full scan when lost, when the local match is poor, or when due for re-validation.
-// Champions not seen recently are only re-acquired by a strong (mmAcquire) full-scan match.
-func (t *mmTracker) find(k, idx int, excl []mmHit) mmHit {
-	maxXY := mmFrameSize - t.tpls[k].d
-	tp, tr := &t.tpls[k], &t.trk[k]
-	ok := t.verifier(tp)
-	full := mmWin{0, maxXY, 0, maxXY}
-	if !tr.known || idx-tr.lastIdx > mmRecent {
-		if h := tp.scanFull(&t.img, full, excl, mmAcquire, ok); h.score >= mmAcquire {
-			return h
-		}
-		return mmNoHit
-	}
-	gate := clampInt(mmStepPx*max(idx-tr.lastIdx, 1), mmStepPx, mmJumpDist)
-	loc := tp.scanTrim(&t.img, mmWin{
-		clampInt(tr.x-gate, 0, maxXY), clampInt(tr.x+gate, 0, maxXY),
-		clampInt(tr.y-gate, 0, maxXY), clampInt(tr.y+gate, 0, maxXY),
-	}, excl, ok)
-	due := (idx+k)%mmRevalPeriod == 0
-	if loc.score >= mmJumpScore && !due {
-		return loc
-	}
-	floor := float32(mmAccept)
-	if loc.score >= mmAccept {
-		floor = loc.score + mmJumpMargin // a full-scan match closer than this to loc never replaces it
-	}
-	f := tp.scanFull(&t.img, full, excl, floor, ok)
-	far := math.Hypot(float64(f.x-tr.x), float64(f.y-tr.y)) > mmJumpDist
-	switch {
-	case far && f.score >= mmJumpScore && f.score >= loc.score+mmJumpMargin:
-		return f
-	case !far && f.score >= mmAccept && f.score >= loc.score+mmFixMargin:
-		return f
-	case loc.score >= mmAccept:
-		return loc
-	case !far && f.score >= mmAccept:
-		return f
-	}
-	return mmNoHit
-}
-
-// verifier returns the scan check of champion template tp: a candidate must have a ring
-// in the champion's team colour and, unless its score alone is sure, portrait colours
-// that go with the score (see plausible).
-func (t *mmTracker) verifier(tp *champTpl) mmVerify {
-	return func(x, y int, s float32) bool { return t.plausible(tp, x, y, s) }
-}
-
 // plausible reports whether the match of tp at (x, y) scoring s is a champion and not
 // terrain that merely has the same luminance pattern. The ring must lean toward the team
 // colour (ringLean). A match that is not sure by its score must also carry the champion's
@@ -618,175 +609,6 @@ func ringLean(rgb []byte, x, y, d, team int) float64 {
 		sum += max(l, 0)
 	}
 	return float64(sum) / float64(len(pix)/2)
-}
-
-// ringTeam guesses the team colour of the icon ring at top-left (x, y): blue-dominant
-// annulus -> 100, red-dominant -> 200.
-func ringTeam(rgb []byte, x, y, d int) int {
-	c := float64(d-1) / 2
-	var diff float64
-	for dy := 0; dy < d; dy++ {
-		for dx := 0; dx < d; dx++ {
-			r := math.Hypot(float64(dx)-c, float64(dy)-c) / (float64(d) / 2)
-			if r < 0.8 || r > 1.0 {
-				continue
-			}
-			i := 3 * ((y+dy)*mmFrameSize + x + dx)
-			diff += float64(rgb[i+2]) - float64(rgb[i])
-		}
-	}
-	if diff > 0 {
-		return 100
-	}
-	return 200
-}
-
-// mmBatch is one mmParallel call: its indices are claimed through next by every goroutine
-// that works on it.
-type mmBatch struct {
-	f    func(int)
-	n    int32
-	next atomic.Int32
-	wg   sync.WaitGroup
-}
-
-func (b *mmBatch) run() {
-	for {
-		i := b.next.Add(1) - 1
-		if i >= b.n {
-			return
-		}
-		b.f(int(i))
-		b.wg.Done()
-	}
-}
-
-var mmPool struct {
-	once    sync.Once
-	helpers int
-	jobs    chan *mmBatch
-}
-
-// mmParallel runs f(0..n-1) on the calling goroutine plus a fixed set of long-lived helper
-// workers (none are started per call) and waits for all of them. A helper that is busy
-// with another call simply does not join this one.
-func mmParallel(n int, f func(int)) {
-	mmPool.once.Do(func() {
-		mmPool.helpers = min(runtime.GOMAXPROCS(0), 10) - 1
-		mmPool.jobs = make(chan *mmBatch, mmPool.helpers)
-		for w := 0; w < mmPool.helpers; w++ {
-			go func() {
-				for b := range mmPool.jobs {
-					b.run()
-				}
-			}()
-		}
-	})
-	b := &mmBatch{f: f, n: int32(n)}
-	b.wg.Add(n)
-	for i := 1; i < min(n, mmPool.helpers+1); i++ {
-		select {
-		case mmPool.jobs <- b:
-		default:
-		}
-	}
-	b.run()
-	b.wg.Wait()
-}
-
-// Step processes one frame (mmFrameSize² rgb24) and returns one detection per template,
-// in template order.
-func (t *mmTracker) Step(idx int, rgb []byte) []mmDet {
-	t.img.set(rgb)
-	t.rgb = rgb
-	n := len(t.tpls)
-	hits := t.hits
-	mmParallel(n, func(k int) { hits[k] = t.find(k, idx, nil) })
-
-	// Greedy cross-champion suppression: higher score claims a spot; ring colour breaks near ties.
-	order := make([]int, 0, n)
-	for k, h := range hits {
-		if h.score >= mmAccept {
-			order = append(order, k)
-		}
-	}
-	sort.SliceStable(order, func(a, b int) bool { return hits[order[a]].score > hits[order[b]].score })
-	ex := float64(t.tpls[0].d) * mmExcl
-	for i := 0; i+1 < len(order); i++ {
-		a, b := order[i], order[i+1]
-		ha, hb := hits[a], hits[b]
-		if hb.score+mmTieMargin > ha.score && math.Hypot(float64(ha.x-hb.x), float64(ha.y-hb.y)) < ex &&
-			ringTeam(rgb, ha.x, ha.y, t.tpls[a].d) != t.tpls[a].ref.Team && ringTeam(rgb, hb.x, hb.y, t.tpls[b].d) == t.tpls[b].ref.Team {
-			order[i], order[i+1] = b, a
-		}
-	}
-	var claimed []mmHit
-	var losers []int
-	for _, k := range order {
-		if nearAny(hits[k].x, hits[k].y, claimed, ex) {
-			losers = append(losers, k)
-			continue
-		}
-		claimed = append(claimed, hits[k])
-	}
-	for _, k := range losers {
-		hits[k] = t.find(k, idx, claimed)
-		if hits[k].score >= mmAccept {
-			claimed = append(claimed, hits[k])
-		}
-	}
-
-	dets := make([]mmDet, n)
-	for k, h := range hits {
-		tr := &t.trk[k]
-		d := mmDet{champRef: t.tpls[k].ref, Score: h.score}
-		weak := 0
-		if h.score < mmAcquire {
-			weak = tr.weak + 1
-		}
-		switch {
-		case h.score < mmAccept:
-			tr.have = false
-		case weak > mmWeakFrames:
-			// a long run of weak matches is a terrain look-alike, not a champion
-			*tr = mmTrack{}
-		default:
-			*tr = mmTrack{have: true, known: true, x: h.x, y: h.y, lastIdx: idx, weak: weak}
-			d.Visible = true
-			d.X = (float64(h.x) + float64(t.tpls[k].d)/2) / mmFrameSize
-			d.Y = (float64(h.y) + float64(t.tpls[k].d)/2) / mmFrameSize
-		}
-		dets[k] = d
-	}
-
-	// Hold: a champion lost for a frame or two (overlays, pings) stays shown at its last
-	// position; a longer hold applies when it was last seen under another visible icon.
-	found := make([]mmDet, 0, n)
-	for _, d := range dets {
-		if d.Visible {
-			found = append(found, d)
-		}
-	}
-	for k := range dets {
-		tr := &t.trk[k]
-		if dets[k].Visible || !tr.known || idx-tr.lastIdx > mmHoldFrames {
-			continue
-		}
-		cx, cy := float64(tr.x)+float64(t.tpls[k].d)/2, float64(tr.y)+float64(t.tpls[k].d)/2
-		if idx-tr.lastIdx <= mmGraceFrames {
-			dets[k].Visible = true
-			dets[k].X, dets[k].Y = cx/mmFrameSize, cy/mmFrameSize
-			continue
-		}
-		for _, f := range found {
-			if math.Hypot(f.X*mmFrameSize-cx, f.Y*mmFrameSize-cy) <= mmHoldDist {
-				dets[k].Visible = true
-				dets[k].X, dets[k].Y = cx/mmFrameSize, cy/mmFrameSize
-				break
-			}
-		}
-	}
-	return dets
 }
 
 func absInt(v int) int {

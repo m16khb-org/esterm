@@ -23,9 +23,8 @@ import (
 
 const (
 	mmPlayoutBuffer = 6 * time.Second // frames arrive in bursts (~10 per 5 s); independent playout hides the gaps
-	mmAbsentReset   = 6               // consecutive frames without a visible map (3 s) after which tracks are forgotten
 	mmToolsHint     = "brew install yt-dlp ffmpeg deno"
-	mmFPS           = 2
+	mmFPS           = 5
 	mmCloseWait     = 3 * time.Second        // how long exit paths wait for ffmpeg/yt-dlp to be reaped
 	mmFitEvery      = 10                     // frames between map box refits
 	mmLayoutVotes   = 5                      // frames whose clock font must pick the same layout to lock it
@@ -37,16 +36,16 @@ const (
 	mmPlateTol      = 48                     // summed |dR|+|dG|+|dB| up to which two HUD pixels match
 	mmCoverMax      = 20 * mmFPS             // frames an objective banner may hide the map while the HUD stays up before the minimap counts as gone
 	mmHoldMax       = 90 * mmFPS             // frames a champion the tracker lost is kept at its last position
-	mmHoldShort     = 3                      // frames a lost champion is kept when nothing says it is alive (no feed): 1.5 s
-	mmMotionTick    = 100 * time.Millisecond // render cadence while a minimap is on screen: markers move between the 2 fps tracker results
+	mmHoldShort     = 3 * mmFPS / 2          // frames a lost champion is kept when nothing says it is alive (no feed): 1.5 s
+	mmMotionTick    = 100 * time.Millisecond // render cadence while a minimap is on screen: markers move between the tracker results
 	mmLockTimeout   = 45 * time.Second       // a stream whose layout is still unread after this long is given up for the next one
 	mmStallAfter    = 8 * time.Second        // without a video frame this long the stream counts as stalled
-	mmResultsKeep   = 1200                   // results buffered at most (nothing consumes them in -json mode)
-	mmKeepBack      = 60                     // results kept behind the one shown, for offsets that move back
+	mmResultsKeep   = 600 * mmFPS            // results buffered at most (nothing consumes them in -json mode)
+	mmKeepBack      = 30 * mmFPS             // results kept behind the one shown, for offsets that move back
 )
 
 // mmTickFor is how often a screen is redrawn: while the broadcast minimap is on screen
-// its markers move between the 2 fps tracker results, which takes frequent frames to look
+// its markers move between the tracker results (mmFPS a second), which takes frequent frames to look
 // smooth (renderDiff and the kitty diff keep each frame's output small); the rest of the
 // board changes once a second at most.
 func mmTickFor(minimapShown bool) time.Duration {
@@ -96,11 +95,12 @@ type minimap struct {
 	results []mmResult
 	base    time.Time // wall time at which stream frame 0 would have been decoded
 	hasBase bool
-	arrived time.Time   // wall time of the newest frame (of Start before the first)
-	idle    atomic.Bool // the panel is hidden: the pipeline reads the HUD but does not track
-	last    int         // newest processed frame index, -1 before the first
-	sy      *mmSync     // nil without a feed to sync against
-	gen     int         // pipeline generation; bumped on every Start/Stop so superseded pipelines go silent
+	arrived time.Time               // wall time of the newest frame (of Start before the first)
+	idle    atomic.Bool             // the panel is hidden: the pipeline reads the HUD but does not track
+	last    int                     // newest processed frame index, -1 before the first
+	sy      *mmSync                 // nil without a feed to sync against
+	lives   func(time.Time) mmLives // who is dead at a feed time, for the tracker; nil without a feed
+	gen     int                     // pipeline generation; bumped on every Start/Stop so superseded pipelines go silent
 	closed  bool
 }
 
@@ -146,6 +146,14 @@ func (m *minimap) Start(gid, matchID string, meta windowResp, spawn time.Time, p
 		defer close(done)
 		m.run(ctx, gen, matchID, meta, sy)
 	}()
+}
+
+// SetLives sets what the next pipeline asks who is dead at a feed time (the feed's death
+// timer); without it the tracker looks for every champion on every frame.
+func (m *minimap) SetLives(f func(time.Time) mmLives) {
+	m.mu.Lock()
+	m.lives = f
+	m.mu.Unlock()
 }
 
 // Sync returns the estimator of the running pipeline, nil when there is none or it has
@@ -388,10 +396,10 @@ type mmPipeline struct {
 	sinceFit int
 	clockAt  int  // index of the newest frame whose clock the locked layout read
 	visible  bool // the map was seen on the last frame (mapVisible)
-	tracking bool // the tracker saw the previous frame
-	absent   int  // consecutive frames without a shown minimap
 	cover    int  // consecutive frames the HUD was up but the map was not (an objective banner)
 	crop     []byte
+	cropRGBA *image.RGBA // crop as the main-view reader wants it
+	mvView   mvView      // the camera viewport last found on the map
 
 	// the HUD of the newest frame whose clock was read: while its plate (everything but
 	// the changing digits) is still on screen the HUD is up even if the clock text is not
@@ -399,8 +407,9 @@ type mmPipeline struct {
 	plate      []byte
 	plateEdges []int32 // indexes of the plate's edge pixels
 	plateOK    bool
-	// where each champion was last seen by the tracker, in template order
-	marks []mmMark
+	// livesAt, when set, tells who is dead at a feed time: the tracker is told who is dead
+	// at each frame's synced instant (see lives)
+	livesAt func(time.Time) mmLives
 
 	// the last HUD reading: a frame whose HUD bytes equal the previous frame's (the clock
 	// ticks once a second, the video runs at mmFPS) reads the same, so it is not read again
@@ -427,9 +436,12 @@ func newMMPipeline(icons []champIcon, sy *mmSync) *mmPipeline {
 // restartSegment forgets what depends on frame continuity (map box, tracking) when the
 // video jumps to frame idx; the sync's clock samples are the caller's to keep or drop.
 func (p *mmPipeline) restartSegment(idx int) {
-	p.haveBox, p.visible, p.tracking, p.cover, p.plateOK = false, false, false, 0, false
+	p.haveBox, p.visible, p.cover, p.plateOK = false, false, 0, false
+	p.mvView = mvView{}
 	p.clockAt = idx - mmClockFresh - 1
-	p.marks = nil
+	if p.trk != nil {
+		p.trk.Reset()
+	}
 }
 
 // setLayout rebuilds the templates (icon size differs per layout) and forgets the fit.
@@ -439,8 +451,7 @@ func (p *mmPipeline) setLayout(l *mmLayout) {
 		tpls[i] = newChampTpl(ic.ref, ic.img, mmIconD[l.Name])
 	}
 	p.trk, p.tplFor = newMMTracker(tpls), l
-	p.haveBox, p.visible, p.tracking, p.absent, p.cover, p.plateOK = false, false, false, 0, 0, false
-	p.marks = nil
+	p.haveBox, p.visible, p.cover, p.plateOK = false, false, 0, false
 }
 
 // Process runs one frame through layout, HUD, map fit, visibility gate and tracker.
@@ -482,46 +493,51 @@ func (p *mmPipeline) Process(f mmFrame) mmResult {
 		p.sy.ObserveHUD(f.Idx, r.hud)
 	}
 	if !p.track {
-		p.haveBox, p.visible, p.tracking, p.cover = false, false, false, 0
+		p.haveBox, p.visible, p.cover = false, false, 0
 		return r
 	}
 	hudLive := p.hudLive(f.Idx, f.HUD, r.hud.ClockOK)
 	switch seen := p.mapVisible(f.MM, lay, hudLive); {
 	case seen:
-		p.absent, p.cover = 0, 0
-		if !p.tracking {
-			p.trk.Reset() // follows frames the tracker did not see
-			p.tracking = true
-		}
+		p.cover = 0
 		mmCropMap(f.MM, p.box, p.crop)
-		r.dets = p.holdMarks(f.Idx, p.trk.Step(f.Idx, p.crop))
+		lives := p.lives(f.Idx)
+		var obs []mvObs
+		if f.Main != nil {
+			obs = p.mainObs(f.Idx, f.Main, lay, lives)
+		}
+		r.dets = p.trk.StepWith(f.Idx, p.crop, lives, obs)
 		r.visible = true
 	case hudLive && p.cover < mmCoverMax:
 		// The HUD is up but the map is not: an objective banner or a one-frame glitch
-		// covers it. The champions stay where they were last seen.
-		p.absent = 0
+		// covers it. The tracks coast.
 		p.cover++
-		r.dets = p.holdMarks(f.Idx, nil)
+		r.dets = p.trk.Coast(f.Idx, p.lives(f.Idx))
 		r.visible = true
 	default:
+		// The broadcast shows no minimap (replay, desk or draft shot). The tracks are kept:
+		// they only coast, and their search gate widens with the time since they were seen,
+		// so every champion is picked up again where the minimap returns.
 		if hudLive {
 			p.cover++
 		} else {
 			p.cover = 0
 		}
-		if p.absent++; p.absent == mmAbsentReset {
-			p.trk.Reset()
-			p.marks = nil
-		}
 	}
 	return r
 }
 
-// mmMark is the position a champion was last seen at.
-type mmMark struct {
-	x, y float64
-	idx  int
-	ok   bool
+// lives is the feed's word on who is dead at frame idx's synced instant; nil while the
+// pipeline has no feed or its sync is not locked.
+func (p *mmPipeline) lives(idx int) mmLives {
+	if p.livesAt == nil || p.sy == nil || !p.sy.Locked() {
+		return nil
+	}
+	ft, ok := p.sy.FeedTime(float64(idx) / mmFPS)
+	if !ok {
+		return nil
+	}
+	return p.livesAt(ft)
 }
 
 // hudLive reports whether the scoreboard is up on frame idx: its plate (the HUD but for
@@ -578,34 +594,6 @@ func (p *mmPipeline) plateShare(hud []byte) float64 {
 		}
 	}
 	return float64(same) / float64(len(p.plateEdges))
-}
-
-// holdMarks keeps a champion the tracker lost at the position it was last seen at, for
-// at most mmHoldMax frames, and says how long it has been held (mmDet.Age). The tracker's
-// own confidence is untouched: this only decides what is shown. dets nil means the map
-// is covered and the tracker did not run. A champion that was never seen stays hidden.
-func (p *mmPipeline) holdMarks(idx int, dets []mmDet) []mmDet {
-	if len(p.marks) != len(p.icons) {
-		p.marks = make([]mmMark, len(p.icons))
-	}
-	if dets == nil {
-		dets = make([]mmDet, len(p.icons))
-		for k := range dets {
-			dets[k].champRef = p.icons[k].ref
-		}
-	}
-	for k := range dets {
-		d := &dets[k]
-		if d.Visible {
-			p.marks[k] = mmMark{x: d.X, y: d.Y, idx: idx, ok: true}
-			d.Age = 0
-			continue
-		}
-		if mk := p.marks[k]; mk.ok && idx-mk.idx <= mmHoldMax {
-			d.Visible, d.X, d.Y, d.Age = true, mk.x, mk.y, idx-mk.idx
-		}
-	}
-	return dets
 }
 
 // refit looks for the map box around the layout's nominal one.
@@ -699,7 +687,7 @@ func (m *minimap) runSource(ctx context.Context, gen int, src string, icons []ch
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var height atomic.Int32
-	opts := mmVideoOpts{Src: src, SS: m.cfg.SS, FPS: mmFPS, OnHeight: func(h int) {
+	opts := mmVideoOpts{Src: src, SS: m.cfg.SS, FPS: mmFPS, Main: true, OnHeight: func(h int) {
 		height.Store(int32(h))
 		m.mu.Lock()
 		if m.gen == gen {
@@ -713,6 +701,9 @@ func (m *minimap) runSource(ctx context.Context, gen int, src string, icons []ch
 		return false
 	}
 	pipe := newMMPipeline(icons, sy)
+	m.mu.Lock()
+	pipe.livesAt = m.lives
+	m.mu.Unlock()
 	timeout := time.NewTimer(m.lockTimeout)
 	defer timeout.Stop()
 	giveUp := false
@@ -850,9 +841,9 @@ func mmPick(results []mmResult, now time.Time) (mmResult, []mmResult, bool) {
 }
 
 const (
-	mmStaleAfter   = 4    // frames (2 s) a champion the tracker lost is still drawn like a tracked one
-	mmJumpMax      = 0.25 // a marker is not interpolated over more than a quarter of the map: that is a teleport, a recall or a respawn
-	mmInterpMaxGap = 1.5  // results farther apart than this many seconds are not interpolated
+	mmStaleAfter   = 2 * mmFPS // frames (2 s) a champion the tracker lost is still drawn like a tracked one
+	mmJumpMax      = 0.25      // a marker is not interpolated over more than a quarter of the map: that is a teleport, a recall or a respawn
+	mmInterpMaxGap = 1.5       // results farther apart than this many seconds are not interpolated
 )
 
 // mmBasePos is where the dead champion with participant id pid of team waits: in a row
@@ -894,7 +885,9 @@ func mmChampsOf(r mmResult, nx *mmResult, frac float64, lives mmLives, labels ma
 		x, y, state, secs := d.X, d.Y, mmIconLive, 0
 		switch {
 		case lives != nil && lf.Dead:
-			x, y = mmBasePos(d.Team, d.PID)
+			if !d.Visible { // never tracked: it waits at its base
+				x, y = mmBasePos(d.Team, d.PID)
+			}
 			state, secs = mmIconDead, int(math.Ceil(lf.Secs))
 			c.Dead++
 		case !d.Visible:
@@ -1047,6 +1040,11 @@ type mmJSONChamp struct {
 	X       *float64 `json:"x,omitempty"`
 	Y       *float64 `json:"y,omitempty"`
 	Score   float32  `json:"score"`
+	// AgeSec is how long ago the champion was last measured (0: on this frame); Covered:
+	// not measured but estimated under another icon; MV: measured from the main view.
+	AgeSec  float64 `json:"ageSec"`
+	Covered bool    `json:"covered,omitempty"`
+	MV      bool    `json:"mv,omitempty"`
 }
 
 // mmJSONFrame is one -json line. Present: a broadcast layout is locked; Visible: its
@@ -1071,7 +1069,7 @@ func mmJSONLine(r mmResult) []byte {
 		f.Kills = &[2]int{r.hud.Blue, r.hud.Red}
 	}
 	for _, d := range r.dets {
-		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Score: d.Score}
+		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Score: d.Score, AgeSec: float64(d.Age) / mmFPS, Covered: d.Covered, MV: d.MV}
 		if d.Visible {
 			x, y := mmGameXY(d.X, d.Y)
 			c.X, c.Y = &x, &y

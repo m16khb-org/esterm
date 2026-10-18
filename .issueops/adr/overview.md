@@ -40,3 +40,4 @@ Record structural choices, rejected alternatives, and decisions that affect long
 - [기본 진입점을 lazygit 형태의 표준 라이브러리 TUI 앱으로 한다](2026-10-18-lazygit-tui.md)
 - [과거 경기는 livestats 기록과 공식 VOD 를 같은 동기 엔진으로 재생한다](2026-10-18-livestats-vod.md)
 - [용·엘더·바론 타이머는 피드의 처치 프레임에서 게임 시계로 계산한다](2026-10-18-objective-timers.md)
+- [챔피언 추적은 포트레이트 가설 + 전역 배정 + 칼만 필터로 하고, 피드와 메인 뷰를 함께 쓴다](2026-10-19-tracker.md)

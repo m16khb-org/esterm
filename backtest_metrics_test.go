@@ -44,11 +44,12 @@ type btDeath struct {
 	PID     int     `json:"pid"`
 	Champ   string  `json:"champ"`
 	FeedSec float64 `json:"feedSec"`
-	Tracked bool    `json:"tracked"` // the champion was tracked within the minute before it died
-	AgeSec  float64 `json:"ageSec"`  // seconds between that last tracked position and the death
-	LastX   float64 `json:"lastX"`   // normalized map position, last tracked before the death
+	Tracked bool    `json:"tracked"` // the champion was measured on the minimap within the minute before it died
+	AgeSec  float64 `json:"ageSec"`  // seconds between that last measured position and the death
+	LastX   float64 `json:"lastX"`   // normalized map position, last measured before the death
 	LastY   float64 `json:"lastY"`
-	ShownX  float64 `json:"shownX"` // where the marker waits while dead (the base)
+	Shown   bool    `json:"shown"`  // a dead marker was drawn within a few seconds after the death
+	ShownX  float64 `json:"shownX"` // where it was drawn
 	ShownY  float64 `json:"shownY"`
 	Dist    float64 `json:"dist"` // normalized distance between the two
 }
@@ -119,6 +120,7 @@ type btStats struct {
 
 	AliveN        int       `json:"aliveChampFrames"`
 	AliveHit      int       `json:"aliveFound"`
+	AliveCov      int       `json:"aliveCoveredNotMeasured"` // of those, inferred under another icon, not measured on the frame
 	IsoN          int       `json:"aliveIsolatedChampFrames"`
 	IsoHit        int       `json:"aliveIsolatedFound"`
 	ClusN         int       `json:"aliveClusteredChampFrames"`
@@ -127,6 +129,7 @@ type btStats struct {
 	DeadHit       int       `json:"deadFound"`
 	DeadAtBase    int       `json:"deadFoundNearOwnFountain"` // of those, found within 0.25 of the team's fountain corner
 	AliveRatio    float64   `json:"aliveDetected"`
+	AliveMeasured float64   `json:"aliveMeasured"` // share of alive champion frames with a measurement of the champion's icon on that frame
 	IsoRatio      float64   `json:"aliveDetectedIsolated"`
 	ClusterRatio  float64   `json:"aliveDetectedClustered"`
 	DeadRatio     float64   `json:"deadDetected"`
@@ -140,7 +143,10 @@ type btStats struct {
 
 	Deaths       []btDeath `json:"deaths,omitempty"`
 	DeathMedian  float64   `json:"deathPosMedianDist"`
+	DeathP90     float64   `json:"deathPosP90Dist"`
 	DeathTracked int       `json:"deathsTracked"`
+	DeathWithin  int       `json:"deathsWithinTol"` // tracked deaths whose marker was drawn within btDeathTol of the last measured position
+	DeathBase    int       `json:"deathsDrawnAtBase"`
 
 	Flickers, MapBlips int
 	FlickerRate        float64 `json:"flickersPerMin"`
@@ -189,18 +195,24 @@ func (s *btStats) derive() {
 	s.FlipTightShare = btRatio(s.FlipsTightOK, s.FlipsTight)
 	s.FlipMedian, s.FlipP90 = btPctl(btAbs(s.Deltas), 0.5), btPctl(btAbs(s.Deltas), 0.9)
 	s.AliveRatio, s.DeadRatio = btRatio(s.AliveHit, s.AliveN), btRatio(s.DeadHit, s.DeadN)
+	s.AliveMeasured = btRatio(s.AliveHit-s.AliveCov, s.AliveN)
 	s.IsoRatio, s.ClusterRatio = btRatio(s.IsoHit, s.IsoN), btRatio(s.ClusHit, s.ClusN)
 	s.RespN = len(s.RespErrs)
 	s.RespMedian, s.RespP90 = btPctl(btAbs(s.RespErrs), 0.5), btPctl(btAbs(s.RespErrs), 0.9)
 	var dd []float64
-	s.DeathTracked = 0
+	s.DeathTracked, s.DeathWithin = 0, 0
 	for _, d := range s.Deaths {
-		if d.Tracked {
+		if d.Tracked && d.Shown {
 			dd = append(dd, d.Dist)
+			if d.Dist <= btDeathTol {
+				s.DeathWithin++
+			}
+		}
+		if d.Tracked {
 			s.DeathTracked++
 		}
 	}
-	s.DeathMedian = btPctl(dd, 0.5)
+	s.DeathMedian, s.DeathP90 = btPctl(dd, 0.5), btPctl(dd, 0.9)
 	if s.GameMin > 0 {
 		s.FlickerRate = float64(s.Flickers+s.MapBlips) / s.GameMin
 	}
@@ -528,6 +540,9 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 				if fresh {
 					champ[k].Fresh++
 					s.AliveHit++
+					if d.Covered {
+						s.AliveCov++
+					}
 					if near < clusterR {
 						s.ClusHit++
 					} else {
@@ -740,8 +755,10 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 	}
 	sort.Slice(s.Hides, func(a, b int) bool { return s.Hides[a].DurSec > s.Hides[b].DurSec })
 
-	// Deaths: the last tracked position before a death against the position shown while
-	// dead (the team's base).
+	// Deaths: the dead marker the app draws after a death (see mmChampsOf) against the last
+	// position the champion was measured at before it died. The feed has no positions, so the
+	// last measurement is the nearest thing to the truth there is: the marker must stand where
+	// the champion's icon was last seen.
 	fr := p.frames
 	for c := 1; c < len(fr); c++ {
 		for _, team := range [2][]participant{fr[c].v.BlueTeam.Participants, fr[c].v.RedTeam.Participants} {
@@ -757,14 +774,38 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 					continue
 				}
 				ref := run.icons[k].ref
-				bx, by := mmBasePos(ref.Team, ref.PID)
-				d := btDeath{PID: ref.PID, Champ: ref.Champ, FeedSec: fsec, ShownX: bx, ShownY: by}
-				for x := i; x >= 0 && fs[i].t-fs[x].t <= 60; x-- {
-					if len(fs[x].res.dets) == nk && fs[x].seen && fs[x].res.dets[k].Visible && fs[x].res.dets[k].Age == 0 {
+				d := btDeath{PID: ref.PID, Champ: ref.Champ, FeedSec: fsec}
+				// the feed's counter ticks about half a second before the champion's health
+				// reaches 0 (deathTickLead) and the sync is good to about a second: the icon
+				// goes on moving until then, so measurements up to btDeathLate after the tick count
+				e := i
+				for e+1 < len(fs) && fs[e+1].t-fs[i].t <= btDeathLate {
+					e++
+				}
+				for x := e; x >= 0 && fs[i].t-fs[x].t <= 60; x-- {
+					if len(fs[x].res.dets) == nk && fs[x].seen && fs[x].res.dets[k].Visible && fs[x].res.dets[k].Age == 0 && !fs[x].res.dets[k].Covered {
 						dt := fs[x].res.dets[k]
 						d.Tracked, d.AgeSec, d.LastX, d.LastY = true, fs[i].t-fs[x].t, dt.X, dt.Y
-						d.Dist = math.Hypot(dt.X-bx, dt.Y-by)
 						break
+					}
+				}
+				for j := i; j < len(fs) && fs[j].t-fs[i].t <= btDeathShown; j++ {
+					if !in[j] || !fs[j].res.visible || !lv[j][ref.PID].Dead {
+						continue
+					}
+					for _, ic := range mmChampsOf(fs[j].res, nil, 0, lv[j], nil).Icons {
+						if ic.Champ == ref.Champ && ic.State == mmIconDead {
+							d.Shown, d.ShownX, d.ShownY = true, ic.X, ic.Y
+						}
+					}
+					if d.Shown {
+						break
+					}
+				}
+				if d.Tracked && d.Shown {
+					d.Dist = math.Hypot(d.ShownX-d.LastX, d.ShownY-d.LastY)
+					if bx, by := mmBasePos(ref.Team, ref.PID); math.Hypot(d.ShownX-bx, d.ShownY-by) < 1e-9 {
+						s.DeathBase++
 					}
 				}
 				s.Deaths = append(s.Deaths, d)
@@ -792,10 +833,12 @@ func btPool(label string, list []*btStats) *btStats {
 		o.FlipFalse += s.FlipFalse
 		o.FlipMissed += s.FlipMissed
 		o.Deltas = append(o.Deltas, s.Deltas...)
+		o.AliveCov += s.AliveCov
 		o.AliveN, o.AliveHit, o.IsoN, o.IsoHit, o.ClusN, o.ClusHit = o.AliveN+s.AliveN, o.AliveHit+s.AliveHit, o.IsoN+s.IsoN, o.IsoHit+s.IsoHit, o.ClusN+s.ClusN, o.ClusHit+s.ClusHit
 		o.DeadN, o.DeadHit, o.DeadAtBase, o.TrackedFrames = o.DeadN+s.DeadN, o.DeadHit+s.DeadHit, o.DeadAtBase+s.DeadAtBase, o.TrackedFrames+s.TrackedFrames
 		o.RespErrs = append(o.RespErrs, s.RespErrs...)
 		o.Deaths = append(o.Deaths, s.Deaths...)
+		o.DeathBase += s.DeathBase
 		o.Flickers += s.Flickers
 		o.MapBlips += s.MapBlips
 		o.ClockN += s.ClockN
@@ -818,6 +861,16 @@ func btPool(label string, list []*btStats) *btStats {
 	o.LayoutOK = true
 	o.derive()
 	return o
+}
+
+func btDrawn(ds []btDeath) int {
+	n := 0
+	for _, d := range ds {
+		if d.Tracked && d.Shown {
+			n++
+		}
+	}
+	return n
 }
 
 func btNum(v float64, format string) string {
@@ -869,6 +922,12 @@ func btReport(all []*btStats) string {
 	}
 	tot := btPool("ALL", all)
 	b.WriteString(btRow(tot) + "\n")
+	fmt.Fprintf(&b, "\nalive detected: %s%% (measured on the frame: %s%%, the rest inferred under another icon); per league", btPct(tot.AliveRatio), btPct(tot.AliveMeasured))
+	for _, l := range leagues {
+		p := btPool(l, byLeague[l])
+		fmt.Fprintf(&b, " %s %s/%s", l, btPct(p.AliveRatio), btPct(p.AliveMeasured))
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "\ngap causes, all games (alive per feed, marker missing or stale > 5 s)\n")
 	var causes []string
 	for c := range tot.GapSum {
@@ -884,7 +943,8 @@ func btReport(all []*btStats) string {
 		g := tot.HideSum[c]
 		fmt.Fprintf(&b, "  %-6s %4d intervals %7.0f s total %6.1f s longest\n", c, g.Count, g.TotalSec, g.Longest)
 	}
-	fmt.Fprintf(&b, "\ndeaths: last tracked position vs shown (base): %d of %d tracked, median distance %s (normalized map)\n", tot.DeathTracked, len(tot.Deaths), btNum(tot.DeathMedian, "%.2f"))
+	fmt.Fprintf(&b, "\ndeaths: dead marker vs last measured position: %d of %d deaths measured in the minute before, marker drawn for %d; distance median %s p90 %s (normalized map), within %.2f: %d; drawn at the base: %d\n",
+		tot.DeathTracked, len(tot.Deaths), btDrawn(tot.Deaths), btNum(tot.DeathMedian, "%.3f"), btNum(tot.DeathP90, "%.3f"), btDeathTol, tot.DeathWithin, tot.DeathBase)
 	for _, s := range all {
 		for _, f := range s.Fails {
 			fmt.Fprintf(&b, "FAIL %s: %s\n", s.Label, f)

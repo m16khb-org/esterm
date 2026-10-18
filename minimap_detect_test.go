@@ -101,80 +101,146 @@ func expectAt(t *testing.T, label string, d mmDet, x, y int) {
 func TestTrackerFollowsMovingIcon(t *testing.T) {
 	tr := synthTracker(0)
 	for i := 0; i < 12; i++ {
-		x, y := 40+6*i, 60+4*i
-		expectAt(t, "step", tr.Step(i, synthFrame(synthIconAt{0, x, y}))[0], x, y)
+		x, y := 40+3*i, 60+2*i
+		expectAt(t, "step", tr.Step(i, synthFrame(synthIconAt{0, x, y}), nil)[0], x, y)
 	}
 }
 
-func TestTrackerHidesAndReacquires(t *testing.T) {
+func TestTrackerKeepsLostIconWithItsAgeThenDropsIt(t *testing.T) {
 	tr := synthTracker(0)
-	expectAt(t, "seen", tr.Step(0, synthFrame(synthIconAt{0, 100, 100}))[0], 100, 100)
-	// A short dropout keeps the icon at its last position (overlay or ping on top of it).
-	for i := 1; i <= mmGraceFrames; i++ {
-		expectAt(t, "grace", tr.Step(i, synthFrame())[0], 100, 100)
+	expectAt(t, "seen", tr.Step(0, synthFrame(synthIconAt{0, 100, 100}), nil)[0], 100, 100)
+	// the icon vanishes (overlay, ping, banner): the champion stays at its last position,
+	// older by the frame, until mmHoldMax
+	for _, i := range []int{1, 7, mmHoldMax} {
+		d := tr.Step(i, synthFrame(), nil)[0]
+		expectAt(t, "lost", d, 100, 100)
+		if d.Age != i || d.Covered {
+			t.Fatalf("frame %d: age %d covered %v, want age %d", i, d.Age, d.Covered, i)
+		}
 	}
-	if d := tr.Step(mmGraceFrames+1, synthFrame())[0]; d.Visible {
-		t.Fatalf("icon absent but visible at (%.2f,%.2f) score %.2f", d.X, d.Y, d.Score)
+	if d := tr.Step(mmHoldMax+1, synthFrame(), nil)[0]; d.Visible {
+		t.Fatalf("still held after mmHoldMax at (%.2f,%.2f)", d.X, d.Y)
 	}
-	// Same spot shortly after: recovered near the last position.
-	expectAt(t, "back", tr.Step(mmGraceFrames+2, synthFrame(synthIconAt{0, 104, 100}))[0], 104, 100)
+	// and found again where it stands
+	expectAt(t, "back", tr.Step(mmHoldMax+2, synthFrame(synthIconAt{0, 104, 100}), nil)[0], 104, 100)
 }
 
-func TestTrackerTeleport(t *testing.T) {
+func TestTrackerReacquiresAfterAHideWithAWiderGate(t *testing.T) {
 	tr := synthTracker(0)
-	expectAt(t, "before", tr.Step(0, synthFrame(synthIconAt{0, 30, 30}))[0], 30, 30)
-	expectAt(t, "after", tr.Step(1, synthFrame(synthIconAt{0, 220, 210}))[0], 220, 210)
+	expectAt(t, "before", tr.Step(0, synthFrame(synthIconAt{0, 30, 30}), nil)[0], 30, 30)
+	// a replay shot hid the map for 20 s (no frames); the champion has walked on
+	expectAt(t, "after", tr.Step(20*mmFPS, synthFrame(synthIconAt{0, 150, 100}), nil)[0], 150, 100)
 }
 
-func TestTrackerTwoChampionsStaySeparate(t *testing.T) {
-	// Two champions share the same look; one icon on screen must not be claimed twice.
-	tr := synthTracker(0, 0)
-	dets := tr.Step(0, synthFrame(synthIconAt{0, 50, 50}))
-	if dets[0].Visible == dets[1].Visible {
-		t.Fatalf("one icon, visibility %v/%v: want exactly one champion", dets[0].Visible, dets[1].Visible)
-	}
-	// With both icons present each champion takes its own spot, and stays there.
-	both := synthFrame(synthIconAt{0, 50, 50}, synthIconAt{0, 180, 120})
-	dets = tr.Step(1, both)
-	if !dets[0].Visible || !dets[1].Visible || math.Hypot(dets[0].X-dets[1].X, dets[0].Y-dets[1].Y)*mmFrameSize < 100 {
-		t.Fatalf("both icons present: got %+v / %+v", dets[0], dets[1])
-	}
+func TestTrackerAcceptsATeleportOfAKnownChampion(t *testing.T) {
+	tr := synthTracker(0)
+	expectAt(t, "before", tr.Step(0, synthFrame(synthIconAt{0, 30, 30}), nil)[0], 30, 30)
+	expectAt(t, "after", tr.Step(1, synthFrame(synthIconAt{0, 220, 210}), nil)[0], 220, 210)
 }
 
 func TestTrackerDistinguishesChampions(t *testing.T) {
 	tr := synthTracker(0, 1)
-	dets := tr.Step(0, synthFrame(synthIconAt{0, 40, 200}, synthIconAt{1, 200, 40}))
+	dets := tr.Step(0, synthFrame(synthIconAt{0, 40, 200}, synthIconAt{1, 200, 40}), nil)
 	expectAt(t, "stripes", dets[0], 40, 200)
 	expectAt(t, "rings", dets[1], 200, 40)
+	// they swap sides of the map in a frame (a champion cannot, but the assignment must
+	// follow the portraits, not the old positions)
+	dets = tr.Step(1, synthFrame(synthIconAt{0, 200, 40}, synthIconAt{1, 40, 200}), nil)
+	expectAt(t, "stripes", dets[0], 200, 40)
+	expectAt(t, "rings", dets[1], 40, 200)
 }
 
-func TestTrackerKeepsIconCoveredByAnother(t *testing.T) {
+func TestTrackerTwoChampionsOfOneLookStayApart(t *testing.T) {
+	// two champions share one look; one icon on screen must not be claimed twice
+	tr := synthTracker(0, 0)
+	dets := tr.Step(0, synthFrame(synthIconAt{0, 50, 50}), nil)
+	if dets[0].Visible == dets[1].Visible {
+		t.Fatalf("one icon, visibility %v/%v: want exactly one champion", dets[0].Visible, dets[1].Visible)
+	}
+}
+
+func TestTrackerMarksAChampionHiddenUnderAnotherIconCovered(t *testing.T) {
 	tr := synthTracker(0, 1)
-	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}, synthIconAt{1, 140, 100}))
-	// Icon 1 slides over icon 0, which is no longer visible: it stays at its last spot...
+	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}, synthIconAt{1, 140, 100}), nil)
+	// icon 1 slides over icon 0, which is no longer visible: it stays under it, not lost
 	covered := synthFrame(synthIconAt{1, 110, 100})
-	for i := 1; i <= mmHoldFrames; i++ {
-		dets := tr.Step(i, covered)
+	for i := 1; i <= 5; i++ {
+		dets := tr.Step(i, covered, nil)
 		expectAt(t, "covered", dets[0], 100, 100)
 		expectAt(t, "cover", dets[1], 110, 100)
+		if !dets[0].Covered || dets[0].Age != 0 {
+			t.Fatalf("frame %d: covered %v age %d, want covered with age 0", i, dets[0].Covered, dets[0].Age)
+		}
 	}
-	// ...but not forever: a champion that never re-emerges is dead or gone.
-	if d := tr.Step(mmHoldFrames+1, covered)[0]; d.Visible {
-		t.Fatalf("still held after %d frames at (%.2f,%.2f)", mmHoldFrames+1, d.X, d.Y)
+	// icon 1 leaves: the champion is not found where it was, so it is lost now, with an age
+	dets := tr.Step(6, synthFrame(synthIconAt{1, 200, 200}), nil)
+	if dets[0].Covered || dets[0].Age == 0 {
+		t.Fatalf("nothing covers it any more: covered %v age %d", dets[0].Covered, dets[0].Age)
 	}
 }
 
-func TestTrackerHidesIconNotNearAnother(t *testing.T) {
+func TestTrackerFollowsTheAllyAChampionIsHiddenUnder(t *testing.T) {
+	// a support latched onto an ally has no icon of its own: after it has been hidden near
+	// the ally for a moment it goes where the ally goes
 	tr := synthTracker(0, 1)
-	tr.Step(0, synthFrame(synthIconAt{0, 40, 40}, synthIconAt{1, 200, 200}))
-	var dets []mmDet
-	for i := 1; i <= mmGraceFrames+1; i++ {
-		dets = tr.Step(i, synthFrame(synthIconAt{1, 200, 200}))
+	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}, synthIconAt{1, 125, 100}), nil)
+	idx := 1
+	for ; idx <= mmCarryFrames+2; idx++ {
+		tr.Step(idx, synthFrame(synthIconAt{1, 125, 100}), nil)
 	}
-	if dets[0].Visible {
-		t.Fatalf("icon far from every other champion still visible at (%.2f,%.2f)", dets[0].X, dets[0].Y)
+	for x := 125; x <= 185; x += 4 {
+		dets := tr.Step(idx, synthFrame(synthIconAt{1, x, 100}), nil)
+		idx++
+		expectAt(t, "ally", dets[1], x, 100)
+		if !dets[0].Visible || !dets[0].Covered || dets[0].Age != 0 || math.Abs(dets[0].X-dets[1].X)*mmFrameSize > 2 {
+			t.Fatalf("ally at %d: hidden champion %+v, want it carried along with the ally at %.1f", x, dets[0], dets[1].X*mmFrameSize)
+		}
 	}
-	expectAt(t, "other", dets[1], 200, 200)
+}
+
+func TestTrackerDoesNotCoverAChampionFarFromEveryOtherIcon(t *testing.T) {
+	tr := synthTracker(0, 1)
+	tr.Step(0, synthFrame(synthIconAt{0, 40, 40}, synthIconAt{1, 200, 200}), nil)
+	d := tr.Step(1, synthFrame(synthIconAt{1, 200, 200}), nil)[0]
+	if d.Covered || d.Age != 1 {
+		t.Fatalf("lost far from every icon: covered %v age %d, want not covered, age 1", d.Covered, d.Age)
+	}
+}
+
+func TestTrackerIgnoresADeadChampionAndFreezesItWhereItDied(t *testing.T) {
+	tr := synthTracker(0, 1)
+	for i := 0; i < 5; i++ {
+		tr.Step(i, synthFrame(synthIconAt{0, 100 + 2*i, 100}, synthIconAt{1, 200, 40}), nil)
+	}
+	dead := mmLives{1: {Dead: true, Secs: 30}, 2: {AliveFor: 60}}
+	// the feed says champion 1 died; for the grace its icon is still followed (sync error),
+	// afterwards a look-alike elsewhere must not pull it away
+	idx := 5
+	for ; idx <= 5+mmDeathGrace+2; idx++ {
+		tr.Step(idx, synthFrame(synthIconAt{0, 108, 100}, synthIconAt{1, 200, 40}), dead)
+	}
+	for ; idx < 5+mmDeathGrace+30; idx++ {
+		dets := tr.Step(idx, synthFrame(synthIconAt{0, 180, 180}, synthIconAt{1, 200, 40}), dead)
+		expectAt(t, "frozen", dets[0], 108, 100)
+		expectAt(t, "alive", dets[1], 200, 40)
+	}
+}
+
+func TestTrackerRespawnsAChampionAtItsFountain(t *testing.T) {
+	tr := synthTracker(0)
+	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}), nil)
+	dead := mmLives{1: {Dead: true, Secs: 30}}
+	for i := 1; i < 3*mmFPS; i++ {
+		tr.Step(i, synthFrame(), dead)
+	}
+	alive := mmLives{1: {AliveFor: 0}}
+	d := tr.Step(3*mmFPS, synthFrame(), alive)[0]
+	fx, fy := spawnPrior(100)
+	if !d.Visible || math.Abs(d.X-fx) > 0.01 || math.Abs(d.Y-fy) > 0.01 || d.Age != 0 {
+		t.Fatalf("after the respawn: %+v, want it at the fountain (%.2f,%.2f) with age 0", d, fx, fy)
+	}
+	// it walks out and is picked up there
+	expectAt(t, "walking", tr.Step(3*mmFPS+10, synthFrame(synthIconAt{0, 60, 220}), alive)[0], 60, 220)
 }
 
 func TestTrackerToleratesOverlayOnOneQuadrant(t *testing.T) {
@@ -188,35 +254,14 @@ func TestTrackerToleratesOverlayOnOneQuadrant(t *testing.T) {
 		}
 	}
 	tr := synthTracker(0)
-	expectAt(t, "clean", tr.Step(0, synthFrame(synthIconAt{0, 100, 100}))[0], 100, 100)
+	expectAt(t, "clean", tr.Step(0, synthFrame(synthIconAt{0, 100, 100}), nil)[0], 100, 100)
 	frame := synthFrame(synthIconAt{0, 104, 100})
 	overlay(frame, 104, 100)
 	tr.img.set(frame)
 	if plain := tr.tpls[0].scan(&tr.img, mmWin{104, 104, 100, 100}, nil, -1, nil); plain.score >= mmSureScore {
 		t.Fatalf("overlay too weak to need quadrant matching: plain score %.2f", plain.score)
 	}
-	expectAt(t, "overlaid", tr.Step(1, frame)[0], 104, 100)
-}
-
-func TestTrackerReplacesWeakLocalLock(t *testing.T) {
-	tr := synthTracker(0)
-	expectAt(t, "seen", tr.Step(0, synthFrame(synthIconAt{0, 100, 100}))[0], 100, 100)
-	// The icon turns up 30 px away, inside the jump distance, while a partly similar blob
-	// (60% icon 0, 40% icon 1) stays at the old spot: the clearly better full-scan match
-	// must win over the weak local one.
-	frame := synthFrame(synthIconAt{0, 130, 100})
-	a, b := synthIcon(0), synthIcon(1)
-	for y := 0; y < mmTplSize; y++ {
-		for x := 0; x < mmTplSize; x++ {
-			ra, _, _, _ := a.At(x, y).RGBA()
-			rb, _, _, _ := b.At(x, y).RGBA()
-			i := 3 * ((100+y)*mmFrameSize + 100 + x)
-			v := byte((3*int(ra>>8) + 2*int(rb>>8)) / 5)
-			frame[i], frame[i+1], frame[i+2] = v, v, v
-		}
-	}
-	addRing(frame, 100, 100, mmTplSize, blueRing)
-	expectAt(t, "moved", tr.Step(1, frame)[0], 130, 100)
+	expectAt(t, "overlaid", tr.Step(1, frame, nil)[0], 104, 100)
 }
 
 func TestTrackerUsesIconDiameter(t *testing.T) {
@@ -232,7 +277,7 @@ func TestTrackerUsesIconDiameter(t *testing.T) {
 		}
 	}
 	addRing(rgb, 100, 60, d, blueRing)
-	got := tr.Step(0, rgb)[0]
+	got := tr.Step(0, rgb, nil)[0]
 	if !got.Visible || math.Abs(got.X*mmFrameSize-115) > 1 || math.Abs(got.Y*mmFrameSize-75) > 1 {
 		t.Fatalf("got visible=%v (%.1f,%.1f), want centre (115,75)", got.Visible, got.X*mmFrameSize, got.Y*mmFrameSize)
 	}
@@ -273,39 +318,41 @@ func noisyIconFrame(ring [3]byte, orange bool, noise int) []byte {
 // weakSighting is a clean sighting, then the icon back smeared by an overlay: a weak match.
 func weakSighting(frame []byte) mmDet {
 	tr := synthTracker(0)
-	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}))
-	return tr.Step(mmGraceFrames+1, frame)[0]
+	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}), nil)
+	return tr.Step(10, frame, nil)[0]
 }
 
 func TestTrackerWeakMatchNeedsTeamRing(t *testing.T) {
-	if bare := weakSighting(noisyIconFrame([3]byte{}, false, 95)); bare.Visible {
+	// the sighting is old enough that "still there, not found" would show an age: a fresh
+	// match is one with age 0
+	fresh := func(d mmDet) bool { return d.Visible && d.Age == 0 }
+	if bare := weakSighting(noisyIconFrame([3]byte{}, false, 95)); fresh(bare) {
 		t.Errorf("weak match without a ring accepted (score %.2f)", bare.Score)
 	}
-	if red := weakSighting(noisyIconFrame([3]byte{200, 40, 40}, false, 95)); red.Visible {
+	if red := weakSighting(noisyIconFrame([3]byte{200, 40, 40}, false, 95)); fresh(red) {
 		t.Errorf("weak match inside the other team's ring accepted (score %.2f)", red.Score)
 	}
 	ringed := weakSighting(noisyIconFrame(blueRing, false, 95))
-	if !ringed.Visible {
+	if !fresh(ringed) {
 		t.Fatalf("weak match with a team ring rejected")
 	}
-	if ringed.Score < mmAccept || ringed.Score >= mmSureScore {
-		t.Fatalf("test frame scores %.2f, want a weak match within [%.2f, %.2f)", ringed.Score, mmAccept, mmSureScore)
+	if ringed.Score < mmSimMin || ringed.Score >= mmSureScore {
+		t.Fatalf("test frame scores %.2f, want a weak match within [%.2f, %.2f)", ringed.Score, mmSimMin, mmSureScore)
 	}
 }
 
 func TestTrackerWeakMatchNeedsPortraitColours(t *testing.T) {
 	// the same luminance pattern in the wrong colours (terrain that looks like the icon in
 	// gray) is not the champion, even inside a team ring
-	if orange := weakSighting(noisyIconFrame(blueRing, true, 95)); orange.Visible && orange.Score < mmSureScore {
+	if orange := weakSighting(noisyIconFrame(blueRing, true, 95)); orange.Visible && orange.Age == 0 && orange.Score < mmSureScore {
 		t.Errorf("weak match in the wrong colours accepted (score %.2f)", orange.Score)
 	}
 }
 
 func TestTrackerAcquiresWeakMatchWithRing(t *testing.T) {
-	// a champion never seen before is acquired by a weak match (below the old 0.83 bar)
-	// when ring and colours agree
+	// a champion never seen before is acquired by a weak match when ring and colours agree
 	tr := synthTracker(0)
-	got := tr.Step(0, noisyIconFrame(blueRing, false, 125))[0]
+	got := tr.Step(0, noisyIconFrame(blueRing, false, 125), nil)[0]
 	if !got.Visible || got.Score >= 0.83 {
 		t.Fatalf("got visible=%v score %.2f, want a weak acquisition", got.Visible, got.Score)
 	}
@@ -347,7 +394,7 @@ func TestScanAgreesWithExhaustiveSearch(t *testing.T) {
 	for k := range tr.tpls {
 		tp := &tr.tpls[k]
 		want := exhaustiveScan(tp, m.g, full)
-		for _, floor := range []float32{-1, mmAccept} {
+		for _, floor := range []float32{-1, mmSimAcquire} {
 			got := tp.scan(&m, full, nil, floor, nil)
 			if want.score < floor {
 				if got.score >= floor {
@@ -362,18 +409,61 @@ func TestScanAgreesWithExhaustiveSearch(t *testing.T) {
 	}
 }
 
-func TestScanFullFindsOddPositions(t *testing.T) {
-	// scanFull samples every second pixel, then refines: it must land on odd offsets too
-	frame := blur3(synthFrame(synthIconAt{0, 101, 57}, synthIconAt{1, 183, 211}))
+func TestScanPeaksFindsOddPositionsBestFirstAndApart(t *testing.T) {
+	// scanPeaks samples every second pixel, then refines: it must land on odd offsets too
+	frame := blur3(synthFrame(synthIconAt{0, 101, 57}, synthIconAt{0, 183, 211}, synthIconAt{1, 30, 30}))
 	var m mmFrameGray
 	m.set(frame)
 	tr := synthTracker(0, 1)
 	full := mmWin{0, mmFrameSize - mmTplSize, 0, mmFrameSize - mmTplSize}
-	for k, want := range []mmHit{{101, 57, 1}, {183, 211, 1}} {
-		got := tr.tpls[k].scanFull(&m, full, nil, mmAccept, nil)
-		if got.x != want.x || got.y != want.y {
-			t.Fatalf("template %d: got %+v, want icon at (%d,%d)", k, got, want.x, want.y)
+	got := tr.tpls[0].scanPeaks(&m, full, 3, mmSimAcquire)
+	if len(got) < 2 {
+		t.Fatalf("two copies of the icon, got %+v", got)
+	}
+	for i, want := range [][2]int{{101, 57}, {183, 211}} {
+		found := false
+		for _, h := range got {
+			found = found || (h.x == want[0] && h.y == want[1])
 		}
+		if !found {
+			t.Fatalf("icon %d at (%d,%d) not among %+v", i, want[0], want[1], got)
+		}
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].score > got[i-1].score {
+			t.Fatalf("not best first: %+v", got)
+		}
+	}
+	if got := tr.tpls[1].scanPeaks(&m, full, 1, mmSimAcquire); len(got) != 1 || got[0].x != 30 || got[0].y != 30 {
+		t.Fatalf("the other icon: %+v", got)
+	}
+}
+
+func TestScanMaskedMatchesAnIconPartlyCovered(t *testing.T) {
+	frame := synthFrame(synthIconAt{0, 100, 100})
+	// another icon sits over the left half of it
+	for y := 100; y < 100+mmTplSize; y++ {
+		for x := 100; x < 100+13; x++ {
+			i := 3 * (y*mmFrameSize + x)
+			frame[i], frame[i+1], frame[i+2] = 250, 20, 20
+		}
+	}
+	var m mmFrameGray
+	m.set(frame)
+	tp := synthTracker(0).tpls[0]
+	mask := make([]bool, mmFrameSize*mmFrameSize)
+	for y := 100; y < 100+mmTplSize; y++ {
+		for x := 100; x < 113; x++ {
+			mask[y*mmFrameSize+x] = true
+		}
+	}
+	win := mmWin{96, 104, 96, 104}
+	if plain := tp.scan(&m, win, nil, -1, nil); plain.score >= 0.9 {
+		t.Fatalf("the cover is too weak to need masking: plain score %.2f", plain.score)
+	}
+	h, share := tp.scanMasked(&m, win, mask, mmMaskedShare)
+	if h.x != 100 || h.y != 100 || h.score < 0.9 || share > 0.8 || share < mmMaskedShare {
+		t.Fatalf("masked match %+v on %.2f of the portrait, want the icon at (100,100) scoring >= 0.9", h, share)
 	}
 }
 
@@ -397,4 +487,34 @@ func blur3(rgb []byte) []byte {
 		}
 	}
 	return out
+}
+
+func TestTrackerTakesMainViewPositionsForChampionsItDidNotFind(t *testing.T) {
+	tr := synthTracker(0, 1)
+	px := func(x, y int) (float64, float64) {
+		return (float64(x) + mmTplSize/2) / mmFrameSize, (float64(y) + mmTplSize/2) / mmFrameSize
+	}
+	// champion 0 is on the map, champion 1 is not (stacked under it, say)
+	frame := synthFrame(synthIconAt{0, 60, 60})
+	ox, oy := px(70, 66)
+	dets := tr.StepWith(0, frame, nil, []mvObs{{PID: 2, X: ox, Y: oy, Conf: 0.9}})
+	expectAt(t, "found", dets[0], 60, 60)
+	expectAt(t, "main view", dets[1], 70, 66)
+	if !dets[1].MV || dets[1].Age != 0 || dets[0].MV {
+		t.Fatalf("sources: %+v / %+v", dets[0], dets[1])
+	}
+	// a weak observation is not taken; one for a champion the map found is not needed
+	tr = synthTracker(0, 1)
+	dets = tr.StepWith(0, frame, nil, []mvObs{{PID: 2, X: ox, Y: oy, Conf: 0.1}, {PID: 1, X: 0.9, Y: 0.9, Conf: 0.9}})
+	if dets[1].Visible {
+		t.Fatalf("a confidence-0.1 observation must be ignored: %+v", dets[1])
+	}
+	expectAt(t, "map wins", dets[0], 60, 60)
+	// an observation that lands on the icon of another champion the map found well is a
+	// mix-up of bars, not a second champion there
+	tr = synthTracker(0, 1)
+	cx, cy := px(62, 61)
+	if dets = tr.StepWith(0, frame, nil, []mvObs{{PID: 2, X: cx, Y: cy, Conf: 0.9}}); dets[1].Visible {
+		t.Fatalf("an observation on another champion's icon was taken: %+v", dets[1])
+	}
 }

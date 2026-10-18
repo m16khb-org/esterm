@@ -302,3 +302,13 @@ func TestLivesWithoutFramesAreUnknown(t *testing.T) {
 		t.Fatalf("frames without participants: %+v", l)
 	}
 }
+
+func TestLivesCarryLevelAndHealthForTheMainView(t *testing.T) {
+	fr := lifeFrames(0.5, 60, func(sec float64, pid int) lifeState { return lifeState{level: 7 + pid, hp: 500 * (pid % 5)} }, nil)
+	l := livesAt(fr, at(30), feedClock, false)
+	for pid, want := range map[int]mmLife{3: {Level: 10, HP: 0.75}, 5: {Level: 12, HP: 0}} {
+		if got := l[pid]; got.Level != want.Level || math.Abs(got.HP-want.HP) > 1e-9 || got.Dead {
+			t.Fatalf("participant %d: %+v, want level %d health %.2f alive", pid, got, want.Level, want.HP)
+		}
+	}
+}

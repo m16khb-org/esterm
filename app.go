@@ -123,6 +123,7 @@ func newLiveBoard(lid, matchID string, poll time.Duration) *liveBoard {
 	fd.matchID = matchID
 	fd.FetchOnce()
 	mm := newMinimap(minimapCfg{})
+	mm.SetLives(fd.LivesAt)
 	ctx, cancel := context.WithCancel(context.Background())
 	go fd.Run(ctx)
 	return &liveBoard{fd: fd, mm: mm, pl: &relayPlayout{fd: fd, mm: mm}, cancel: cancel, poll: poll}

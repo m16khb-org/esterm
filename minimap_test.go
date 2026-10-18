@@ -16,12 +16,13 @@ func det(pid int) []mmDet { return []mmDet{{champRef: champRef{PID: pid}, Visibl
 func TestMMPlayoutBurstyFrames(t *testing.T) {
 	m := newMinimap(minimapCfg{})
 	t0 := time.Unix(1000, 0)
-	// 10 frames (0.5 s apart on the stream) arrive together 5 s after the stream started.
-	for i := 0; i < 10; i++ {
+	const burst = 5 * mmFPS // frames per 5 s of stream
+	// A burst of frames (5 s of stream) arrives together 5 s after the stream started.
+	for i := 0; i < burst; i++ {
 		m.push(mmResult{idx: i, layout: "lck", visible: true, dets: det(i)}, t0.Add(5*time.Second))
 	}
 	// The next burst arrives 5 s later, so its base stays the earliest observed.
-	for i := 10; i < 20; i++ {
+	for i := burst; i < 2*burst; i++ {
 		m.push(mmResult{idx: i, layout: "lck", visible: true, dets: det(i)}, t0.Add(10*time.Second))
 	}
 	pid := func(at time.Duration) int {
@@ -31,18 +32,18 @@ func TestMMPlayoutBurstyFrames(t *testing.T) {
 		}
 		return r.dets[0].PID
 	}
-	// The first burst shows frame 9 (all ten share base 5s-i/2, due at 11s); after that
-	// frame i is due at 0.5s + i/2 + 6s (0.5s = earliest observed arrival - stream time).
+	// The first burst shows its newest frame (all share base 5s-(burst-1)/fps, due at 11 s);
+	// after that frame i is due at base + i/fps + 6 s.
 	if got := pid(10900 * time.Millisecond); got != -1 {
 		t.Fatalf("nothing is due before the buffer elapses, got frame %d", got)
 	}
-	if got := pid(11 * time.Second); got != 9 {
+	if got := pid(11 * time.Second); got != burst-1 {
 		t.Fatalf("burst shows its newest frame at 11s, got %d", got)
 	}
-	if got := pid(14 * time.Second); got != 15 {
-		t.Fatalf("frame 15 at 14s, got %d", got)
+	if got, want := pid(14*time.Second), int(float64(mmFPS)*(14-6-0.2)); got != want {
+		t.Fatalf("frame %d at 14s, got %d", want, got)
 	}
-	if got := pid(time.Hour); got != 19 {
+	if got := pid(time.Hour); got != 2*burst-1 {
 		t.Fatalf("last frame once everything is due, got %d", got)
 	}
 }
@@ -107,10 +108,10 @@ func TestMMChampsAliveChampionStaysUntilFound(t *testing.T) {
 	}
 }
 
-func TestMMChampsDeadWaitAtTheirBase(t *testing.T) {
+func TestMMChampsDeadStayWhereTheyDied(t *testing.T) {
 	r := mmResult{visible: true, dets: []mmDet{
-		chd(2, 100, 0.5, 0.5, true, 0), // the tracker still sees something where it died
-		chd(7, 200, 0, 0, false, 0),
+		chd(2, 100, 0.5, 0.5, true, 0), // the tracker's position of the champion when it died
+		chd(7, 200, 0, 0, false, 0),    // never tracked
 		chd(8, 200, 0.3, 0.3, true, 0),
 	}}
 	lives := mmLives{2: {Dead: true, Secs: 22.3}, 7: {Dead: true, Secs: 0}, 8: {AliveFor: 100}}
@@ -118,10 +119,11 @@ func TestMMChampsDeadWaitAtTheirBase(t *testing.T) {
 	if len(c.Icons) != 3 || c.Dead != 2 || c.Live != 1 || c.Alive != 1 {
 		t.Fatalf("icons=%+v dead=%d live=%d alive=%d", c.Icons, c.Dead, c.Live, c.Alive)
 	}
-	bx, by := mmBasePos(100, 2)
-	if d := c.Icons[0]; d.State != mmIconDead || d.Secs != 23 || d.X != bx || d.Y != by || bx >= 0.5 || by <= 0.5 {
-		t.Fatalf("blue dead icon = %+v (base %v,%v)", d, bx, by)
+	// a champion the tracker has a position for dies where it was last tracked ...
+	if d := c.Icons[0]; d.State != mmIconDead || d.Secs != 23 || d.X != 0.5 || d.Y != 0.5 {
+		t.Fatalf("blue dead icon = %+v, want a dead marker at its last tracked position (0.5,0.5)", d)
 	}
+	// ... one it never tracked waits at its team's base
 	rx, ry := mmBasePos(200, 7)
 	if d := c.Icons[1]; d.State != mmIconDead || d.Secs != 0 || d.X != rx || d.Y != ry || rx <= 0.5 || ry >= 0.5 {
 		t.Fatalf("red dead icon = %+v (base %v,%v)", d, rx, ry)
@@ -265,11 +267,12 @@ func TestMMSnapshotAtFollowsStreamTime(t *testing.T) {
 		t.Fatal("no frames yet")
 	}
 	t0 := time.Unix(1000, 0)
-	// 2 fps frames; frame 30 is a replay (map not visible).
-	for i := 0; i < 60; i++ {
-		m.push(mmResult{idx: i, layout: "lck", visible: i != 30, dets: det(i)}, t0)
+	// 30 s of frames; the frame at 15 s is a replay (map not visible).
+	const n = 30 * mmFPS
+	for i := 0; i < n; i++ {
+		m.push(mmResult{idx: i, layout: "lck", visible: i != n/2, dets: det(i)}, t0)
 	}
-	if latest, ok := m.VideoLatest(); !ok || latest != 29.5 {
+	if latest, ok := m.VideoLatest(); !ok || latest != float64(n-1)/mmFPS {
 		t.Fatalf("latest = %v %v", latest, ok)
 	}
 	if v := m.SnapshotAt(-1, nil); len(v.Markers) != 0 || !strings.HasPrefix(v.Status, "buffering") {
@@ -281,7 +284,7 @@ func TestMMSnapshotAtFollowsStreamTime(t *testing.T) {
 	if v := m.SnapshotAt(15, nil); len(v.Markers) != 0 || v.Status != "LCK · minimap hidden on broadcast" {
 		t.Fatalf("the replay frame must show hidden: %q", v.Status)
 	}
-	if got := len(m.results); got > 30+mmKeepBack {
+	if got := len(m.results); got > n/2+mmKeepBack {
 		t.Fatalf("old frames must be dropped, %d left", got)
 	}
 }

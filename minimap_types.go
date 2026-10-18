@@ -28,6 +28,9 @@ type mmFrame struct {
 	Restart bool   // first frame of a restarted stream: its timeline is not continuous with the frames before
 	MM      []byte // mmRegionMM.W*H*3 rgb24
 	HUD     []byte // mmRegionHUD.W*H*3 rgb24
+	// Main is the main view (mmMainBytes of rgba, see mmRegionFilterMain) of the newest main
+	// frame that fell due with this frame; nil on frames without one.
+	Main []byte
 }
 
 // mmLayout is one broadcast overlay (league): nominal boxes in 1920×1080 reference
@@ -66,6 +69,11 @@ type mmDet struct {
 	// Age is how many frames the champion has been kept at its last seen position because
 	// the tracker lost it (0: found on this frame); only meaningful while Visible.
 	Age int
+	// Covered: not found on this frame, but its estimated position lies under another found
+	// icon, which hides it; Age stays 0 then. The position is inferred, not seen.
+	Covered bool
+	// MV: measured on this frame from the main view's health bar, not from the portrait.
+	MV bool
 }
 
 // mmIconState is how a champion marker is drawn.
@@ -95,6 +103,10 @@ type mmLife struct {
 	// since the game started). A sighting older than that is from before the champion died
 	// and does not count.
 	AliveFor float64
+	// Level and HP (current health / maximum, 0 when unknown) as the feed's frame at the
+	// shown instant has them: the main-view reader matches health bars to champions by them.
+	Level int
+	HP    float64
 }
 
 // mmLives maps livestats participant ids to their life at the shown instant. A nil map

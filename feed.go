@@ -602,6 +602,16 @@ func (f *feed) Position() (time.Time, bool) {
 	return f.lastDisp, !f.lastDisp.IsZero()
 }
 
+// LivesAt is who is dead at feed time t (see livesAt), nil while no frame is buffered.
+func (f *feed) LivesAt(t time.Time) mmLives {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.frames) == 0 {
+		return nil
+	}
+	return livesAt(f.frames, t, f.gameClockLocked(), false)
+}
+
 // Meta returns the live event and game with its metadata but no frame.
 func (f *feed) Meta() feedSnap {
 	f.mu.Lock()
