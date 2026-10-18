@@ -11,3 +11,6 @@ coverage.out
 
 # macOS metadata
 .DS_Store
+
+# CodeGraph local index
+/.codegraph/

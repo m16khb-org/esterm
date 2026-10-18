@@ -21,7 +21,7 @@ This is the reference document agents should read before writing or modifying te
 ## 이 저장소의 검증 명령
 
 - `go build ./... && go vet ./... && go test -race ./...` (go.mod, 모든 `*_test.go`). 변경 후 이 세 가지를 통과해야 한다.
-- 테스트 파일은 기능별로 있다: `feed_test.go`, `relay_test.go`, `sync_test.go`, `minimap_*_test.go`.
+- 테스트 파일은 기능별로 있다: `feed_test.go`, `relay_test.go`, `sync_test.go`, `minimap_*_test.go`, `objectives*_test.go`.
 
 ## 이 저장소의 테스트 규칙
 
@@ -32,11 +32,12 @@ This is the reference document agents should read before writing or modifying te
 
 ## VOD 에뮬레이션 하네스
 
-실제 방송으로 하는 검증은 영구 테스트가 아니라 `/tmp` 아래의 일회용 하네스로 한다.
+실제 방송으로 하는 검증은 일반 `go test`에 넣지 않고, 빌드 태그 `backtest`가 붙은 영구 백테스트(`backtest_test.go`, `backtest_run_test.go`, `backtest_metrics_test.go`)로 한다.
 
-- 완료된 경기의 VOD를 `esterm lol minimap -src <VOD URL> -ss <초> -game <gameId> -n N -json`으로 돌려 HUD 시계와 검출 결과를 확인한다.
-- 정답 비교는 VOD 초와 HUD 시계의 관계, 피드 킬 시각으로 만든다. 일회용 스크립트와 프레임은 검증 후 지운다.
-- 새 리그나 레이아웃을 추가하면 그 리그의 시계 판독률과 오판 수를 같은 방식으로 측정해 보고한다. 측정 없이 지원한다고 쓰지 않는다.
+- 실행: `go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=결과.json`. `ESTERM_BACKTEST_GAMES=<정규식>` 으로 경기를 고르고 `ESTERM_BACKTEST_V=1` 로 어긋난 킬 플립·깜빡임·재잠금을 모두 본다. 영상과 피드 응답은 `os.UserCacheDir()/esterm/backtest`(약 19 GB)에 캐시한다.
+- 경기 목록(`btGames`)의 공식 완료 16경기(Worlds 2026 7, LCK 3, LPL 3, LEC 3)를 앱과 같은 `mmPipeline`·`mmSync`·`deaths.go`로 영상 전체에 돌리고, 피드를 정답으로 동기 오차, 검출률, 부활 오차, 깜빡임, 공백 원인을 잰다. 기준과 기준선 수치는 README 백테스트 절에 있다.
+- 트래커, 동기, HUD, 사망 로직을 바꾸면 변경 전후 `-backtest.out` JSON을 비교해 보고한다. 새 리그나 레이아웃을 추가하면 그 경기를 `btGames`에 넣고(API에 VOD가 없으면 `Vod`와 `At` 지정) 같은 지표를 잰다. 측정 없이 지원한다고 쓰지 않는다.
+- 일회용 스크립트와 프레임은 `/tmp` 아래에 두고 검증 후 지운다. 저장소에는 방송 화면을 넣지 않는다.
 
 ## Well-structured tests
 
