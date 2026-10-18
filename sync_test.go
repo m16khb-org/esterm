@@ -446,3 +446,27 @@ func TestSyncOneNoisyFlipMovesSkewLittle(t *testing.T) {
 		t.Fatalf("consistent flips must win over the prior, moved only %s", d)
 	}
 }
+
+func TestSyncSurvivesBroadcastClockStallAndCatchUp(t *testing.T) {
+	// Backtest KC-MVK g2: the broadcast clock stood still 6 s behind for several seconds
+	// (the feed reports no pause), then ran fast until it had caught up. That is not a step
+	// of the video timeline: the offset must not move to the stalled readings.
+	g := &simGame{spawn: t0, skew: 3.1, o: -149}
+	killsEvery(g, 30, 41, 2000)
+	s := g.sync(2)
+	s.ObserveFeedKills(g.feedKills())
+	s.ObserveFeedLatest(g.at(100000))
+	stall := map[float64]int{1696: 1536, 1696.5: 1540, 1697: 1543, 1697.5: 1544, 1698: 1545, 1698.5: 1545}
+	run(s, g, 1500, 1686, 2, nil)
+	run(s, g, 1686, 1710, 2, func(tt float64, h *mmHUD) {
+		if v, ok := stall[tt]; ok {
+			h.ClockSec = v
+		} else if tt < 1696 {
+			h.ClockSec = 1533
+		}
+	})
+	wantOffset(t, s, -149, 0.6)
+	if s.Relocks() != 0 {
+		t.Fatalf("a stalled broadcast clock caused %d relocks", s.Relocks())
+	}
+}

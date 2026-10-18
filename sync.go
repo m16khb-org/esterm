@@ -32,6 +32,7 @@ const (
 	syncStep        = 2.0             // deviation that counts as disagreement
 	syncStepCount   = 3               // consistent disagreeing samples that re-lock
 	syncStepSpan    = 2.0             // ... spread over at least this many video seconds
+	syncRelockMiss  = 2               // disagreeing samples in a row that end the flat run a re-lock is made of
 	syncSkewPrior   = 3.5             // skew before the layout is known (= feedPriorSkew in seconds)
 	syncSkewKeep    = 16              // learned skew samples kept
 	syncPriorWeight = 3               // flips the prior skew is worth
@@ -318,13 +319,20 @@ func (s *mmSync) looksUnreportedPause(t, c, med float64) bool {
 }
 
 // maybeRelock adopts the pending samples as the new truth once enough of them agree:
-// the stream restarted or the pause accounting changed.
+// the stream restarted or the pause accounting changed. The agreeing samples must be the
+// recent flat stretch of the pending ones (a few misreads in between are tolerated): a
+// clock that stood still or ran fast for a while drifts through every value in turn, and
+// samples of it picked from here and there would agree by chance.
 func (s *mmSync) maybeRelock() {
 	ref := s.pend[len(s.pend)-1].v
-	var agree []syncSample
-	for _, p := range s.pend {
-		if math.Abs(p.v-ref) <= 1 {
-			agree = append(agree, p)
+	agree := []syncSample{s.pend[len(s.pend)-1]}
+	miss := 0
+	for i := len(s.pend) - 2; i >= 0 && miss <= syncRelockMiss; i-- {
+		if math.Abs(s.pend[i].v-ref) <= 1 {
+			agree = append([]syncSample{s.pend[i]}, agree...)
+			miss = 0
+		} else {
+			miss++
 		}
 	}
 	if len(agree) < syncStepCount || agree[len(agree)-1].t-agree[0].t < syncStepSpan {
