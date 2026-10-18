@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -30,8 +31,10 @@ var kst = time.FixedZone("KST", 9*60*60)
 
 var httpClient = &http.Client{Timeout: 8 * time.Second}
 
-func getJSON(url string, v any) error {
-	req, err := http.NewRequest("GET", url, nil)
+func getJSON(url string, v any) error { return getJSONCtx(context.Background(), url, v) }
+
+func getJSONCtx(ctx context.Context, url string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -123,8 +126,8 @@ type windowResp struct {
 }
 
 type teamMeta struct {
-	EsportsTeamID  string `json:"esportsTeamId"`
-	Participants   []struct {
+	EsportsTeamID string `json:"esportsTeamId"`
+	Participants  []struct {
 		ParticipantID int    `json:"participantId"`
 		SummonerName  string `json:"summonerName"`
 		ChampionID    string `json:"championId"`
@@ -140,12 +143,12 @@ type frame struct {
 }
 
 type teamStats struct {
-	TotalGold    int `json:"totalGold"`
-	Inhibitors   int `json:"inhibitors"`
-	Towers       int `json:"towers"`
-	Barons       int `json:"barons"`
-	TotalKills   int `json:"totalKills"`
-	Dragons      []string `json:"dragons"`
+	TotalGold    int           `json:"totalGold"`
+	Inhibitors   int           `json:"inhibitors"`
+	Towers       int           `json:"towers"`
+	Barons       int           `json:"barons"`
+	TotalKills   int           `json:"totalKills"`
+	Dragons      []string      `json:"dragons"`
 	Participants []participant `json:"participants"`
 }
 
@@ -169,14 +172,6 @@ func parseTime(s string) time.Time {
 		return time.Time{}
 	}
 	return t
-}
-
-// latestStartingTime returns a 10s-aligned timestamp ~40s ago, formatted for the live feed.
-func latestStartingTime() string {
-	t := time.Now().UTC().Add(-40 * time.Second)
-	t = t.Add(-time.Duration(t.Second()%10) * time.Second)
-	t = t.Truncate(time.Second)
-	return t.Format("2006-01-02T15:04:05.000Z")
 }
 
 func leagueID(slug string) (string, bool) {
@@ -230,8 +225,8 @@ func clearScreen() {
 
 func main() {
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(1)
+		cmdApp()
+		return
 	}
 	switch os.Args[1] {
 	case "lol":
@@ -249,6 +244,7 @@ func usage() {
 	fmt.Println(`esterm — esports terminal client
 
 Usage:
+  esterm                       interactive app (leagues, matches, live boards, replays)
   esterm <game> <command> [flags]
 
 Games:
@@ -259,8 +255,8 @@ Run 'esterm <game> help' for game commands.`)
 
 func runLoL(args []string) {
 	if len(args) < 1 {
-		lolUsage()
-		os.Exit(1)
+		cmdApp()
+		return
 	}
 	switch args[0] {
 	case "bench":
@@ -269,6 +265,10 @@ func runLoL(args []string) {
 		cmdDemo(args[1:])
 	case "relay":
 		cmdRelay(args[1:])
+	case "replay":
+		cmdReplay(args[1:])
+	case "minimap":
+		cmdMinimap(args[1:])
 	case "live":
 		cmdLive(args[1:])
 	case "streams":
@@ -292,7 +292,15 @@ func lolUsage() {
 	fmt.Println(`esterm lol — League of Legends esports (https://lolesports.com endpoints)
 
 Usage:
-  esterm lol relay      [-l <league>] [-i Dur] [-1]   ASCII live broadcast (tick 1s · poll 10s)
+  esterm lol                                          interactive app (same as plain 'esterm')
+  esterm lol relay      [-l <league>] [-i Dur] [-src S] [-icons M] [-1]
+                                                      ASCII live broadcast (plays frames every 0.5s, polls every -i, default 2s);
+                                                      keys: b views · s spark · o objectives · m minimap panel · v broadcast video sync · q quit
+  esterm lol replay     [-match ID [-g N] [-src S] [-icons M]] [-l <league>]
+                                                      replay a finished game with the official VOD's minimap (no -match: list recent matches);
+                                                      keys: space pause · ←/→ ±10s · +/- speed 1×/2×/4× · b s o m v as relay · q quit
+  esterm lol minimap    [-src URL|FILE] [-ss SEC] [-game ID] [-icons M] [-n N] [-json]
+                                                      champion positions detected on the broadcast minimap
   esterm lol live       [-l <league>] [-w]            live games + real-time board
   esterm lol streams    [-l <league>]                 broadcast stream links (where to watch)
   esterm lol standings  [-l <league>]                 tournament bracket / standings
@@ -305,10 +313,18 @@ Flags:
   -n N          number of matches (default 15)
   -a            show recent/completed instead of upcoming
 
+  -src <url|file>  minimap video: YouTube/Twitch page, media URL or local file (default: the live match's stream)
+  -icons <mode>    minimap drawing: auto|kitty (pixel icons)|blocks (truecolor half-blocks)|text (braille + lane letters)
+  -json            minimap: one JSON line per frame, positions in game units
+
+Minimap needs yt-dlp, ffmpeg and a JS runtime (deno, bun or node): brew install yt-dlp ffmpeg deno
+The minimap shows broadcast time, which differs from the stats feed. Personal use only; do not record or redistribute.
+
 Examples:
   esterm lol live -l msi -w
   esterm lol schedule -l lck -n 10
-  esterm lol leagues`)
+  esterm lol leagues
+  esterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk -ss 1500 -game 115660588583040711 -n 10 -json`)
 }
 
 func cmdLeagues(args []string) {
@@ -421,7 +437,7 @@ func renderLiveEvent(ev event) {
 	fmt.Printf("  Game %d\n", gameNo)
 
 	var w windowResp
-	if err := getJSON(feedBase+"/window/"+liveGame.ID+"?startingTime="+latestStartingTime(), &w); err != nil {
+	if err := getJSON(feedBase+"/window/"+liveGame.ID+"?startingTime="+startingTime(time.Now().Add(-40*time.Second)), &w); err != nil {
 		fmt.Fprintln(os.Stderr, "  window error:", err)
 		return
 	}
@@ -625,11 +641,4 @@ func fmtStr(m *match) string {
 	}
 	// number of games as best-of hint
 	return fmt.Sprintf("Bo%d", max(1, len(m.Games)))
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

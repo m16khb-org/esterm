@@ -15,7 +15,7 @@ type detailsFrame struct {
 	Participants    []detailsParticipant `json:"participants"`
 }
 type detailsParticipant struct {
-	ParticipantID int `json:"participantId"`
+	ParticipantID int   `json:"participantId"`
 	Items         []int `json:"items"`
 	PerkMetadata  struct {
 		StyleID    int   `json:"styleId"`
@@ -43,6 +43,24 @@ type toggles struct {
 	view  int  // b cycles: 0 stats, 1 items, 2 runes
 	spark bool // s: gold-diff sparkline
 	omap  bool // o: objective map panel
+	mm    bool // m: broadcast minimap panel (the video pipeline runs while hidden)
+	video bool // v: broadcast video sync (pipeline + synced playout)
+	// replay is the playback state of a replayed game (nil: live): the header says REPLAY, the footer shows the position.
+	replay *replayState
+	embed  bool // drawn inside the app's pane: the app's hint bar lists the keys
+}
+
+// mmView is what the minimap panel shows: the draw mode, champions and a status line.
+// Lives is the feed's word on who is dead at the shown instant; the scoreboard rows read
+// it too, so board and map agree.
+type mmView struct {
+	Mode         string // mmModeKitty, mmModeBlocks or mmModeText
+	Markers      []mmMarker
+	Icons        []mmIcon
+	Ver          string // Data Dragon version of the icons
+	CellW, CellH int    // terminal cell size in pixels (kitty)
+	Status       string
+	Lives        mmLives
 }
 
 // ---------------- gold-diff series ----------------

@@ -1,12 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Data Dragon static-data resolver (item & rune names).
@@ -27,28 +35,33 @@ func majorMinor(patch string) string {
 	return p[0] + "." + p[1]
 }
 
-func ddGet(url string, v any) bool {
-	resp, err := http.Get(url)
-	if err != nil || resp == nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
+func ddGet(ctx context.Context, url string, v any) bool {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		drainBody(resp.Body)
+		return false
+	}
 	body, _ := io.ReadAll(resp.Body)
 	return json.Unmarshal(body, v) == nil
 }
 
 // resolveDDVersion picks the exact ddragon version for a game patch,
 // matching the patch's major.minor against the published version list.
-func resolveDDVersion(patch string) string {
+func resolveDDVersion(ctx context.Context, patch string) string {
 	base := majorMinor(patch)
 	if base == "" {
 		return ""
 	}
 	var vers []string
-	if ddGet("https://ddragon.leagueoflegends.com/api/versions.json", &vers) && len(vers) > 0 {
+	if ddGet(ctx, "https://ddragon.leagueoflegends.com/api/versions.json", &vers) && len(vers) > 0 {
 		for i := len(vers) - 1; i >= 0; i-- {
 			if strings.HasPrefix(vers[i], base+".") {
 				return vers[i]
@@ -59,7 +72,7 @@ func resolveDDVersion(patch string) string {
 }
 
 func ensureDDragon(patch string) {
-	v := resolveDDVersion(patch)
+	v := resolveDDVersion(context.Background(), patch)
 	if v == "" {
 		return
 	}
@@ -77,13 +90,209 @@ func ensureDDragon(patch string) {
 	ddVersion = v
 }
 
+var (
+	ddImgMu    sync.Mutex
+	ddImgMemo  = map[string]image.Image{}
+	ddFlights  = map[string]*ddFlight{}
+	ddVers     []string // versions with memoized images, most recent first (at most ddKeepVersions)
+	ddLatestMu sync.Mutex
+	ddLatest   string
+)
+
+// ddKeepVersions is how many Data Dragon versions stay in memory and on disk: the map is
+// served from the newest release while icons follow the match patch, so two are in use.
+const ddKeepVersions = 2
+
+// ddFlight is one in-progress image load shared by every concurrent caller of its key.
+type ddFlight struct {
+	done chan struct{}
+	img  image.Image
+	err  error
+}
+
+// ddLatestVersion returns the newest Data Dragon version (memoized on success).
+func ddLatestVersion(ctx context.Context) (string, error) {
+	ddLatestMu.Lock()
+	defer ddLatestMu.Unlock()
+	if ddLatest != "" {
+		return ddLatest, nil
+	}
+	var vers []string
+	if !ddGet(ctx, "https://ddragon.leagueoflegends.com/api/versions.json", &vers) || len(vers) == 0 {
+		return "", fmt.Errorf("ddragon: cannot load version list")
+	}
+	ddLatest = vers[0]
+	return ddLatest, nil
+}
+
+// ddImage returns a Data Dragon PNG (e.g. "img/map/map11.png"), served from the
+// in-memory memo, then the disk cache under UserCacheDir/esterm/ddragon, then the network.
+// Concurrent calls for one key share a single load; no lock is held during I/O.
+func ddImage(ctx context.Context, version, path string) (image.Image, error) {
+	key := version + "/" + path
+	for {
+		ddImgMu.Lock()
+		if img, ok := ddImgMemo[key]; ok {
+			ddImgMu.Unlock()
+			return img, nil
+		}
+		if f, ok := ddFlights[key]; ok {
+			ddImgMu.Unlock()
+			select {
+			case <-f.done:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			if f.err != nil && ctx.Err() == nil && errors.Is(f.err, context.Canceled) {
+				continue // the leader gave up, not this caller
+			}
+			return f.img, f.err
+		}
+		f := &ddFlight{done: make(chan struct{})}
+		ddFlights[key] = f
+		ddImgMu.Unlock()
+
+		var fetched bool
+		f.img, fetched, f.err = ddLoadImage(ctx, key)
+
+		ddImgMu.Lock()
+		delete(ddFlights, key)
+		var keep []string
+		if f.err == nil {
+			ddImgMemo[key] = f.img
+			if fresh := ddRememberVersion(version); fresh && fetched {
+				keep = append(keep, ddVers...)
+			}
+		}
+		ddImgMu.Unlock()
+		close(f.done)
+		if keep != nil {
+			ddPruneDisk(keep)
+		}
+		return f.img, f.err
+	}
+}
+
+// ddRememberVersion marks version as the most recently used and evicts the memoized images
+// of versions beyond ddKeepVersions. It reports whether version was newly added. Call with
+// ddImgMu held.
+func ddRememberVersion(version string) bool {
+	if len(ddVers) > 0 && ddVers[0] == version {
+		return false
+	}
+	fresh := true
+	for i, v := range ddVers {
+		if v == version {
+			fresh = false
+			ddVers = append(ddVers[:i], ddVers[i+1:]...)
+			break
+		}
+	}
+	ddVers = append([]string{version}, ddVers...)
+	for len(ddVers) > ddKeepVersions {
+		old := ddVers[len(ddVers)-1] + "/"
+		ddVers = ddVers[:len(ddVers)-1]
+		for k := range ddImgMemo {
+			if strings.HasPrefix(k, old) {
+				delete(ddImgMemo, k)
+			}
+		}
+	}
+	return fresh
+}
+
+func ddCacheRoot() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "esterm", "ddragon")
+}
+
+// ddPruneDisk deletes every cached version directory except the kept ones.
+func ddPruneDisk(keep []string) {
+	root := ddCacheRoot()
+	if root == "" {
+		return
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+next:
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		for _, k := range keep {
+			if e.Name() == k {
+				continue next
+			}
+		}
+		os.RemoveAll(filepath.Join(root, e.Name()))
+	}
+}
+
+// ddLoadImage reads key from the disk cache or the network; fetched reports a network
+// download that was written to the disk cache.
+func ddLoadImage(ctx context.Context, key string) (img image.Image, fetched bool, err error) {
+	var cache string
+	if root := ddCacheRoot(); root != "" {
+		cache = filepath.Join(root, filepath.FromSlash(key))
+		if f, err := os.Open(cache); err == nil {
+			img, derr := png.Decode(f)
+			f.Close()
+			if derr == nil {
+				return img, false, nil
+			}
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://ddragon.leagueoflegends.com/cdn/"+key, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		drainBody(resp.Body)
+		return nil, false, fmt.Errorf("ddragon %s: HTTP %d", key, resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, err
+	}
+	img, err = png.Decode(bytes.NewReader(body))
+	if err != nil {
+		return nil, false, err
+	}
+	if cache != "" && os.MkdirAll(filepath.Dir(cache), 0o755) == nil {
+		if tmp, err := os.CreateTemp(filepath.Dir(cache), ".tmp-*"); err == nil {
+			_, werr := tmp.Write(body)
+			cerr := tmp.Close()
+			if werr != nil || cerr != nil || os.Rename(tmp.Name(), cache) != nil {
+				os.Remove(tmp.Name())
+			} else {
+				fetched = true
+			}
+		}
+	}
+	return img, fetched, nil
+}
+
+// drainBody discards a bounded amount of an unread response body so the connection can be
+// reused.
+func drainBody(r io.Reader) { io.Copy(io.Discard, io.LimitReader(r, 64<<10)) }
+
 func loadItems(version string) map[int]string {
 	var raw struct {
 		Data map[string]struct {
 			Name string `json:"name"`
 		} `json:"data"`
 	}
-	if !ddGet("https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/item.json", &raw) {
+	if !ddGet(context.Background(), "https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/item.json", &raw) {
 		return nil
 	}
 	m := map[int]string{}
@@ -108,7 +317,7 @@ func loadRunes(version string) map[int]string {
 			} `json:"runes"`
 		} `json:"slots"`
 	}
-	if !ddGet("https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/runesReforged.json", &trees) {
+	if !ddGet(context.Background(), "https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/runesReforged.json", &trees) {
 		return nil
 	}
 	m := map[int]string{}
@@ -144,4 +353,50 @@ func itemShort(id int, max int) string {
 		n = f[len(f)-1]
 	}
 	return trim(n, max)
+}
+
+// ddPeek returns an already memoized Data Dragon image, or nil. It never loads.
+func ddPeek(version, path string) image.Image {
+	ddImgMu.Lock()
+	defer ddImgMu.Unlock()
+	return ddImgMemo[version+"/"+path]
+}
+
+// ddRetryMin and ddRetryMax bound the delay before a failed background load is retried.
+const (
+	ddRetryMin = 2 * time.Second
+	ddRetryMax = 5 * time.Minute
+)
+
+// ddAsync loads one image in the background for callers that must not block (the render
+// path): get returns nil until the load succeeded, runs at most one load at a time and
+// retries after an exponentially growing delay when a load fails.
+type ddAsync struct {
+	mu      sync.Mutex
+	img     image.Image
+	loading bool
+	next    time.Time
+	fails   int
+}
+
+func (a *ddAsync) get(load func(context.Context) (image.Image, error)) image.Image {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.img != nil || a.loading || time.Now().Before(a.next) {
+		return a.img
+	}
+	a.loading = true
+	go func() {
+		img, err := load(context.Background())
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.loading = false
+		if err != nil || img == nil {
+			a.fails++
+			a.next = time.Now().Add(min(ddRetryMin<<uint(min(a.fails-1, 8)), ddRetryMax))
+			return
+		}
+		a.img = img
+	}()
+	return nil
 }
