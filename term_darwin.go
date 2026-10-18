@@ -1,3 +1,5 @@
+//go:build darwin
+
 package main
 
 import (
@@ -5,13 +7,9 @@ import (
 	"unsafe"
 )
 
-// Raw terminal mode for reading single keystrokes (tab/b/s/o/q) without Enter.
-// Uses darwin termios ioctls (the user is on macOS). On other platforms
-// makeRaw fails gracefully => toggles are simply unavailable, CLI still runs.
-
 const (
-	ioctlGetTermios = 0x40487413 // TIOCGETA (darwin)
-	ioctlSetTermios = 0x80487414 // TIOCSETA (darwin)
+	ioctlGetTermios = 0x40487413 // TIOCGETA
+	ioctlSetTermios = 0x80487414 // TIOCSETA
 )
 
 // makeRaw puts fd into raw mode and returns the previous termios to restore.
