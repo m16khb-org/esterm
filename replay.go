@@ -526,6 +526,7 @@ func (r *replay) Tick(now time.Time, video, panel bool) (feedSnap, mmView) {
 		view = r.vid.view(vt, known, snap.Lives)
 	}
 	view.Lives = snap.Lives
+	view.Obj = snap.Obj
 	return snap, view
 }
 

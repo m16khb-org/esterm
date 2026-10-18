@@ -54,7 +54,8 @@ type mmSlot struct {
 	Row, Col, Cols, Rows int
 	CellW, CellH         int // cell size in pixels
 	Icons                []mmIcon
-	Ver                  string // Data Dragon version of the icons
+	Objs                 []mmObj // the dragon pit and baron pit markers, in that order; empty: none shown
+	Ver                  string  // Data Dragon version of the icons
 }
 
 var (
@@ -652,6 +653,25 @@ func mmBlockLabel(img *image.RGBA, c, r, team int, state mmIconState, digit bool
 		[3]uint8{uint8((int(t.R) + int(b.R)) / 2 / 2), uint8((int(t.G) + int(b.G)) / 2 / 2), uint8((int(t.B) + int(b.B)) / 2 / 2)}))
 }
 
+// mmBlockObjLabel is the style of an objective cell on the mean pixel colour: the letter is
+// bold green while the monster is up, bold yellow while it counts down and grey while its
+// time is unknown; a countdown character is yellow.
+func mmBlockObjLabel(img *image.RGBA, c objCell) string {
+	t, b := img.RGBAAt(c.x, 2*c.y), img.RGBAAt(c.x, 2*c.y+1)
+	prefix, rgb := "\033[1;38;2;", [3]uint8{0xff, 0xd6, 0x4a}
+	switch {
+	case !c.letter:
+		prefix = "\033[38;2;"
+	case c.state == objUp:
+		rgb = [3]uint8{0x4a, 0xe0, 0x6a}
+	case c.state != objWaiting:
+		prefix, rgb = "\033[38;2;", [3]uint8{0x9a, 0x9a, 0x9a}
+	}
+	var buf [48]byte
+	return string(appendBlockStyle(buf[:0], prefix, rgb,
+		[3]uint8{uint8((int(t.R) + int(b.R)) / 2 / 2), uint8((int(t.G) + int(b.G)) / 2 / 2), uint8((int(t.B) + int(b.B)) / 2 / 2)}))
+}
+
 // ---------------- kitty protocol ----------------
 //
 // The panel is a set of placements, not one composed picture. The map is cut into tiles on
@@ -700,7 +720,7 @@ const (
 	kittyPhases   = 4                             // sub-cell positions per axis
 	kittyVariants = 3 * kittyPhases * kittyPhases // states x phase y x phase x
 
-	kittyGlyphChars = 11                  // "0123456789."
+	kittyGlyphChars = 12                  // "0123456789.:"
 	kittyGlyphs     = 2 * kittyGlyphChars // dead style, stale style
 	kittyMaxDigits  = 3                   // longest countdown text
 	kittyDigitID    = kittySpriteID + kittyMaxIcons*kittyVariants
@@ -1009,8 +1029,8 @@ func kittyCountCell(pos kittyPos, d, n int, s *mmSlot) (row, col int) {
 	return row, col
 }
 
-// countGlyphs is a 5x7 bitmap font for the countdown digits and the "." of a due respawn,
-// in the notation of badgeGlyphs.
+// countGlyphs is a 5x7 bitmap font for the countdown digits, the "." of a due respawn and
+// the ":" of an objective countdown, in the notation of badgeGlyphs.
 var countGlyphs = map[byte][7]string{
 	'0': {".XXX.", "X...X", "X..XX", "X.X.X", "XX..X", "X...X", ".XXX."},
 	'1': {"..X..", ".XX..", "..X..", "..X..", "..X..", "..X..", ".XXX."},
@@ -1023,6 +1043,7 @@ var countGlyphs = map[byte][7]string{
 	'8': {".XXX.", "X...X", "X...X", ".XXX.", "X...X", "X...X", ".XXX."},
 	'9': {".XXX.", "X...X", "X...X", ".XXXX", "....X", "...X.", ".XX.."},
 	'.': {".....", ".....", ".....", ".....", ".....", ".XXX.", ".XXX."},
+	':': {".....", "..X..", "..X..", ".....", "..X..", "..X..", "....."},
 }
 
 // kittyGlyphInk is the colour of a glyph style (0 dead, 1 stale) and how strongly the dark
@@ -1032,11 +1053,14 @@ var kittyGlyphInk = [2]struct {
 	halo float64
 }{{[3]uint8{0xff, 0xff, 0xff}, 0.85}, {[3]uint8{0xb4, 0xb4, 0xb4}, 0.65}}
 
-// kittyGlyph is the glyph index (0..kittyGlyphs-1) of character ch ('0'-'9' or '.') in
-// style 0 (dead) or 1 (stale).
+// kittyGlyph is the glyph index (0..kittyGlyphs-1) of character ch ('0'-'9', '.' or ':') in
+// style 0 (dead; also the objective countdowns) or 1 (stale).
 func kittyGlyph(style int, ch byte) int {
-	if ch == '.' {
+	switch ch {
+	case '.':
 		return style*kittyGlyphChars + 10
+	case ':':
+		return style*kittyGlyphChars + 11
 	}
 	return style*kittyGlyphChars + int(ch-'0')
 }
@@ -1137,6 +1161,7 @@ type kittyOut struct {
 	mapSrc    image.Image // map the transmitted tiles were scaled from; nil: dark fill
 	mapPlaced bool
 	sprites   []kittySprite
+	objs      [kittyObjSlots]kittyObj
 	glyphSent [kittyGlyphs]bool // countdown glyph images in the terminal
 	ids       map[kittyChamp]int
 	scratch   []mmPlace
@@ -1259,32 +1284,9 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			style = 1
 		}
 		row, col := kittyCountCell(pos, d, len(text), s)
-		for j := range sp.digits {
-			dg, pid := &sp.digits[j], kittyDigitPID+i*kittyMaxDigits+j
-			if j >= len(text) {
-				if dg.placed {
-					b = kittyUnplace(b, k.id(kittyDigitID+dg.glyph), pid)
-					dg.placed = false
-				}
-				continue
-			}
-			g := kittyGlyph(style, text[j])
-			if dg.placed && !replace && dg.glyph == g && dg.row == row && dg.col == col+j {
-				continue
-			}
-			goTo(row, col+j)
-			if k.glyphSent[g] {
-				b = kittyPlacement(b, k.id(kittyDigitID+g), pid, 1, 1, kittyDigitZ)
-			} else {
-				b = kittyTransmitPlace(b, k.id(kittyDigitID+g), pid, 1, 1, kittyDigitZ, k.png.encode(kittyGlyphPixels(text[j], style, s.CellW, s.CellH), true))
-				k.glyphSent[g] = true
-			}
-			if dg.placed && dg.glyph != g {
-				b = kittyUnplace(b, k.id(kittyDigitID+dg.glyph), pid)
-			}
-			*dg = kittyDigit{g, row, col + j, true}
-		}
+		k.digitsFrame(&b, sp.digits[:], kittyDigitPID+i*kittyMaxDigits, text, style, row, col, s, replace, goTo)
 	}
+	k.objFrame(&b, s, w, h, d, replace, goTo)
 	for i := range k.sprites { // hidden: drop the placements, keep the data
 		sp := &k.sprites[i]
 		if sp.live {
@@ -1294,18 +1296,56 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), i+1)
 			sp.placed = false
 		}
-		for j := range sp.digits {
-			if dg := &sp.digits[j]; dg.placed {
-				b = kittyUnplace(b, k.id(kittyDigitID+dg.glyph), kittyDigitPID+i*kittyMaxDigits+j)
-				dg.placed = false
-			}
-		}
+		b = k.hideDigits(b, sp.digits[:], kittyDigitPID+i*kittyMaxDigits)
 	}
 	if saved {
 		b = append(b, "\x1b8"...)
 	}
 	k.buf = b
 	return string(b)
+}
+
+// digitsFrame appends to *b what brings the countdown glyph placements dg (placement ids pid0 + j) to show
+// text, drawn in glyph style from the cell (row, col) on: a glyph is transmitted the first
+// time it is shown, and a placement is only touched when its glyph or cell changed.
+func (k *kittyOut) digitsFrame(b *[]byte, dg []kittyDigit, pid0 int, text string, style, row, col int, s *mmSlot, replace bool, goTo func(row, col int)) {
+	for j := range dg {
+		d, pid := &dg[j], pid0+j
+		if j >= len(text) {
+			if d.placed {
+				*b = kittyUnplace(*b, k.id(kittyDigitID+d.glyph), pid)
+				d.placed = false
+			}
+			continue
+		}
+		g := kittyGlyph(style, text[j])
+		if d.placed && !replace && d.glyph == g && d.row == row && d.col == col+j {
+			continue
+		}
+		goTo(row, col+j)
+		if k.glyphSent[g] {
+			*b = kittyPlacement(*b, k.id(kittyDigitID+g), pid, 1, 1, kittyDigitZ)
+		} else {
+			*b = kittyTransmitPlace(*b, k.id(kittyDigitID+g), pid, 1, 1, kittyDigitZ, k.png.encode(kittyGlyphPixels(text[j], style, s.CellW, s.CellH), true))
+			k.glyphSent[g] = true
+		}
+		if d.placed && d.glyph != g {
+			*b = kittyUnplace(*b, k.id(kittyDigitID+d.glyph), pid)
+		}
+		*d = kittyDigit{g, row, col + j, true}
+	}
+}
+
+// hideDigits drops the placements of the glyphs dg (placement ids pid0 + j), keeping the
+// images.
+func (k *kittyOut) hideDigits(b []byte, dg []kittyDigit, pid0 int) []byte {
+	for j := range dg {
+		if d := &dg[j]; d.placed {
+			b = kittyUnplace(b, k.id(kittyDigitID+d.glyph), pid0+j)
+			d.placed = false
+		}
+	}
+	return b
 }
 
 // slot returns the sprite index of a champion, allocating one on first sight; -1 when all
@@ -1348,6 +1388,10 @@ func (k *kittyOut) freeAll(b []byte) []byte {
 	for i := range k.sprites {
 		b = k.freeSprite(b, i)
 		k.sprites[i] = kittySprite{}
+	}
+	for i := range k.objs {
+		b = k.freeObj(b, i)
+		k.objs[i] = kittyObj{}
 	}
 	for g, sent := range k.glyphSent {
 		if sent {

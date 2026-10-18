@@ -78,6 +78,13 @@ func waitDDIdle(t *testing.T) {
 				return false
 			}
 		}
+		objIconMemo.Lock()
+		defer objIconMemo.Unlock()
+		for _, a := range objIconMemo.m {
+			if busy(a) {
+				return false
+			}
+		}
 		return true
 	}
 	for end := time.Now().Add(3 * time.Second); !idle(); {

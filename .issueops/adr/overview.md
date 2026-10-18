@@ -39,3 +39,4 @@ Record structural choices, rejected alternatives, and decisions that affect long
 - [ffmpeg는 고정된 넓은 영역만 자르고 보정은 Go에서 한다](2026-10-18-ffmpeg-go.md)
 - [기본 진입점을 lazygit 형태의 표준 라이브러리 TUI 앱으로 한다](2026-10-18-lazygit-tui.md)
 - [과거 경기는 livestats 기록과 공식 VOD 를 같은 동기 엔진으로 재생한다](2026-10-18-livestats-vod.md)
+- [용·엘더·바론 타이머는 피드의 처치 프레임에서 게임 시계로 계산한다](2026-10-18-objective-timers.md)

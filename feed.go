@@ -37,6 +37,7 @@ type feedSnap struct {
 	Lag    time.Duration // wall clock minus the current frame's timestamp
 	Game   time.Duration // game clock of the current frame as the broadcast shows it; -1 if unknown
 	Lives  mmLives       // who is dead and until when at the shown instant; nil without frames
+	Obj    objView       // objective timers at the shown instant; zero without frames
 }
 
 type stamped[T any] struct {
@@ -182,6 +183,7 @@ type feed struct {
 	skew     time.Duration // 0 until SetSkew
 	kills    []feedKill    // every kill-count increase seen, in discovery order
 	killSeen map[[2]int]bool
+	objs     []objEvent    // every objective kill seen, in time order (objMerge)
 	fetching bool          // a backfill is running
 	nextTry  time.Time     // earliest start of the next backfill
 	backoff  time.Duration // wait after the last backfill that found nothing older
@@ -275,7 +277,7 @@ func (f *feed) discover(now time.Time) {
 		f.nextTry, f.backoff, f.lastDet = time.Time{}, 0, time.Time{}
 		f.meta = windowResp{}
 		f.frames, f.dets, f.lags, f.series, f.pauses, f.skew = nil, nil, nil, nil, nil, 0
-		f.kills, f.killSeen = nil, nil
+		f.kills, f.killSeen, f.objs = nil, nil, nil
 		f.lastDisp = time.Time{}
 	}
 }
@@ -439,6 +441,7 @@ func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 			f.kills = append(f.kills, k)
 		}
 	}
+	f.objs = objMerge(f.objs, objDerive(tail, replayKillGap))
 }
 
 // Need makes sure the buffer reaches back to feed time t: when it starts later, the
@@ -664,6 +667,7 @@ func (f *feed) snapLocked(now, disp time.Time) feedSnap {
 		snap.Det.Frames = []detailsFrame{d.v}
 	}
 	snap.Lives = livesAt(f.frames, disp, f.gameClockLocked(), false)
+	snap.Obj = objAt(f.objs, cur.v, cur.ts, f.gameClockLocked(), !f.spawn.IsZero())
 	snap.Lag = now.Sub(cur.ts)
 
 	gm := 0

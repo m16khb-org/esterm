@@ -148,6 +148,10 @@ func ddImage(ctx context.Context, version, path string) (image.Image, error) {
 			}
 			return f.img, f.err
 		}
+		if err := ctx.Err(); err != nil { // a caller that already gave up starts no download
+			ddImgMu.Unlock()
+			return nil, err
+		}
 		f := &ddFlight{done: make(chan struct{})}
 		ddFlights[key] = f
 		ddImgMu.Unlock()
@@ -239,6 +243,14 @@ func ddLoadImage(ctx context.Context, key string) (img image.Image, fetched bool
 	var cache string
 	if root := ddCacheRoot(); root != "" {
 		cache = filepath.Join(root, filepath.FromSlash(key))
+	}
+	return loadCachedImage(ctx, cache, "https://ddragon.leagueoflegends.com/cdn/"+key)
+}
+
+// loadCachedImage returns the PNG at url from the disk cache file cache (empty: no cache)
+// or else downloads it and writes the cache atomically.
+func loadCachedImage(ctx context.Context, cache, url string) (img image.Image, fetched bool, err error) {
+	if cache != "" {
 		if f, err := os.Open(cache); err == nil {
 			img, derr := png.Decode(f)
 			f.Close()
@@ -247,7 +259,7 @@ func ddLoadImage(ctx context.Context, key string) (img image.Image, fetched bool
 			}
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://ddragon.leagueoflegends.com/cdn/"+key, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -258,7 +270,7 @@ func ddLoadImage(ctx context.Context, key string) (img image.Image, fetched bool
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		drainBody(resp.Body)
-		return nil, false, fmt.Errorf("ddragon %s: HTTP %d", key, resp.StatusCode)
+		return nil, false, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -399,4 +411,40 @@ func (a *ddAsync) get(load func(context.Context) (image.Image, error)) image.Ima
 		a.img = img
 	}()
 	return nil
+}
+
+// cdMinimapIcons is where CommunityDragon serves the game's own minimap icons: the dragon
+// pit icon per drake type ("dragon_infernal", "dragon_elder", ...), "dragon" for a drake
+// whose type is not known yet, and "baron". They are tiny (64 px) and stable, so the newest
+// ones are used whatever the game's patch and are kept on disk without a version.
+const cdMinimapIcons = "https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/"
+
+var objIconMemo struct {
+	sync.Mutex
+	m map[string]*ddAsync
+}
+
+// objIconImg returns the minimap icon called name (see cdMinimapIcons) or nil while it is
+// not available yet. It never blocks: a missing icon is loaded in the background from the
+// disk cache or the network (retried with backoff after a failure) and the next call picks
+// it up.
+func objIconImg(name string) image.Image {
+	objIconMemo.Lock()
+	a := objIconMemo.m[name]
+	if a == nil {
+		if objIconMemo.m == nil {
+			objIconMemo.m = map[string]*ddAsync{}
+		}
+		a = &ddAsync{}
+		objIconMemo.m[name] = a
+	}
+	objIconMemo.Unlock()
+	return a.get(func(ctx context.Context) (image.Image, error) {
+		var cache string
+		if root := ddCacheRoot(); root != "" {
+			cache = filepath.Join(filepath.Dir(root), "cdragon", "minimap", name+".png")
+		}
+		img, _, err := loadCachedImage(ctx, cache, cdMinimapIcons+name+".png")
+		return img, err
+	})
 }

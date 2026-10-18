@@ -995,9 +995,12 @@ func TestKittyImageIDsStayInTheBlockAndNeverCollide(t *testing.T) {
 	for g := 0; g < kittyGlyphs; g++ {
 		add(kittyDigitID+g, fmt.Sprintf("glyph %d", g))
 	}
+	for i := 0; i < 2*kittyObjSlots; i++ {
+		add(kittyObjID+i, fmt.Sprintf("objective image %d", i))
+	}
 	glyphs := map[int]bool{}
 	for style := 0; style < 2; style++ {
-		for _, ch := range []byte("0123456789.") {
+		for _, ch := range []byte("0123456789.:") {
 			g := kittyGlyph(style, ch)
 			if g < 0 || g >= kittyGlyphs || glyphs[g] {
 				t.Fatalf("glyph %d of %q style %d out of range or duplicate", g, ch, style)
@@ -1263,8 +1266,8 @@ func TestPanelViewKittyLeavesCountdownsToTheGlyphImages(t *testing.T) {
 func TestRenderMinimapBlocksReusesStaticRowsAndLabelsMarkers(t *testing.T) {
 	offlineMap(t)
 	mk := []mmMarker{{Team: 100, Label: "T", X: 0, Y: 0}}
-	a := renderMinimapBlocks(mk, "s", 60, 20)
-	b := renderMinimapBlocks(nil, "s", 60, 20)
+	a := renderMinimapBlocks(mk, nil, "s", 60, 20)
+	b := renderMinimapBlocks(nil, nil, "s", 60, 20)
 	if len(a) != len(b) || len(a) < 4 {
 		t.Fatalf("rows %d vs %d", len(a), len(b))
 	}
@@ -1274,7 +1277,7 @@ func TestRenderMinimapBlocksReusesStaticRowsAndLabelsMarkers(t *testing.T) {
 	if &a[2][0] != &b[2][0] {
 		t.Error("rows without markers must be served from the cache, not rebuilt each tick")
 	}
-	allocs := testing.AllocsPerRun(20, func() { renderMinimapBlocks(mk, "s", 60, 20) })
+	allocs := testing.AllocsPerRun(20, func() { renderMinimapBlocks(mk, nil, "s", 60, 20) })
 	if allocs > 60 {
 		t.Errorf("%.0f allocations per block tick, want a handful", allocs)
 	}

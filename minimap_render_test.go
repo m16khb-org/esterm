@@ -8,7 +8,7 @@ import (
 func TestMinimapLinesFullWidth(t *testing.T) {
 	for _, w := range []int{40, 60, 80, 120} {
 		for _, h := range []int{4, 12, 40} {
-			ls := renderMinimap([]mmMarker{{Team: 100, Label: "T", X: 0.5, Y: 0.5}}, "MINIMAP · a very long status string that must be trimmed to fit", w, h, mmDots{})
+			ls := renderMinimap([]mmMarker{{Team: 100, Label: "T", X: 0.5, Y: 0.5}}, nil, "MINIMAP · a very long status string that must be trimmed to fit", w, h, mmDots{})
 			if len(ls) > h {
 				t.Errorf("t=%d h=%d: %d lines exceed h", w, h, len(ls))
 			}
@@ -138,7 +138,7 @@ func TestRenderMinimapBlocksDeadAndStaleMarkers(t *testing.T) {
 		{Team: 200, Label: "J", X: 0.2, Y: 0.2, State: mmIconStale, Secs: 9},
 		{Team: 200, Label: "M", X: 0.8, Y: 0.2},
 	}
-	ls := renderMinimapBlocks(mk, "s", 60, 20)
+	ls := renderMinimapBlocks(mk, nil, "s", 60, 20)
 	var text strings.Builder
 	styles := map[string]string{}
 	for _, l := range ls {
@@ -183,7 +183,7 @@ func TestRenderMinimapTextDeadAndStaleMarkers(t *testing.T) {
 	for _, w := range []int{40, 60, 100} {
 		var text strings.Builder
 		styles := map[string]string{}
-		for i, l := range renderMinimap(mk, "s", w, 20, mmDots{}) {
+		for i, l := range renderMinimap(mk, nil, "s", w, 20, mmDots{}) {
 			if l.vis() != w {
 				t.Errorf("t=%d line %d width %d", w, i, l.vis())
 			}

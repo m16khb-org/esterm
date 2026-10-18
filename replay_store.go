@@ -82,6 +82,7 @@ type replayStore struct {
 	dets     []stamped[detailsFrame]
 	pauses   []feedPause
 	kills    []feedKill
+	objs     []objEvent
 	done     map[int64]bool // windows fetched
 	doneDet  map[int64]bool // detail windows fetched
 	busy     map[int64]bool
@@ -147,6 +148,7 @@ func (s *replayStore) absorb(w windowResp, d detailsResp) {
 	s.frames = mergeStamped(s.frames, wf, replayKeepAll)
 	s.pauses = findPauses(s.frames)
 	s.kills = replayKills(s.frames)
+	s.objs = objDerive(s.frames, replayKillGap)
 }
 
 // replayKills lists the single-kill increases between frames at most replayKillGap apart:
@@ -373,6 +375,7 @@ func (s *replayStore) snapshot(t time.Time, game, skew time.Duration) feedSnap {
 	}
 	clock := func(ts time.Time) time.Duration { return ts.Sub(s.spawn) - skew - pauseShift(s.pauses, ts) }
 	snap.Lives = livesAt(s.frames, t, clock, true)
+	snap.Obj = objAt(s.objs, cur.v, cur.ts, clock, true)
 	end := sort.Search(len(s.frames), func(i int) bool { return s.frames[i].ts.After(cur.ts) })
 	for _, fr := range s.frames[:end] {
 		gm := max(0, int(clock(fr.ts).Minutes()))

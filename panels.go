@@ -61,6 +61,7 @@ type mmView struct {
 	CellW, CellH int    // terminal cell size in pixels (kitty)
 	Status       string
 	Lives        mmLives
+	Obj          objView // objective timers at the shown instant
 }
 
 // ---------------- gold-diff series ----------------

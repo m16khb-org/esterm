@@ -675,6 +675,9 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 			gold(b.TotalGold), gold(r.TotalGold), W), t))
 		bl()
 		rows = append(rows, borderedL(objectivesRow(b, r, t), t))
+		if tl := objTimerRow(mm.Obj, t); tl != nil {
+			rows = append(rows, borderedL(tl, t))
+		}
 		bl()
 		// Rows the players table and footer need; optional panels get whatever is left.
 		nb, nr := len(b.Participants), len(r.Participants)
@@ -1015,6 +1018,7 @@ func (p *relayPlayout) Tick(now time.Time, video bool) (feedSnap, mmView) {
 		view = p.mm.Snapshot(now, snap.Lives)
 	}
 	view.Lives = snap.Lives
+	view.Obj = snap.Obj
 	return snap, view
 }
 
@@ -1064,6 +1068,7 @@ func (p *relayPlayout) syncedTick(now, lf time.Time) (feedSnap, mmView) {
 		view = p.mm.SnapshotAt(vt, snap.Lives)
 	}
 	view.Lives = snap.Lives
+	view.Obj = snap.Obj
 	return snap, view
 }
 

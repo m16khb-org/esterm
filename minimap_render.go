@@ -174,9 +174,9 @@ func mmBackground(w, h int) mmDots {
 
 // ---------------- panel ----------------
 
-func minimapPanel(markers []mmMarker, status string, t, h int) []line {
+func minimapPanel(markers []mmMarker, objs []mmObj, status string, t, h int) []line {
 	cols, rows := mmGeometry(t, h)
-	return renderMinimap(markers, status, t, h, mmBackground(cols*2, rows*4))
+	return renderMinimap(markers, objs, status, t, h, mmBackground(cols*2, rows*4))
 }
 
 // mmGeometry sizes the map area in cells: terminal cells are ~1:2, so rows ≈ cols/2;
@@ -193,7 +193,7 @@ func mmGeometry(t, h int) (cols, rows int) {
 
 const brailleBits = "\x01\x08\x02\x10\x04\x20\x40\x80" // dot (dx,dy) bit, index dy*2+dx
 
-func renderMinimap(markers []mmMarker, status string, t, h int, bg mmDots) []line {
+func renderMinimap(markers []mmMarker, objs []mmObj, status string, t, h int, bg mmDots) []line {
 	W := t - 4
 	cols, rows := mmGeometry(t, h)
 	if bg.w != cols*2 || bg.h != rows*4 {
@@ -214,7 +214,11 @@ func renderMinimap(markers []mmMarker, status string, t, h int, bg mmDots) []lin
 			cells[y][x] = C(string(0x2800+bits), cGray+cDim)
 		}
 	}
-	for _, m := range placeMarkers(markers, cols, rows) {
+	oc := placeObjectives(objs, cols, rows)
+	for _, c := range oc {
+		cells[c.y][c.x] = C(string(c.r), objStyle(c))
+	}
+	for _, m := range placeMarkersAround(markers, cols, rows, objTaken(oc)) {
 		letter := cBold + cCyan
 		if m.team == 200 {
 			letter = cBold + cRed
@@ -273,12 +277,18 @@ func mmCountText(state mmIconState, secs int) string {
 	return ""
 }
 
-// placeMarkers maps normalized positions to cells (one-rune labels). Markers are processed
+// placeMarkers is placeMarkersAround with no cell kept clear.
+func placeMarkers(markers []mmMarker, cols, rows int) []placed {
+	return placeMarkersAround(markers, cols, rows, nil)
+}
+
+// placeMarkersAround maps normalized positions to cells (one-rune labels), keeping the cells
+// in reserved (the objective markers; the map is not modified) clear. Markers are processed
 // in (team, label, position) order; each takes the nearest free spot within ±1 row and
 // ±1 column of the cell its position falls in, so placement is deterministic and rarely
 // overlaps. A dead champion's label is its lower-case letter, followed by the countdown in
 // the cells to its right when they are all still free after every letter has been placed.
-func placeMarkers(markers []mmMarker, cols, rows int) []placed {
+func placeMarkersAround(markers []mmMarker, cols, rows int, reserved map[[2]int]bool) []placed {
 	ms := append([]mmMarker(nil), markers...)
 	sort.SliceStable(ms, func(i, j int) bool {
 		a, b := ms[i], ms[j]
@@ -292,7 +302,10 @@ func placeMarkers(markers []mmMarker, cols, rows int) []placed {
 		}
 		return a.Y < b.Y
 	})
-	taken := map[[2]int]bool{}
+	taken := make(map[[2]int]bool, len(reserved)+len(ms))
+	for c := range reserved {
+		taken[c] = true
+	}
 	free := func(x, y int) bool {
 		return x >= 0 && y >= 0 && x < cols && y < rows && !taken[[2]int{x, y}]
 	}
@@ -352,11 +365,11 @@ func mmPanelView(v mmView, t, h int) ([]line, *mmSlot) {
 		for i := 0; i < rows; i++ {
 			out = append(out, borderedL(line{S(strings.Repeat(" ", W))}, t))
 		}
-		return out, &mmSlot{Row: 1, Col: 2 + pad, Cols: cols, Rows: rows, CellW: v.CellW, CellH: v.CellH, Icons: v.Icons, Ver: v.Ver}
+		return out, &mmSlot{Row: 1, Col: 2 + pad, Cols: cols, Rows: rows, CellW: v.CellW, CellH: v.CellH, Icons: v.Icons, Objs: objMarkers(v.Obj), Ver: v.Ver}
 	case mmModeBlocks:
-		return renderMinimapBlocks(v.Markers, v.Status, t, h), nil
+		return renderMinimapBlocks(v.Markers, objMarkers(v.Obj), v.Status, t, h), nil
 	}
-	return minimapPanel(v.Markers, v.Status, t, h), nil
+	return minimapPanel(v.Markers, objMarkers(v.Obj), v.Status, t, h), nil
 }
 
 // mmBlocks caches the marker-free half-block map of the newest geometry: the map pixels
@@ -392,20 +405,28 @@ func mmBlockBase(bg *image.RGBA, cols, rows, t int) (*image.RGBA, [][]seg, []lin
 }
 
 // renderMinimapBlocks draws the map as truecolor half-block pixels with role letters on top.
-func renderMinimapBlocks(markers []mmMarker, status string, t, h int) []line {
+func renderMinimapBlocks(markers []mmMarker, objs []mmObj, status string, t, h int) []line {
 	W := t - 4
 	cols, rows := mmGeometry(t, h)
 	img, cells, base := mmBlockBase(mmScaledMap(mmMapImg(), cols, rows*2), cols, rows, t)
 	labelled := map[int][]seg{}
-	for _, m := range placeMarkers(markers, cols, rows) {
-		row, ok := labelled[m.y]
+	row := func(y int) []seg {
+		r, ok := labelled[y]
 		if !ok {
-			row = append([]seg(nil), cells[m.y]...)
-			labelled[m.y] = row
+			r = append([]seg(nil), cells[y]...)
+			labelled[y] = r
 		}
+		return r
+	}
+	oc := placeObjectives(objs, cols, rows)
+	for _, c := range oc {
+		row(c.y)[c.x] = C(string(c.r), mmBlockObjLabel(img, c))
+	}
+	for _, m := range placeMarkersAround(markers, cols, rows, objTaken(oc)) {
+		r := row(m.y)
 		i := 0
-		for _, r := range m.label {
-			row[m.x+i] = C(string(r), mmBlockLabel(img, m.x+i, m.y, m.team, m.state, i > 0))
+		for _, ch := range m.label {
+			r[m.x+i] = C(string(ch), mmBlockLabel(img, m.x+i, m.y, m.team, m.state, i > 0))
 			i++
 		}
 	}
