@@ -517,6 +517,9 @@ func (r *replay) Tick(now time.Time, video, panel bool) (feedSnap, mmView) {
 		view.Status = "video off"
 	default:
 		r.sy.ObserveFeedKills(r.st.killsList())
+		if t, ok := r.st.gameStart(); ok {
+			r.sy.ObserveGameStart(t)
+		}
 		r.sy.ObserveFeedLatest(r.st.edge())
 		r.learnOffset()
 		r.vid.setEnabled(true)

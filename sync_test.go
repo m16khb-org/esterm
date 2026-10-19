@@ -433,17 +433,98 @@ func TestPlayClockStartHoldsUntilSourcesAreMarginAhead(t *testing.T) {
 	}
 }
 
-func TestSyncOneNoisyFlipMovesSkewLittle(t *testing.T) {
+// flipErrors runs the game through s and returns, for every kill flip, the offset error s
+// held just before the flip showed on the video: what a viewer sees at that kill.
+func flipErrors(s *mmSync, g *simGame, fps, until float64) []float64 {
+	var errs []float64
+	next := 0
+	for i := 0; float64(i) < until*fps; i++ {
+		t := float64(i) / fps
+		for next < len(g.kills) && g.kills[next].T.Sub(g.spawn).Seconds()-g.o <= t {
+			if o, _, ok := s.Offset(); ok {
+				errs = append(errs, o-g.o)
+			}
+			next++
+		}
+		s.ObserveHUD(i, g.hud(t))
+	}
+	return errs
+}
+
+func TestSyncSkewFarFromPriorIsLearnedFromTheFirstFlips(t *testing.T) {
+	// A game's skew strays from its layout's average: the first flip has only the prior to
+	// go by. A prior a second off or more is dropped once two flips agree against it (the
+	// third flip is placed by them); one that is merely off gives way as the flips pile up.
+	for _, tc := range []struct {
+		off   float64
+		after int // flips from which the error stays within half a second
+	}{{-0.6, 2}, {0.6, 2}, {-0.8, 3}, {2.5, 2}} {
+		g := &simGame{spawn: t0, skew: syncLayoutSkew["lpl"] + tc.off, o: -47.7}
+		killsEvery(g, 230, 53, 1200)
+		s := g.sync(5)
+		s.SetLayout("lpl")
+		s.ObserveFeedKills(g.feedKills())
+		errs := flipErrors(s, g, 5, 1200)
+		if len(errs) < 10 {
+			t.Fatalf("only %d flips measured", len(errs))
+		}
+		if math.Abs(errs[0]+tc.off) > 0.3 {
+			t.Fatalf("skew off %+.1f: first flip error %+.2f, want the prior's %+.2f", tc.off, errs[0], -tc.off)
+		}
+		for n, e := range errs[tc.after:] {
+			if math.Abs(e) > 0.5 {
+				t.Fatalf("skew off %+.1f: flip %d error %+.2f s (all %v)", tc.off, n+tc.after+1, e, errs)
+			}
+		}
+	}
+}
+
+func TestSyncSkewIgnoresAMismatchedKill(t *testing.T) {
+	// One feed kill sits 3 s off (a late frame): it must not drag the flips after it.
+	g := &simGame{spawn: t0, skew: 3.5, o: 100}
+	killsEvery(g, 150, 37, 900)
+	feed := g.feedKills()
+	feed[3].T = feed[3].T.Add(3 * time.Second)
+	s := g.sync(5)
+	s.ObserveFeedKills(feed)
+	errs := flipErrors(s, g, 5, 900)
+	for n, e := range errs {
+		if n != 3 && math.Abs(e) > 0.6 {
+			t.Fatalf("flip %d error %+.2f s (all %v)", n+1, e, errs)
+		}
+	}
+}
+
+func TestSyncPriorOutweighedByConsistentFlips(t *testing.T) {
 	s := newMMSync(t0, 2, nil)
 	s.SetLayout("lck")
 	prior := s.Skew()
-	s.skews = []float64{prior.Seconds() + 1}
-	if d := s.Skew() - prior; d < 0 || d > 300*time.Millisecond {
-		t.Fatalf("one flip 1 s off moved the skew by %s", d)
+	off := func(v float64, w float64) skewSample { return skewSample{prior.Seconds() + v, w} }
+	s.skews = []skewSample{off(0.6, 0.2)}
+	if d := s.Skew() - prior; d < 100*time.Millisecond || d > 400*time.Millisecond {
+		t.Fatalf("one sharp flip 0.6 s off moved the skew by %s, want a part of it", d)
 	}
-	s.skews = []float64{prior.Seconds() + 1, prior.Seconds() + 1, prior.Seconds() + 1, prior.Seconds() + 1, prior.Seconds() + 1, prior.Seconds() + 1}
-	if d := s.Skew() - prior; d < 600*time.Millisecond {
-		t.Fatalf("consistent flips must win over the prior, moved only %s", d)
+	s.skews = []skewSample{off(0.6, 0.2), off(0.6, 0.2), off(0.6, 0.2), off(0.6, 0.2), off(0.6, 0.2)}
+	if d := s.Skew() - prior; d < 400*time.Millisecond {
+		t.Fatalf("five consistent flips 0.6 s off moved the skew by only %s", d)
+	}
+	s.skews = []skewSample{off(3, 0.2)}
+	if d := s.Skew() - prior; d != 0 {
+		t.Fatalf("one flip 3 s off must not beat the prior alone, moved %s", d)
+	}
+	s.skews = []skewSample{off(3, 0.2), off(3.1, 0.2)}
+	if d := s.Skew() - prior; d < 2500*time.Millisecond {
+		t.Fatalf("two flips 3 s off must beat the prior, moved %s", d)
+	}
+	s.skews = []skewSample{off(3, 0.2), off(0.1, 0.2), off(-0.1, 0.2)}
+	if d := s.Skew() - prior; d < -300*time.Millisecond || d > 300*time.Millisecond {
+		t.Fatalf("one stray flip among agreeing ones moved the skew by %s", d)
+	}
+	s.skews = []skewSample{off(1.5, 0.2)}
+	sharp := s.Skew() - prior
+	s.skews = []skewSample{off(1.5, 3)}
+	if wide := s.Skew() - prior; wide >= sharp {
+		t.Fatalf("a flip seen across a 3 s bracket moved the skew by %s, a sharp one by %s", wide, sharp)
 	}
 }
 
@@ -468,5 +549,95 @@ func TestSyncSurvivesBroadcastClockStallAndCatchUp(t *testing.T) {
 	wantOffset(t, s, -149, 0.6)
 	if s.Relocks() != 0 {
 		t.Fatalf("a stalled broadcast clock caused %d relocks", s.Relocks())
+	}
+}
+
+func goldFrame(at float64, blue, red int) stamped[frame] {
+	return stamped[frame]{t0.Add(sec(at)), frame{BlueTeam: teamStats{TotalGold: blue}, RedTeam: teamStats{TotalGold: red}}}
+}
+
+func TestGameStartIsTheFirstGoldAfterEmptyFrames(t *testing.T) {
+	fr := []stamped[frame]{goldFrame(0, 0, 0), goldFrame(1.5, 0, 0), goldFrame(4.9, 2500, 0), goldFrame(5.0, 2500, 2500), goldFrame(6, 2500, 2500)}
+	if got, ok := gameStart(fr); !ok || !got.Equal(t0.Add(sec(4.9))) {
+		t.Fatalf("start %v ok=%v, want 4.9 s (a team's gold shows before the other's)", got.Sub(t0), ok)
+	}
+	if _, ok := gameStart(fr[3:]); ok {
+		t.Fatal("a buffer that begins in the game has not seen its start")
+	}
+	glitch := []stamped[frame]{goldFrame(0, 9000, 9500), goldFrame(1, 0, 0), goldFrame(2, 9100, 9600)}
+	if _, ok := gameStart(glitch); ok {
+		t.Fatal("an empty frame in the middle of a game is not a start")
+	}
+}
+
+func TestSyncGameStartPlacesTheSkewBeforeAnyFlip(t *testing.T) {
+	// This game's skew is a second above its league's average. Its first gold shows
+	// syncLayoutGap after the HUD clock's zero, so the start fixes the skew without a flip.
+	lck := syncLayoutSkew["lck"] + 1
+	g := &simGame{spawn: t0, skew: lck, o: 100.1}
+	killsEvery(g, 150, 53, 1000)
+	for _, withStart := range []bool{false, true} {
+		s := g.sync(5)
+		s.SetLayout("lck")
+		if withStart {
+			s.ObserveGameStart(t0.Add(sec(lck + syncLayoutGap["lck"])))
+		}
+		s.ObserveFeedKills(g.feedKills())
+		errs := flipErrors(s, g, 5, 1000)
+		if len(errs) < 10 {
+			t.Fatalf("only %d flips measured", len(errs))
+		}
+		if withStart && math.Abs(errs[0]) > 0.3 {
+			t.Fatalf("the first flip is %+.2f s off although the game start is known", errs[0])
+		}
+		if !withStart && math.Abs(errs[0]) < 0.8 {
+			t.Fatalf("the first flip is only %+.2f s off without the game start: the test does not show the prior's miss", errs[0])
+		}
+	}
+}
+
+func TestSyncGameStartOfALayoutWithoutGapIsIgnored(t *testing.T) {
+	s := newMMSync(t0, 5, nil)
+	s.SetLayout("lpl")
+	prior := s.Skew()
+	s.ObserveGameStart(t0.Add(sec(4.8)))
+	if s.Skew() != prior {
+		t.Fatalf("skew %s moved from the prior %s by a game start", s.Skew(), prior)
+	}
+}
+
+func TestSyncGameStartYieldsToFlipsThatDisagree(t *testing.T) {
+	// A start that does not match the game (another game's, a feed that lagged) is only a
+	// prior: the flips decide once they agree among themselves.
+	g := &simGame{spawn: t0, skew: 3.0, o: 100}
+	killsEvery(g, 100, 31, 900)
+	s := g.sync(5)
+	s.SetLayout("lck")
+	s.ObserveGameStart(t0.Add(sec(3.0 + syncLayoutGap["lck"] + 2.5)))
+	s.ObserveFeedKills(g.feedKills())
+	errs := flipErrors(s, g, 5, 900)
+	for n, e := range errs[5:] {
+		if math.Abs(e) > 0.5 {
+			t.Fatalf("flip %d error %+.2f s with a wrong game start (all %v)", n+6, e, errs)
+		}
+	}
+}
+
+func TestFeedRemembersTheGameStartAfterTheFramesAreTrimmed(t *testing.T) {
+	f := newFeed("", time.Second)
+	at := func(s float64, gold int) frame {
+		return mkFrame(t0.Add(sec(s)), gold)
+	}
+	// A feed that joined mid-game has not seen the start...
+	f.absorbLocked(windowResp{Frames: []frame{at(100, 9000), at(101, 9010)}}, detailsResp{})
+	if _, ok := f.GameStart(); ok {
+		t.Fatal("a buffer that begins with gold has no game start")
+	}
+	// ...one that saw the loading screen turn into the game has, and keeps it for good.
+	f = newFeed("", time.Second)
+	f.absorbLocked(windowResp{Frames: []frame{at(0, 0), at(1, 0), at(4.9, 2500), at(6, 2500)}}, detailsResp{})
+	f.absorbLocked(windowResp{Frames: []frame{at(2000, 30000), at(2001, 30100)}}, detailsResp{})
+	if got, ok := f.GameStart(); !ok || !got.Equal(t0.Add(sec(4.9))) {
+		t.Fatalf("game start %v ok=%v, want 4.9 s", got.Sub(t0), ok)
 	}
 }

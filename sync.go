@@ -24,28 +24,35 @@ import (
 // or the layout's prior skew until a flip has been matched.
 
 const (
-	syncFPS         = 2.0             // default video sampling rate
-	syncWindow      = 120.0           // seconds of clock samples kept
-	syncStale       = 180.0           // seconds without a usable sample before sync decays to calibrating
-	syncMinSamples  = 6               // clock samples needed to call the estimate locked
-	syncKillGate    = 20.0            // a flip must match a feed kill this close to the estimate
-	syncStep        = 2.0             // deviation that counts as disagreement
-	syncStepCount   = 3               // consistent disagreeing samples that re-lock
-	syncStepSpan    = 2.0             // ... spread over at least this many video seconds
-	syncRelockMiss  = 2               // disagreeing samples in a row that end the flat run a re-lock is made of
-	syncSkewPrior   = 3.5             // skew before the layout is known (= feedPriorSkew in seconds)
-	syncSkewKeep    = 16              // learned skew samples kept
-	syncPriorWeight = 3               // flips the prior skew is worth
-	syncKillKeep    = 900.0           // seconds of kill-flip offsets kept
-	syncFlipGap     = 3.0             // max video gap across which a counter change is trusted
-	syncMargin      = 6 * time.Second // playout distance kept behind the slower source
-	syncCatchUp     = 10 * time.Second
-	syncOffsetHold  = 0.3   // published offset moves only when the estimate does by more than this
-	syncHoldMax     = 600.0 // video seconds (a long pause plus slack) after which a held disagreement is believed anyway
-	syncHoldSlack   = 1.0   // the feed must be this far past a sample before the disagreement is believed
+	syncFPS        = 2.0             // default video sampling rate
+	syncWindow     = 120.0           // seconds of clock samples kept
+	syncStale      = 180.0           // seconds without a usable sample before sync decays to calibrating
+	syncMinSamples = 6               // clock samples needed to call the estimate locked
+	syncKillGate   = 20.0            // a flip must match a feed kill this close to the estimate
+	syncStep       = 2.0             // deviation that counts as disagreement
+	syncStepCount  = 3               // consistent disagreeing samples that re-lock
+	syncStepSpan   = 2.0             // ... spread over at least this many video seconds
+	syncRelockMiss = 2               // disagreeing samples in a row that end the flat run a re-lock is made of
+	syncSkewPrior  = 3.5             // skew before the layout is known (= feedPriorSkew in seconds)
+	syncSkewKeep   = 16              // learned skew samples kept
+	syncPriorSigma = 0.35            // seconds: how far a game's skew strays from the average of its layout
+	syncFlipSigma  = 0.5             // seconds: noise of one kill flip's skew (feed timestamps, HUD counter delay, the clock mean)
+	syncStartSigma = 0.25            // seconds: how far a game's skew strays from its gold start minus the layout's gap
+	syncPriorVotes = 1.5             // votes the prior skew gets against one for each flip when they disagree
+	syncStartGold  = 3000            // a team's gold in the first frame of a game is at most this (the champions' 500 each, 2500)
+	syncKillKeep   = 900.0           // seconds of kill-flip offsets kept
+	syncFlipGap    = 3.0             // max video gap across which a counter change is trusted
+	syncMargin     = 6 * time.Second // playout distance kept behind the slower source
+	syncCatchUp    = 10 * time.Second
+	syncOffsetHold = 0.3   // published offset moves only when the estimate does by more than this
+	syncHoldMax    = 600.0 // video seconds (a long pause plus slack) after which a held disagreement is believed anyway
+	syncHoldSlack  = 1.0   // the feed must be this far past a sample before the disagreement is believed
 )
 
 type syncSample struct{ t, v float64 }
+
+// skewSample is the skew one matched kill flip implies, with its noise.
+type skewSample struct{ v, w float64 } // skew, width of the flip's bracket
 
 // mmSync estimates the video-to-feed offset. Safe for concurrent use.
 type mmSync struct {
@@ -57,10 +64,11 @@ type mmSync struct {
 	clk   []syncSample // t, c = O − skew
 	pend  []syncSample // consecutive clock samples that disagree with clk
 	kills []syncSample // t, O from a matched kill flip
-	skews []float64
+	skews []skewSample
 
 	feedKills map[[2]int]float64 // (team,count) → feed seconds since spawn
 	hudKills  map[[2]int]float64 // (team,count) → video seconds
+	hudWidth  map[[2]int]float64 // (team,count) → video seconds between the last frame showing the old counter and the first showing the new
 	matched   map[[2]int]bool
 
 	conf     [2]int // debounced HUD kill counters
@@ -76,7 +84,10 @@ type mmSync struct {
 	used    bool
 	relocks int
 
+	layout     string
 	prior      float64 // skew used until a kill flip taught one
+	start      float64 // feed time of the game's first gold, seconds since spawn
+	haveStart  bool
 	feedLatest float64 // newest feed frame, seconds since spawn
 	haveFeed   bool
 	disSince   float64 // video time of the first sample of the current disagreement
@@ -92,7 +103,7 @@ func newMMSync(spawn time.Time, fps float64, pauses func() []feedPause) *mmSync 
 	}
 	return &mmSync{
 		fps: fps, spawn: spawn, pauses: pauses, prior: syncSkewPrior,
-		feedKills: map[[2]int]float64{}, hudKills: map[[2]int]float64{}, matched: map[[2]int]bool{},
+		feedKills: map[[2]int]float64{}, hudKills: map[[2]int]float64{}, hudWidth: map[[2]int]float64{}, matched: map[[2]int]bool{},
 	}
 }
 
@@ -102,13 +113,52 @@ func newMMSync(spawn time.Time, fps float64, pauses func() []feedPause) *mmSync 
 // worlds 3.02/3.59/~2.6 (three games), lck 2.79/2.58, lpl 3.23 (one game), lec 4.73/4.66.
 var syncLayoutSkew = map[string]float64{"worlds": 3.1, "lck": 2.7, "lpl": 3.3, "lec": 4.7}
 
+// syncLayoutGap is, per broadcast layout, how long after the HUD clock's zero the feed
+// shows the game's first gold (the seconds the game start leads the skew by): the skew of
+// a game is its gold start minus this gap. Unlike the skew, the gap hardly differs between
+// the games of a league, so a game whose gold start is known is placed more closely than
+// the league's average skew does. Layouts without an entry go by their average skew.
+var syncLayoutGap = map[string]float64{"worlds": 0.85, "lck": 1.85, "lec": 0.98}
+
 // SetLayout selects the prior skew of the named broadcast layout.
 func (s *mmSync) SetLayout(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.layout = name
 	if v, ok := syncLayoutSkew[name]; ok {
 		s.prior = v
 	}
+}
+
+// ObserveGameStart tells the estimator when the feed first showed gold (see gameStart).
+func (s *mmSync) ObserveGameStart(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.start, s.haveStart = t.Sub(s.spawn).Seconds(), true
+}
+
+// gameStart returns the timestamp of the first frame that shows gold after a frame that
+// showed none: the game's first moment (the champions spawn with their starting gold, 2,500
+// a team), before it the frames show the loading screen. A buffer that begins with gold has
+// not seen the start, and a glitched frame mid-game is told apart by its far larger gold.
+func gameStart(fr []stamped[frame]) (time.Time, bool) {
+	for i := 1; i < len(fr); i++ {
+		p, c := fr[i-1].v, fr[i].v
+		if p.BlueTeam.TotalGold == 0 && p.RedTeam.TotalGold == 0 &&
+			c.BlueTeam.TotalGold+c.RedTeam.TotalGold > 0 && c.BlueTeam.TotalGold <= syncStartGold && c.RedTeam.TotalGold <= syncStartGold {
+			return fr[i].ts, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// priorLocked is the skew expected before a kill flip has taught the real one, and how far
+// it may be off.
+func (s *mmSync) priorLocked() (skew, sigma float64) {
+	if gap, ok := syncLayoutGap[s.layout]; ok && s.haveStart {
+		return s.start - gap, syncStartSigma
+	}
+	return s.prior, syncPriorSigma
 }
 
 func median(xs []float64) float64 {
@@ -160,17 +210,52 @@ func (s *mmSync) pauseList() []feedPause {
 	return s.pauses()
 }
 
-// skewLocked is the current feed-minus-HUD clock skew in seconds. The layout's prior
-// counts as syncPriorWeight flips, so a single noisy flip cannot move it far.
+// skewLocked is the current feed-minus-HUD clock skew in seconds: the inverse-variance
+// mean of the flips' skews and the prior (a sample of its own, syncPriorSigma wide, or
+// syncStartSigma when the game start places it), over those within a gate of their median.
+// A flip is worth about a quarter as much as a prior that is right to a third of a second,
+// so the first flips only nudge it. A prior that two flips disagree with by more than the
+// gate is outvoted, which the median decides with one vote per flip and syncPriorVotes for
+// the prior: one stray flip (a mismatched kill) falls out, two agreeing ones take over.
 func (s *mmSync) skewLocked() float64 {
+	prior, sigma := s.priorLocked()
 	if len(s.skews) == 0 {
-		return s.prior
+		return prior
 	}
-	xs := append(make([]float64, 0, len(s.skews)+syncPriorWeight), s.skews...)
-	for i := 0; i < syncPriorWeight; i++ {
-		xs = append(xs, s.prior)
+	type item struct{ v, sigma, vote float64 }
+	xs := append(make([]item, 0, len(s.skews)+1), item{prior, sigma, syncPriorVotes})
+	for _, k := range s.skews {
+		xs = append(xs, item{k.v, math.Hypot(syncFlipSigma, k.w/math.Sqrt(12)), 1})
 	}
-	return robustMean(xs)
+	sort.Slice(xs, func(i, j int) bool { return xs[i].v < xs[j].v })
+	votes := 0.0
+	for _, x := range xs {
+		votes += x.vote
+	}
+	med, acc := xs[len(xs)-1].v, 0.0
+	for _, x := range xs {
+		if acc += x.vote; acc >= votes/2 {
+			med = x.v
+			break
+		}
+	}
+	sum, wsum := 0.0, 0.0
+	for _, x := range xs {
+		if math.Abs(x.v-med) <= math.Max(1, 3*x.sigma) {
+			w := 1 / (x.sigma * x.sigma)
+			sum += w * x.v
+			wsum += w
+		}
+	}
+	return sum / wsum
+}
+
+func skewValues(ss []skewSample) []float64 {
+	out := make([]float64, len(ss))
+	for i, s := range ss {
+		out[i] = s.v
+	}
+	return out
 }
 
 // unpausedSpan is the video time between a and b not covered by a known game pause, at
@@ -195,7 +280,8 @@ func (s *mmSync) skewUncLocked() float64 {
 	case n < 3:
 		return 0.7
 	default:
-		return math.Max(0.2, madSigma(s.skews, median(s.skews))/math.Sqrt(float64(n)))
+		vs := skewValues(s.skews)
+		return math.Max(0.2, madSigma(vs, median(vs))/math.Sqrt(float64(n)))
 	}
 }
 
@@ -376,6 +462,7 @@ func (s *mmSync) addKills(t float64, blue, red int) {
 			if v[team] == s.conf[team]+1 && v[1-team] == s.conf[1-team] {
 				key := [2]int{team, v[team]}
 				s.hudKills[key] = (s.candT + s.candPrev) / 2
+				s.hudWidth[key] = s.candT - s.candPrev
 				s.tryMatch(key)
 			}
 		}
@@ -407,7 +494,7 @@ func (s *mmSync) tryMatch(key [2]int) {
 		}
 	}
 	if len(near) >= 3 {
-		s.skews = append(s.skews, o-robustMean(near))
+		s.skews = append(s.skews, skewSample{o - robustMean(near), s.hudWidth[key]})
 		if len(s.skews) > syncSkewKeep {
 			s.skews = s.skews[1:]
 		}

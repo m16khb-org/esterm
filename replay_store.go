@@ -340,6 +340,13 @@ func (s *replayStore) pausesList() []feedPause {
 	return append([]feedPause(nil), s.pauses...)
 }
 
+// gameStart is the feed time the game's first gold showed at, once its window is loaded.
+func (s *replayStore) gameStart() (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return gameStart(s.frames)
+}
+
 func (s *replayStore) killsList() []feedKill {
 	s.mu.Lock()
 	defer s.mu.Unlock()

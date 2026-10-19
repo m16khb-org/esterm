@@ -1002,6 +1002,9 @@ func (p *relayPlayout) Tick(now time.Time, video bool) (feedSnap, mmView) {
 		var ks []feedKill
 		ks, p.killsSeen = p.fd.KillsSince(p.killsSeen)
 		p.sy.ObserveFeedKills(ks)
+		if t, ok := p.fd.GameStart(); ok {
+			p.sy.ObserveGameStart(t)
+		}
 		p.sy.ObserveFeedLatest(lf)
 	}
 	// Once running, the shared clock outlives a passing loss of sync (stream restart,

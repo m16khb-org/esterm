@@ -182,6 +182,7 @@ type feed struct {
 	pauses   []feedPause
 	skew     time.Duration // 0 until SetSkew
 	kills    []feedKill    // every kill-count increase seen, in discovery order
+	start    time.Time     // when the game's first gold showed, once its frames were seen
 	killSeen map[[2]int]bool
 	objs     []objEvent    // every objective kill seen, in time order (objMerge)
 	fetching bool          // a backfill is running
@@ -277,7 +278,7 @@ func (f *feed) discover(now time.Time) {
 		f.nextTry, f.backoff, f.lastDet = time.Time{}, 0, time.Time{}
 		f.meta = windowResp{}
 		f.frames, f.dets, f.lags, f.series, f.pauses, f.skew = nil, nil, nil, nil, nil, 0
-		f.kills, f.killSeen, f.objs = nil, nil, nil
+		f.kills, f.killSeen, f.objs, f.start = nil, nil, nil, time.Time{}
 		f.lastDisp = time.Time{}
 	}
 }
@@ -442,6 +443,9 @@ func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 		}
 	}
 	f.objs = objMerge(f.objs, objDerive(tail, replayKillGap))
+	if f.start.IsZero() {
+		f.start, _ = gameStart(f.frames)
+	}
 }
 
 // Need makes sure the buffer reaches back to feed time t: when it starts later, the
@@ -587,6 +591,14 @@ func (f *feed) KillsSince(from int) ([]feedKill, int) {
 		from = 0
 	}
 	return append([]feedKill(nil), f.kills[from:]...), len(f.kills)
+}
+
+// GameStart returns when the game's first gold showed, once the feed has seen the frames
+// around it (a feed that joined later never does).
+func (f *feed) GameStart() (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.start, !f.start.IsZero()
 }
 
 // Kills returns every kill-count increase seen so far.
