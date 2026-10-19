@@ -728,6 +728,7 @@ const (
 	kittyDigitZ     = 2 + kittyMaxIcons // above every sprite
 
 	kittyIDSpan = 2048 // ids per process; kittyDigitID+kittyGlyphs <= kittyIDSpan
+	kittyAltPID = 1024 // alternate sprite placement ids start above every other placement id
 	kittyRing   = 2
 
 	kittyTileBytes = 64 << 10 // raw RGBA bytes one tile image may carry (a decoded 128x128 px)
@@ -1011,6 +1012,18 @@ func kittyAxis(px, cell, box, slot int) (c, ph int) {
 	return q / kittyPhases, q % kittyPhases
 }
 
+// kittySpritePID is the placement id of champion slot i: i+1, or its alternate. A sprite is
+// never moved by re-placing the placement it has: Tern's Windows client (relayed from the
+// macOS daemon) drew no champion while every tick re-placed them, yet drew the same sprites
+// when they never moved (`esterm lol demo`) and when each move went to the other id. Each
+// move places the image under the other id and then drops the old placement.
+func kittySpritePID(i int, alt bool) int {
+	if alt {
+		return kittyAltPID + i + 1
+	}
+	return i + 1
+}
+
 // kittyPosOf returns the placement of sprite p for circle cells cols x rows in slot s.
 func kittyPosOf(p mmPlace, cols, rows int, s *mmSlot) kittyPos {
 	c, px := kittyAxis(p.X, s.CellW, cols+1, s.Cols)
@@ -1155,6 +1168,7 @@ type kittySprite struct {
 	label    string              // lane badge the transmitted images carry
 	sent     [kittyVariants]bool // variant images in the terminal
 	cur      int                 // variant placed, while placed
+	pid      int                 // placement id in use, while placed (see kittySpritePID)
 	placed   bool
 	live     bool // visible in the frame being built
 	row, col int  // cell of the placement
@@ -1278,18 +1292,19 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 		v := kittyVariant(p.State, pos)
 		if !sp.placed || replace || sp.cur != v || sp.row != pos.row || sp.col != pos.col {
 			id := k.id(kittyVariantID(i, v))
+			pid := kittySpritePID(i, sp.placed && sp.pid == kittySpritePID(i, false))
 			goTo(pos.row, pos.col)
 			if sp.sent[v] {
-				b = kittyPlacement(b, id, i+1, bc, br, 2+i)
+				b = kittyPlacement(b, id, pid, bc, br, 2+i)
 			} else {
 				img := kittySpritePixels(mmSpriteFor(icon, p.Team, d, kittyRing, p.Label, p.State), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
-				b = kittyTransmitPlace(b, id, i+1, bc, br, 2+i, k.png.encode(img, true))
+				b = kittyTransmitPlace(b, id, pid, bc, br, 2+i, k.png.encode(img, true))
 				sp.sent[v] = true
 			}
-			if sp.placed && sp.cur != v { // the new variant is up: only now drop the old one
-				b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), i+1)
+			if sp.placed { // the new placement is up: only now drop the old one
+				b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), sp.pid)
 			}
-			sp.placed, sp.cur, sp.row, sp.col = true, v, pos.row, pos.col
+			sp.placed, sp.cur, sp.pid, sp.row, sp.col = true, v, pid, pos.row, pos.col
 		}
 		text := mmCountText(p.State, p.Secs)
 		style := 0
@@ -1306,7 +1321,7 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			continue
 		}
 		if sp.placed {
-			b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), i+1)
+			b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), sp.pid)
 			sp.placed = false
 		}
 		b = k.hideDigits(b, sp.digits[:], kittyDigitPID+i*kittyMaxDigits)

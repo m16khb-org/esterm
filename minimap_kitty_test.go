@@ -501,8 +501,14 @@ func TestKittySteadyTicksEmitOnlyMovedPlacements(t *testing.T) {
 	moved := testSlot(iconAt("A", 100, 0.6, 0.5), iconAt("B", 200, 0.25, 0.75))
 	out := k.Frame(moved, false)
 	cmds := parseKitty(t, out)
-	if len(cmds) != 1 || cmds[0].ctl["a"] != "p" || cmds[0].ctl["i"] != strconv.Itoa(testVariantID(moved, "A", 0)) {
-		t.Fatalf("only A's placement may be re-issued: %v", cmds)
+	// A move places A under its other placement id, then drops the old placement: Tern's
+	// Windows client drew nothing for a placement re-placed at another cell.
+	if len(cmds) != 2 || cmds[0].ctl["a"] != "p" || cmds[0].ctl["i"] != strconv.Itoa(testVariantID(moved, "A", 0)) ||
+		cmds[0].ctl["p"] != strconv.Itoa(kittySpritePID(0, true)) {
+		t.Fatalf("only A may be re-placed, under its alternate placement id: %v", cmds)
+	}
+	if d := cmds[1].ctl; d["a"] != "d" || d["d"] != "i" || d["i"] != strconv.Itoa(testVariantID(s, "A", 0)) || d["p"] != strconv.Itoa(kittySpritePID(0, false)) {
+		t.Fatalf("the old placement must be dropped after the new one is up: %v", cmds[1])
 	}
 	// 400x400 slot, d=33 in a 5x3 cell box: circle left edge px 224 -> quarter 90 -> cell 22 and
 	// phase 2 across, top edge px 184 -> quarter 37 -> cell 9 and phase 1 down: no pixel offset
@@ -510,11 +516,37 @@ func TestKittySteadyTicksEmitOnlyMovedPlacements(t *testing.T) {
 	if c.row != 1+9+1 || c.col != 2+22+1 || c.ctl["X"] != "" || c.ctl["Y"] != "" {
 		t.Errorf("cell %d;%d X=%q Y=%q", c.row, c.col, c.ctl["X"], c.ctl["Y"])
 	}
-	if len(out) > 120 {
+	if len(out) > 200 {
 		t.Errorf("one moved icon cost %d bytes", len(out))
 	}
 	if kittyCount(cmds, "a", "t") != 0 {
 		t.Error("a move must not re-transmit pixels")
+	}
+}
+
+func TestKittySpriteMovesNeverReplaceTheirOwnPlacement(t *testing.T) {
+	offlineMap(t)
+	hangNetwork(t)
+	var k kittyOut
+	type key struct{ i, p string }
+	placed := map[key]bool{}
+	for tick := 0; tick < 30; tick++ {
+		s := testSlot(iconAt("A", 100, 0.2+0.02*float64(tick), 0.5))
+		for _, c := range parseKitty(t, k.Frame(s, tick == 0)) {
+			kk := key{c.ctl["i"], c.ctl["p"]}
+			switch c.ctl["a"] {
+			case "p", "T":
+				if c.ctl["p"] != "1" && c.ctl["p"] != strconv.Itoa(kittySpritePID(0, true)) {
+					continue // map and other images
+				}
+				if placed[kk] {
+					t.Fatalf("tick %d: placement %v re-placed while it is up", tick, kk)
+				}
+				placed[kk] = true
+			case "d":
+				delete(placed, kk)
+			}
+		}
 	}
 }
 
