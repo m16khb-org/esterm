@@ -20,6 +20,29 @@ import (
 
 var btOut = flag.String("backtest.out", "", "write the backtest results (per game and overall, JSON) to this file; annotated gap frames go to <file>.gaps/")
 
+// btPeak is a whole-map portrait match of a champion that is found with a sure score
+// elsewhere on the frame (a false candidate) or at that very place (a true one).
+type btPeak struct {
+	score     float32
+	lean      float64
+	col       float32
+	uv, sat   float32
+	true_     bool
+	team      int
+	champ     string
+	otherNear bool // another champion's found icon is at the candidate
+}
+
+// btMiss is the best whole-map portrait match of a champion the tracker did not have.
+type btMiss struct {
+	score float32
+	x, y  float64 // normalized
+	plaus bool    // would pass the team ring and colour checks
+	lean  float64 // ringLean at the match
+	col   float32 // score + mmColourWeight*(uv - mmSatWeight*sat)
+	found bool    // the champion was found on the frame; the figures are those of its found position
+}
+
 // btFrame is what the pipeline made of one video frame, with the sync's offset at that time.
 type btFrame struct {
 	t      float64 // video seconds since the clip start
@@ -39,6 +62,15 @@ type btFrame struct {
 	fit    float32 // map fit correlation
 	terr   bool    // the fitted box shows terrain
 	plateS float64 // share of the plate's edge pixels still on screen
+
+	// ESTERM_BACKTEST_MISS=1: for every champion not found on this frame, its best portrait
+	// match over the whole map (nil on other frames).
+	miss []btMiss
+
+	// ESTERM_BACKTEST_FITALL=1: the map fit of this very frame, whatever the pipeline did
+	// (the pipeline refits every mmFitEvery frames only).
+	boxNow mmBox
+	fitNow float32
 }
 
 type btRun struct {
@@ -55,6 +87,83 @@ type btRun struct {
 	sy        *mmSync
 	icons     []champIcon
 	rangeEnd  float64 // video second after which frames are not processed (0: whole clip)
+	peaks     []btPeak
+
+	// ESTERM_BACKTEST_MISS=1: mean team-colour lean by distance from the centre (half px
+	// bins) around isolated, well matched icons, per team (100, 200): where the ring is.
+	ring    [2][40]float64
+	ringCnt [2][40]int
+	ringRGB [2][40][3]float64
+}
+
+// addRing accumulates the ring profile around champion k if it is found, well matched and
+// alone.
+func (r *btRun) addRing(trk *mmTracker, k int, dets []mmDet) {
+	det := dets[k]
+	if !det.Visible || det.Age != 0 || det.Covered || det.MV || det.Score < 0.85 {
+		return
+	}
+	d := float64(trk.d()) / mmFrameSize
+	for o, od := range dets {
+		if o != k && od.Visible && math.Hypot(od.X-det.X, od.Y-det.Y) < 2.2*d {
+			return
+		}
+	}
+	team := 0
+	if det.Team == 200 {
+		team = 1
+	}
+	cx, cy := det.X*mmFrameSize, det.Y*mmFrameSize
+	for y := int(cy) - 20; y <= int(cy)+20; y++ {
+		for x := int(cx) - 20; x <= int(cx)+20; x++ {
+			if x < 0 || y < 0 || x >= mmFrameSize || y >= mmFrameSize {
+				continue
+			}
+			rr := math.Hypot(float64(x)+0.5-cx, float64(y)+0.5-cy)
+			if rr >= 20 {
+				continue
+			}
+			o := 3 * (y*mmFrameSize + x)
+			pr, pg, pb := int(trk.rgb[o]), int(trk.rgb[o+1]), int(trk.rgb[o+2])
+			l := pb - max(pr, pg)
+			if team == 1 {
+				l = pr - max(pg, pb)
+			}
+			r.ring[team][int(rr*2)] += float64(max(l, 0))
+			r.ringCnt[team][int(rr*2)]++
+			r.ringRGB[team][int(rr*2)][0] += float64(pr)
+			r.ringRGB[team][int(rr*2)][1] += float64(pg)
+			r.ringRGB[team][int(rr*2)][2] += float64(pb)
+		}
+	}
+}
+
+// addPeaks records the whole-map candidates of champion k when it is found on the frame
+// with a sure score: the one at its icon is true, the others are false.
+func (r *btRun) addPeaks(trk *mmTracker, k int, dets []mmDet) {
+	det := dets[k]
+	if !det.Visible || det.Age != 0 || det.Covered || det.MV || det.Score < 0.85 {
+		return
+	}
+	d := trk.d()
+	tp := &trk.tpls[k]
+	fx, fy := det.X*mmFrameSize, det.Y*mmFrameSize
+	for _, h := range tp.scanPeaks(&trk.img, mmWin{0, mmFrameSize - d, 0, mmFrameSize - d}, 3, 0.55) {
+		cx, cy := float64(h.x)+float64(d)/2, float64(h.y)+float64(d)/2
+		dist := math.Hypot(cx-fx, cy-fy)
+		if dist >= 0.3*float64(d) && dist <= 0.8*float64(d) {
+			continue
+		}
+		uv, sat := tp.colourMatch(trk.rgb, h.x, h.y)
+		p := btPeak{score: h.score, lean: ringLean(trk.rgb, h.x, h.y, d, tp.ref.Team), uv: uv, sat: sat, true_: dist < 0.3*float64(d), team: tp.ref.Team, champ: tp.ref.Champ}
+		p.col = h.score + mmColourWeight*(uv-mmSatWeight*sat)
+		for o, od := range dets {
+			if o != k && od.Visible && od.Age == 0 && !od.Covered && math.Hypot(od.X*mmFrameSize-cx, od.Y*mmFrameSize-cy) < 0.5*float64(d) {
+				p.otherNear = true
+			}
+		}
+		r.peaks = append(r.peaks, p)
+	}
 }
 
 func btCPU() time.Duration {
@@ -75,6 +184,9 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 	}
 	sy := newMMSync(p.spawn, mmFPS, p.st.pausesList)
 	sy.ObserveFeedKills(p.st.killsList())
+	if t, ok := p.st.gameStart(); ok {
+		sy.ObserveGameStart(t)
+	}
 	sy.ObserveFeedLatest(p.st.end)
 	pipe := newMMPipeline(icons, sy)
 	pipe.livesAt = func(t time.Time) mmLives { return p.st.livesAt(t, sy.Skew()) }
@@ -117,6 +229,39 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 		t0 := time.Now()
 		bf.res = pipe.Process(f)
 		run.procWall += time.Since(t0)
+		if bf.res.layout != "" && os.Getenv("ESTERM_BACKTEST_FITALL") != "" {
+			for _, l := range mmLayouts {
+				if l.Name == bf.res.layout {
+					bf.boxNow, bf.fitNow, _ = mmFitMap(f.MM, l.Map)
+				}
+			}
+		}
+		if os.Getenv("ESTERM_BACKTEST_MISS") != "" && bf.res.visible && pipe.cover == 0 && pipe.trk != nil && len(bf.res.dets) == len(pipe.trk.tpls) {
+			// where each champion the tracker does not have fresh would score best over the whole map
+			trk := pipe.trk
+			bf.miss = make([]btMiss, len(bf.res.dets))
+			d := trk.d()
+			for k, det := range bf.res.dets {
+				tp := &trk.tpls[k]
+				run.addRing(trk, k, bf.res.dets)
+				run.addPeaks(trk, k, bf.res.dets)
+				if det.Visible && det.Age == 0 {
+					if !det.Covered && !det.MV {
+						x, y := int(det.X*mmFrameSize)-d/2, int(det.Y*mmFrameSize)-d/2
+						if x >= 0 && y >= 0 && x+d <= mmFrameSize && y+d <= mmFrameSize {
+							uv, sat := tp.colourMatch(trk.rgb, x, y)
+							bf.miss[k] = btMiss{det.Score, det.X, det.Y, true, ringLean(trk.rgb, x, y, tp.d, tp.ref.Team), det.Score + mmColourWeight*(uv-mmSatWeight*sat), true}
+						}
+					}
+					continue
+				}
+				for _, h := range tp.scanPeaks(&trk.img, mmWin{0, mmFrameSize - d, 0, mmFrameSize - d}, 1, 0.3) {
+					uv, sat := tp.colourMatch(trk.rgb, h.x, h.y)
+					bf.miss[k] = btMiss{h.score, float64(h.x+d/2) / mmFrameSize, float64(h.y+d/2) / mmFrameSize, trk.plausible(tp, h.x, h.y, h.score),
+						ringLean(trk.rgb, h.x, h.y, tp.d, tp.ref.Team), h.score + mmColourWeight*(uv-mmSatWeight*sat), false}
+				}
+			}
+		}
 		mmReleaseFrame(f)
 		bf.seen = bf.res.visible && pipe.cover == 0
 		if bf.res.layout != "" && !bf.res.visible {

@@ -8,9 +8,9 @@ import "image"
 
 // mainObs reads the main view of frame f: it finds the health bars and the camera
 // viewport (on the map crop the tracker just used), matches bars to champions by level,
-// health and the champion's last position, and returns the champions' positions in map
-// coordinates. lives carries the feed's level and health at the frame's instant; without
-// it nothing is matched.
+// health, the nameplate (learned over the game, see mainview_plate.go) and the champion's
+// last position, and returns the champions' positions in map coordinates. lives carries
+// the feed's level and health at the frame's instant; without it nothing is matched.
 func (p *mmPipeline) mainObs(idx int, main []byte, lay *mmLayout, lives mmLives) []mvObs {
 	if lives == nil || len(main) != mmMainBytes {
 		return nil
@@ -42,5 +42,5 @@ func (p *mmPipeline) mainObs(idx int, main []byte, lay *mmLayout, lives mmLives)
 		c.PrevX, c.PrevY, c.PrevAge, c.HasPrev = p.trk.Prev(ic.ref.PID, idx)
 		champs = append(champs, c)
 	}
-	return mvAssign(bars, view, champs)
+	return mvAssign(bars, view, champs, idx, &p.mvPlates)
 }

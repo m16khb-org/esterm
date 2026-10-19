@@ -74,6 +74,9 @@ type mmDet struct {
 	Covered bool
 	// MV: measured on this frame from the main view's health bar, not from the portrait.
 	MV bool
+	// Attached: the champion is latched onto the ally whose icon it is drawn at (a support
+	// has no icon of its own then): Covered too, and it is as fresh as that ally's position.
+	Attached bool
 }
 
 // mmIconState is how a champion marker is drawn.

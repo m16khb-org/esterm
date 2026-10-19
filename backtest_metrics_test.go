@@ -16,6 +16,20 @@ import (
 	"time"
 )
 
+// A champion found by its portrait on two frames at most btJumpSpan seconds apart cannot
+// have walked btJumpDist of the map in between (a blink is 0.03, a teleport or a flash
+// plus a dash is rare), unless it respawned (a sighting at its fountain): the second
+// sighting is a swap or a look-alike, the proxy this backtest has for wrong detections (it
+// has no ground-truth positions).
+const (
+	btJumpSpan = 1.0
+	btJumpDist = 0.12
+)
+
+// btFitTol is the px a frame's map box may differ from the game's usual box before the
+// frame counts as cropped wrongly.
+const btFitTol = 2
+
 // Marker states of one champion on one frame, as the app would draw it.
 const (
 	btNone   = iota // frame outside the measured stretch of the game
@@ -134,6 +148,10 @@ type btStats struct {
 	ClusterRatio  float64   `json:"aliveDetectedClustered"`
 	DeadRatio     float64   `json:"deadDetected"`
 	TrackedFrames int       `json:"trackedFrames"`
+	Jumps         int       `json:"measuredJumps"`          // a champion measured on the map twice within btJumpSpan seconds more than btJumpDist apart: a swap or a lock on a look-alike (the false-positive proxy; a teleport is rare)
+	FitOffFrames  int       `json:"fitOffFrames"`           // tracked frames whose map box is more than btFitTol px from the game's usual box: a wrong fit (scene transitions)
+	FitOffN       int       `json:"fitOffAliveChampFrames"` // alive champion frames among them
+	FitOffHit     int       `json:"fitOffAliveFound"`
 	Champs        []btChamp `json:"champions,omitempty"`
 
 	RespErrs   []float64 `json:"respawnErrors,omitempty"`
@@ -511,6 +529,26 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 		}
 		return best
 	}
+	// The map box the broadcast holds for most of the game; a frame fitted more than
+	// btFitTol px from it was cropped wrongly (a scene transition) and the tracker saw a
+	// shifted map.
+	boxN := map[mmBox]int{}
+	var usual mmBox
+	for _, f := range fs {
+		if f.seen && f.haveB {
+			boxN[f.box]++
+			if b := boxN[f.box]; b > boxN[usual] {
+				usual = f.box
+			}
+		}
+	}
+	fitOff := func(f btFrame) bool {
+		return f.haveB && (absInt(f.box.X-usual.X) > btFitTol || absInt(f.box.Y-usual.Y) > btFitTol || absInt(f.box.W-usual.W) > btFitTol)
+	}
+	prevAt, prevX, prevY := make([]float64, nk), make([]float64, nk), make([]float64, nk)
+	for k := range prevAt {
+		prevAt[k] = math.Inf(-1)
+	}
 	for i, f := range fs {
 		if !in[i] || !f.seen || len(f.res.dets) != nk || !f.locked {
 			for k := range missRun {
@@ -518,7 +556,23 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 			}
 			continue
 		}
+		for k, d := range f.res.dets {
+			if !d.Visible || d.Age != 0 || d.Covered || d.MV || lv[i][d.PID].Dead {
+				continue
+			}
+			fx, fy := spawnPrior(d.Team)
+			if f.t-prevAt[k] <= btJumpSpan && math.Hypot(d.X-prevX[k], d.Y-prevY[k]) > btJumpDist && math.Hypot(d.X-fx, d.Y-fy) > btJumpDist {
+				s.Jumps++
+				s.Verbose = append(s.Verbose, fmt.Sprintf("jump %s at video %.1fs: %.2f,%.2f -> %.2f,%.2f score %.2f after %.1fs", d.Champ, f.t, prevX[k], prevY[k], d.X, d.Y, d.Score, f.t-prevAt[k]))
+			}
+			prevAt[k], prevX[k], prevY[k] = f.t, d.X, d.Y
+		}
 		s.TrackedFrames++
+		off := fitOff(f)
+		if off {
+			s.FitOffFrames++
+			s.Verbose = append(s.Verbose, fmt.Sprintf("map box %v at video %.1fs, usual %v", f.box, f.t, usual))
+		}
 		lm, lp := livesAt(p.frames, feedAt(f, -btEdgeMargin), clock, true), livesAt(p.frames, feedAt(f, btEdgeMargin), clock, true)
 		clusterR := btClusterScale * float64(mmIconD[p.g.Layout]) / mmFrameSize
 		cluster := false
@@ -530,6 +584,9 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 			case !l0.Dead && !a.Dead && !b.Dead:
 				champ[k].AliveFrames++
 				s.AliveN++
+				if off {
+					s.FitOffN++
+				}
 				near := nearOf(f, k, lv[i])
 				if near < clusterR {
 					s.ClusN++
@@ -540,6 +597,9 @@ func btTruth(p *btPrep, run *btRun, s *btStats) {
 				if fresh {
 					champ[k].Fresh++
 					s.AliveHit++
+					if off {
+						s.FitOffHit++
+					}
 					if d.Covered {
 						s.AliveCov++
 					}
@@ -834,6 +894,8 @@ func btPool(label string, list []*btStats) *btStats {
 		o.FlipMissed += s.FlipMissed
 		o.Deltas = append(o.Deltas, s.Deltas...)
 		o.AliveCov += s.AliveCov
+		o.Jumps += s.Jumps
+		o.FitOffFrames, o.FitOffN, o.FitOffHit = o.FitOffFrames+s.FitOffFrames, o.FitOffN+s.FitOffN, o.FitOffHit+s.FitOffHit
 		o.AliveN, o.AliveHit, o.IsoN, o.IsoHit, o.ClusN, o.ClusHit = o.AliveN+s.AliveN, o.AliveHit+s.AliveHit, o.IsoN+s.IsoN, o.IsoHit+s.IsoHit, o.ClusN+s.ClusN, o.ClusHit+s.ClusHit
 		o.DeadN, o.DeadHit, o.DeadAtBase, o.TrackedFrames = o.DeadN+s.DeadN, o.DeadHit+s.DeadHit, o.DeadAtBase+s.DeadAtBase, o.TrackedFrames+s.TrackedFrames
 		o.RespErrs = append(o.RespErrs, s.RespErrs...)
@@ -928,6 +990,13 @@ func btReport(all []*btStats) string {
 		fmt.Fprintf(&b, " %s %s/%s", l, btPct(p.AliveRatio), btPct(p.AliveMeasured))
 	}
 	b.WriteString("\n")
+	fmt.Fprintf(&b, "measured jumps (a champion found more than %.2f of the map away within %.0f s of its last sighting): %d\n", btJumpDist, btJumpSpan, tot.Jumps)
+	fmt.Fprintf(&b, "map box more than %d px off the game's usual one (wrong crop), tracked frames / alive champion frames found there; per league", btFitTol)
+	for _, l := range leagues {
+		p := btPool(l, byLeague[l])
+		fmt.Fprintf(&b, " %s %d/%s%% of %d", l, p.FitOffFrames, btPct(btRatio(p.FitOffHit, p.FitOffN)), p.FitOffN)
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "\ngap causes, all games (alive per feed, marker missing or stale > 5 s)\n")
 	var causes []string
 	for c := range tot.GapSum {
@@ -994,72 +1063,83 @@ func btSaveGaps(p *btPrep, run *btRun, s *btStats, out string) {
 		return
 	}
 	for n, g := range s.Gaps[:min(3, len(s.Gaps))] {
-		f := run.frames[g.mid]
-		args := mmFFmpegArgs(p.clip, math.Max(0, f.t-0.2), false, true, mmRegionFilter(1), true)
-		b, err := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...).Output()
-		if err != nil || len(b) < mmStackBytes {
-			continue
-		}
-		const z = 2
-		img := image.NewRGBA(image.Rect(0, 0, mmRegionMM.W*z, mmRegionMM.H*z))
-		for y := 0; y < mmRegionMM.H*z; y++ {
-			for x := 0; x < mmRegionMM.W*z; x++ {
-				o := 3 * ((y/z)*mmStackW + x/z)
-				img.SetRGBA(x, y, color.RGBA{b[o], b[o+1], b[o+2], 255})
-			}
-		}
-		ring := func(cx, cy, r float64, c color.RGBA) {
-			for y := int(cy - r - 2); y <= int(cy+r+2); y++ {
-				for x := int(cx - r - 2); x <= int(cx+r+2); x++ {
-					if d := math.Hypot(float64(x)-cx, float64(y)-cy); d <= r+0.5 && d >= r-1.5 {
-						img.SetRGBA(x, y, c)
-					}
-				}
-			}
-		}
-		pos := func(d mmDet) (float64, float64) {
-			return (float64(f.box.X-mmRegionMM.X) + d.X*float64(f.box.W)) * z, (float64(f.box.Y-mmRegionMM.Y) + d.Y*float64(f.box.H)) * z
-		}
-		rad := float64(mmIconD[p.g.Layout]) / mmFrameSize * float64(f.box.W) * z / 2
-		var legend strings.Builder
-		fmt.Fprintf(&legend, "%s: %s (team %d) gap %.0fs from video %.0fs (feed %.0fs), cause %q, causes %v\nframe video %.1fs seen=%v visible=%v plate=%v locked=%v\n",
-			p.label, g.Champ, g.Team, g.DurSec, g.VideoSec, g.FeedSec, g.Cause, g.Causes, f.t, f.seen, f.res.visible, f.plate, f.locked)
-		for k, d := range f.res.dets {
-			state := "not found"
-			if d.Visible {
-				cx, cy := pos(d)
-				c := color.RGBA{0, 255, 0, 255}
-				state = fmt.Sprintf("found at %.2f,%.2f score %.2f", d.X, d.Y, d.Score)
-				if d.Age > 0 {
-					c = color.RGBA{255, 255, 0, 255}
-					state = fmt.Sprintf("held %.1fs at %.2f,%.2f", float64(d.Age)/mmFPS, d.X, d.Y)
-				}
-				ring(cx, cy, rad, c)
-				tc := color.RGBA{60, 120, 255, 255}
-				if d.Team == 200 {
-					tc = color.RGBA{255, 60, 60, 255}
-				}
-				for y := -2; y <= 2; y++ {
-					for x := -2; x <= 2; x++ {
-						img.SetRGBA(int(cx)+x, int(cy)+y, tc)
-					}
-				}
-				if k == g.k {
-					for d := -int(rad) - 6; d <= int(rad)+6; d++ {
-						img.SetRGBA(int(cx)+d, int(cy), color.RGBA{255, 0, 255, 255})
-						img.SetRGBA(int(cx), int(cy)+d, color.RGBA{255, 0, 255, 255})
-					}
-				}
-			}
-			fmt.Fprintf(&legend, "  %-14s team %d %s\n", d.Champ, d.Team, state)
-		}
-		name := filepath.Join(dir, fmt.Sprintf("%s_%d", strings.ReplaceAll(p.label, " ", "_"), n+1))
-		if fh, err := os.Create(name + ".png"); err == nil {
-			png.Encode(fh, img)
-			fh.Close()
-		}
-		os.WriteFile(name+".txt", []byte(legend.String()), 0o644)
+		header := fmt.Sprintf("%s: %s (team %d) gap %.0fs from video %.0fs (feed %.0fs), cause %q, causes %v\n", p.label, g.Champ, g.Team, g.DurSec, g.VideoSec, g.FeedSec, g.Cause, g.Causes)
+		btDrawFrame(p, run.frames[g.mid], g.k, header, filepath.Join(dir, fmt.Sprintf("%s_%d", strings.ReplaceAll(p.label, " ", "_"), n+1)))
 	}
+}
+
+// btDrawFrame writes name.png (the frame's minimap region at twice its size with the
+// tracker's champions drawn on it, see btSaveGaps; mark is the template index of the
+// champion to cross, -1 for none) and name.txt (header and what the tracker made of every
+// champion).
+func btDrawFrame(p *btPrep, f btFrame, mark int, header, name string) {
+	args := mmFFmpegArgs(p.clip, math.Max(0, f.t-0.2), false, true, mmRegionFilter(1), true)
+	b, err := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...).Output()
+	if err != nil || len(b) < mmStackBytes {
+		return
+	}
+	const z = 2
+	img := image.NewRGBA(image.Rect(0, 0, mmRegionMM.W*z, mmRegionMM.H*z))
+	for y := 0; y < mmRegionMM.H*z; y++ {
+		for x := 0; x < mmRegionMM.W*z; x++ {
+			o := 3 * ((y/z)*mmStackW + x/z)
+			img.SetRGBA(x, y, color.RGBA{b[o], b[o+1], b[o+2], 255})
+		}
+	}
+	ring := func(cx, cy, r float64, c color.RGBA) {
+		for y := int(cy - r - 2); y <= int(cy+r+2); y++ {
+			for x := int(cx - r - 2); x <= int(cx+r+2); x++ {
+				if d := math.Hypot(float64(x)-cx, float64(y)-cy); d <= r+0.5 && d >= r-1.5 {
+					img.SetRGBA(x, y, c)
+				}
+			}
+		}
+	}
+	pos := func(d mmDet) (float64, float64) {
+		return (float64(f.box.X-mmRegionMM.X) + d.X*float64(f.box.W)) * z, (float64(f.box.Y-mmRegionMM.Y) + d.Y*float64(f.box.H)) * z
+	}
+	rad := float64(mmIconD[p.g.Layout]) / mmFrameSize * float64(f.box.W) * z / 2
+	var legend strings.Builder
+	legend.WriteString(header)
+	fmt.Fprintf(&legend, "frame video %.1fs seen=%v visible=%v plate=%v locked=%v box=%v\n", f.t, f.seen, f.res.visible, f.plate, f.locked, f.box)
+	for k, d := range f.res.dets {
+		state := "not found"
+		if d.Visible {
+			cx, cy := pos(d)
+			c := color.RGBA{0, 255, 0, 255}
+			state = fmt.Sprintf("found at %.2f,%.2f score %.2f", d.X, d.Y, d.Score)
+			if d.Covered {
+				c = color.RGBA{0, 255, 255, 255}
+				state = fmt.Sprintf("covered at %.2f,%.2f", d.X, d.Y)
+			}
+			if d.Age > 0 {
+				c = color.RGBA{255, 255, 0, 255}
+				state = fmt.Sprintf("held %.1fs at %.2f,%.2f", float64(d.Age)/mmFPS, d.X, d.Y)
+			}
+			ring(cx, cy, rad, c)
+			tc := color.RGBA{60, 120, 255, 255}
+			if d.Team == 200 {
+				tc = color.RGBA{255, 60, 60, 255}
+			}
+			for y := -2; y <= 2; y++ {
+				for x := -2; x <= 2; x++ {
+					img.SetRGBA(int(cx)+x, int(cy)+y, tc)
+				}
+			}
+			if k == mark {
+				for d := -int(rad) - 6; d <= int(rad)+6; d++ {
+					img.SetRGBA(int(cx)+d, int(cy), color.RGBA{255, 0, 255, 255})
+					img.SetRGBA(int(cx), int(cy)+d, color.RGBA{255, 0, 255, 255})
+				}
+			}
+		}
+		fmt.Fprintf(&legend, "  %-14s team %d %s\n", d.Champ, d.Team, state)
+	}
+	if fh, err := os.Create(name + ".png"); err == nil {
+		png.Encode(fh, img)
+		fh.Close()
+	}
+	os.WriteFile(name+".txt", []byte(legend.String()), 0o644)
 }
 
 // btSaveHides writes the frames of the longest false hides of a game: the minimap region and

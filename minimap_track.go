@@ -40,7 +40,14 @@ const (
 	mmCarryDist     = 1.3           // ... and an ally this close, which may carry it
 	mmCoverFrames   = 10 * mmFPS
 	mmDeathGrace    = 3 * mmFPS / 2 // frames after the feed's death during which the champion is still tracked (sync error)
+	mmJumpRecent    = mmFPS         // frames: a champion measured this recently cannot have been teleported (see assign)
+	mmJumpConfirm   = 2             // frames within which a far sighting must be seen again, near the first, to be taken
+	mmAttachLost    = 3 * mmFPS     // frames an attach-capable champion must be off the map, alive, to count as attached to an ally
 )
+
+// mmAttachers are the champions that can latch onto an ally (Yuumi's W) and then have no
+// icon of their own on the minimap: they are where their host is.
+var mmAttachers = map[string]bool{"Yuumi": true}
 
 // spawnPrior is where a champion respawns (normalized): the team's fountain.
 func spawnPrior(team int) (x, y float64) {
@@ -71,6 +78,11 @@ type mmTrk struct {
 	coverIdx int  // frame the champion was first seen covered in the current stretch, -1 when not covered
 	carrier  int  // template index of the ally it is covered by, -1 for none
 	carrying bool // follows the carrier: it is hidden under it, whereever it goes
+	pend     bool // a sighting far from where the champion can be waits for its confirmation
+	pendX    float64
+	pendY    float64
+	pendIdx  int // frame of that sighting
+	lastHost int // template index of the ally it was last attached to or carried by, -1 for none
 }
 
 // mmTracker follows every champion of a game across the frames of one stream.
@@ -80,6 +92,7 @@ type mmTracker struct {
 	img  mmFrameGray
 	rgb  []byte
 	mask []bool // pixels covered by found icons (peel)
+	line mmLineScratch
 }
 
 func newMMTracker(tpls []champTpl) *mmTracker {
@@ -91,7 +104,7 @@ func newMMTracker(tpls []champTpl) *mmTracker {
 // Reset forgets every position (the stream jumped).
 func (t *mmTracker) Reset() {
 	for i := range t.trk {
-		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1}
+		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1, lastHost: -1}
 	}
 }
 
@@ -167,6 +180,7 @@ func (t *mmTracker) Step(idx int, rgb []byte, lives mmLives) []mmDet {
 // StepWith is Step with positions read from the main view: they stand in for champions
 // whose portrait was not found on the map.
 func (t *mmTracker) StepWith(idx int, rgb []byte, lives mmLives, obs []mvObs) []mmDet {
+	rgb, _ = t.line.unline(rgb)
 	t.img.set(rgb)
 	t.rgb = rgb
 	t.advance(idx, lives)
@@ -289,17 +303,17 @@ func (t *mmTracker) hypotheses(k, idx int, out []mmHyp) []mmHyp {
 	return out
 }
 
-// plausibleNear is plausible for a match inside the gate of a track: a team ring and a
-// portrait that is more than a hint will do, the position being already evidence.
+// plausibleNear is plausible for a match inside the gate of a track: a sure match goes
+// through, a weaker one needs a team ring and a portrait that is more than a hint, the
+// position being already evidence.
 func (t *mmTracker) plausibleNear(tp *champTpl, x, y int, s float32) bool {
+	if s >= mmSureScore {
+		return t.colourScore(tp, x, y, s) >= mmSureColour
+	}
 	if ringLean(t.rgb, x, y, tp.d, tp.ref.Team) < mmSureLean {
 		return false
 	}
-	if s >= mmSureScore {
-		return true
-	}
-	uv, sat := tp.colourMatch(t.rgb, x, y)
-	return s+mmColourWeight*(uv-mmSatWeight*sat) >= mmNearColourMin
+	return t.colourScore(tp, x, y, s) >= mmNearColourMin
 }
 
 // match finds every active champion on the frame: first by the hypotheses of all of them
@@ -380,7 +394,18 @@ func (t *mmTracker) assign(idx int, rows []int, hyps []mmHyp) {
 		k := rows[r]
 		tr := &t.trk[k]
 		gate := t.gate(k, idx)
-		if !tr.init || tr.spawn || math.Hypot(hy.cx-tr.kf.x.p, hy.cy-tr.kf.y.p) > 1.5*gate {
+		far := math.Hypot(hy.cx-tr.kf.x.p, hy.cy-tr.kf.y.p) > 1.5*gate
+		if tr.init && !tr.spawn && far && idx-tr.measIdx <= mmJumpRecent {
+			// a champion seen a moment ago turns up far from where it can be: a swap with
+			// another icon or a look-alike on the terrain, unless it is there on the next
+			// frame too (a teleport costs one frame)
+			if !tr.pend || idx-tr.pendIdx > mmJumpConfirm || math.Hypot(hy.cx-tr.pendX, hy.cy-tr.pendY) > 0.5*float64(t.d()) {
+				tr.pend, tr.pendX, tr.pendY, tr.pendIdx = true, hy.cx, hy.cy, idx
+				continue
+			}
+		}
+		tr.pend = false
+		if !tr.init || tr.spawn || far {
 			// first sighting, a respawn, or a jump the filter cannot have predicted (a
 			// teleport, a recall): start over rather than smooth towards it
 			tr.kf.init(hy.cx, hy.cy)
@@ -452,16 +477,23 @@ func (t *mmTracker) peel(idx int, rows []int) {
 // markCovered flags the champions that were not found but whose estimate lies under a found
 // icon: they are hidden by it, not gone, so they keep their live look for a while. One that
 // stays hidden under an ally for mmCarryFrames is taken to be carried by it (a support
-// latched onto a champion has no icon of its own) and follows it.
+// latched onto a champion has no icon of its own) and follows it. A champion that is known
+// to latch onto allies (mmAttachers) and is not on the map at all for mmAttachLost frames,
+// alive, is attached whether or not it was seen next to its host: its host is the one it
+// had last, else the team's bottom laner, else the ally nearest to where it was. An
+// attached champion stays with its host through the host's own hidden stretches (the host's
+// estimate is its position, the host's age its age) until it is found, or the host dies.
 func (t *mmTracker) markCovered(idx int) {
 	d := float64(t.d())
 	for k := range t.trk {
 		tr := &t.trk[k]
-		if !tr.init || tr.measured || tr.frozen {
+		attacher := mmAttachers[t.tpls[k].ref.Champ]
+		if tr.measured || tr.frozen || (!tr.init && !attacher) {
 			continue
 		}
 		if tr.carrying {
-			if o := &t.trk[tr.carrier]; o.measured && idx-tr.coverIdx <= mmCarryMax {
+			o := &t.trk[tr.carrier]
+			if (o.measured || (attacher && o.init && !o.frozen)) && (attacher || idx-tr.coverIdx <= mmCarryMax) {
 				tr.kf.init(o.kf.x.p, o.kf.y.p)
 				tr.covered = true
 				continue
@@ -469,14 +501,14 @@ func (t *mmTracker) markCovered(idx int) {
 			tr.carrying, tr.carrier, tr.coverIdx = false, -1, -1
 		}
 		tr.covered = false
-		if idx-tr.measIdx > mmCoverFrames { // hidden under an icon for this long: lost, unless an ally carries it
+		if tr.init && idx-tr.measIdx > mmCoverFrames && !attacher { // hidden under an icon for this long: lost, unless an ally carries it
 			tr.coverIdx, tr.carrier = -1, -1
 			continue
 		}
 		near, nearD := -1, mmCoverDist*d
 		for m := range t.trk {
 			o := &t.trk[m]
-			if m == k || !o.measured {
+			if m == k || !o.measured || !tr.init {
 				continue
 			}
 			lim := mmCoverDist * d
@@ -489,6 +521,13 @@ func (t *mmTracker) markCovered(idx int) {
 		}
 		if near < 0 {
 			tr.coverIdx, tr.carrier = -1, -1
+			if attacher && idx-tr.measIdx >= mmAttachLost {
+				if h := t.attachHost(k); h >= 0 {
+					tr.carrying, tr.carrier, tr.coverIdx, tr.lastHost = true, h, idx, h
+					tr.kf.init(t.trk[h].kf.x.p, t.trk[h].kf.y.p)
+					tr.init, tr.spawn, tr.covered = true, false, true
+				}
+			}
 			continue
 		}
 		tr.covered = true
@@ -499,9 +538,36 @@ func (t *mmTracker) markCovered(idx int) {
 			}
 		}
 		if tr.carrier >= 0 && idx-tr.coverIdx >= mmCarryFrames {
-			tr.carrying = true
+			tr.carrying, tr.lastHost = true, tr.carrier
 		}
 	}
+}
+
+// attachHost is the ally champion k is attached to when it is missing from the map: the
+// host it had last, else the team's bottom laner (a support latches onto its carry), else
+// the ally nearest to where k was. Only allies found on the frame count; -1 for none.
+func (t *mmTracker) attachHost(k int) int {
+	tr := &t.trk[k]
+	if h := tr.lastHost; h >= 0 && t.trk[h].measured {
+		return h
+	}
+	team := t.tpls[k].ref.Team
+	bottom, near, nearD := -1, -1, math.Inf(1)
+	for m := range t.trk {
+		if m == k || !t.trk[m].measured || t.tpls[m].ref.Team != team {
+			continue
+		}
+		if t.tpls[m].ref.Role == "bottom" {
+			bottom = m
+		}
+		if dd := math.Hypot(t.trk[m].kf.x.p-tr.kf.x.p, t.trk[m].kf.y.p-tr.kf.y.p); tr.init && dd < nearD {
+			near, nearD = m, dd
+		}
+	}
+	if bottom >= 0 {
+		return bottom
+	}
+	return near
 }
 
 // dets reports every champion at frame idx.
@@ -515,6 +581,14 @@ func (t *mmTracker) dets(idx int) []mmDet {
 			if tr.covered && !tr.dead {
 				age = 0
 			}
+			if tr.carrying && !tr.dead {
+				// it is where its host is, as fresh as the host's own position
+				if h := &t.trk[tr.carrier]; h.measured || h.covered {
+					age = 0
+				} else {
+					age = idx - h.measIdx
+				}
+			}
 			switch {
 			case tr.dead:
 				d.Visible = true
@@ -523,7 +597,7 @@ func (t *mmTracker) dets(idx int) []mmDet {
 			}
 			d.X = math.Min(math.Max(tr.kf.x.p/mmFrameSize, 0), 1)
 			d.Y = math.Min(math.Max(tr.kf.y.p/mmFrameSize, 0), 1)
-			d.Age, d.Covered, d.MV = age, tr.covered, tr.viaMV
+			d.Age, d.Covered, d.MV, d.Attached = age, tr.covered, tr.viaMV, tr.carrying
 		}
 		out[k] = d
 	}

@@ -26,6 +26,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -295,7 +296,7 @@ func btPrepare(ctx context.Context, g btGame, dl chan struct{}) *btPrep {
 			return p
 		}
 	}
-	if fi, err := os.Stat(p.clip); err == nil && fi.Size() > 0 {
+	if fi, err := os.Stat(p.clip); err == nil && fi.Size() > 0 { // renamed from .part only once its length was checked
 		return p
 	}
 	dl <- struct{}{}
@@ -306,25 +307,59 @@ func btPrepare(ctx context.Context, g btGame, dl chan struct{}) *btPrep {
 	return p
 }
 
+// btClipSlack is how much shorter than asked a clip may be: the last keyframe interval.
+const btClipSlack = 5
+
 // btDownload copies the video stream of a VOD page between from and from+dur into a clip.
+// YouTube closes long reads early and ffmpeg then ends with exit 0, so the clip's length is
+// checked and the download retried (with a freshly resolved URL) until it is whole.
 func btDownload(ctx context.Context, page string, from, dur float64, clip string) error {
-	media, _, _, err := mmResolve(ctx, page)
-	if err != nil {
-		return err
-	}
 	part := clip + ".part"
-	args := []string{"-hide_banner", "-loglevel", "error", "-y", "-ss", fmt.Sprint(from), "-rw_timeout", mmNetTimeoutUs,
-		"-i", media, "-t", fmt.Sprint(dur), "-an", "-c:v", "copy", "-f", "matroska", part}
-	cmd := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...)
-	var errb strings.Builder
-	cmd.Stderr = &errb
-	stop, err := mmStart(ctx, cmd)
-	if err != nil {
-		return err
-	}
-	if err := stop(false); err != nil {
+	var last error
+	for attempt := 1; attempt <= 4; attempt++ {
+		media, _, _, err := mmResolve(ctx, page)
+		if err != nil {
+			return err
+		}
+		want := dur
+		if u, err := url.Parse(media); err == nil { // the clip cannot run past the end of the video
+			if vd, err := strconv.ParseFloat(u.Query().Get("dur"), 64); err == nil && vd > 0 {
+				want = math.Min(want, vd-from)
+			}
+		}
+		args := []string{"-hide_banner", "-loglevel", "error", "-y",
+			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "30",
+			"-ss", fmt.Sprint(from), "-rw_timeout", mmNetTimeoutUs,
+			"-i", media, "-t", fmt.Sprint(dur), "-an", "-c:v", "copy", "-f", "matroska", part}
+		cmd := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...)
+		var errb strings.Builder
+		cmd.Stderr = &errb
+		stop, err := mmStart(ctx, cmd)
+		if err != nil {
+			return err
+		}
+		if err := stop(false); err != nil {
+			last = fmt.Errorf("ffmpeg download: %v: %s", err, strings.TrimSpace(errb.String()))
+		} else if got := btClipDur(part); got < want-btClipSlack {
+			last = fmt.Errorf("ffmpeg download: clip is %.0f s, want %.0f s", got, want)
+		} else {
+			return os.Rename(part, clip)
+		}
 		os.Remove(part)
-		return fmt.Errorf("ffmpeg download: %v: %s", err, strings.TrimSpace(errb.String()))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		fmt.Fprintf(os.Stderr, "  %s: attempt %d: %v\n", filepath.Base(clip), attempt, last)
 	}
-	return os.Rename(part, clip)
+	return last
+}
+
+// btClipDur returns the duration of a media file in seconds, 0 when it cannot be read.
+func btClipDur(path string) float64 {
+	out, err := exec.Command(mmTool("ESTERM_FFPROBE", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path).Output()
+	if err != nil {
+		return 0
+	}
+	d, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	return d
 }

@@ -14,9 +14,10 @@ const (
 	mmTplSize      = 24   // default template side in px for mmFrameSize frames (Worlds)
 	mmTrimPenalty  = 0.05 // discount on a three-quadrant match score (see scanTrim)
 	mmVarFloor     = 144  // per-pixel luminance variance below which a window is considered flat
-	mmSureScore    = 0.90 // matches scoring at least this need no ring check
+	mmSureScore    = 0.80 // matches scoring at least this need no ring check (see plausible)
+	mmSureColour   = 0.30 // ...but score + mmColourWeight*(uv - mmSatWeight*sat) must reach this
 	mmRingLean     = 4    // weaker matches need a ring leaning toward the team colour (ringLean)
-	mmSureLean     = 3    // ...and sure ones at least this much
+	mmSureLean     = 3    // ...within the gate of a track at least this much
 	mmColourWeight = 0.5  // plausible: weight of the colour similarity against the NCC score
 	mmSatWeight    = 8    // plausible: weight of the mean-colour distance against the chroma correlation
 	mmColourMin    = 0.70 // plausible: minimum of score + mmColourWeight*(uv - mmSatWeight*sat)
@@ -560,20 +561,29 @@ func clampInt(v, lo, hi int) int {
 }
 
 // plausible reports whether the match of tp at (x, y) scoring s is a champion and not
-// terrain that merely has the same luminance pattern. The ring must lean toward the team
-// colour (ringLean). A match that is not sure by its score must also carry the champion's
-// colours: score + mmColourWeight*(uv - mmSatWeight*sat) >= mmColourMin (see colourMatch),
-// so a weak score needs convincing colours and a strong one hardly any.
+// terrain that merely has the same luminance pattern. A sure match (mmSureScore) needs no
+// ring: of the whole-map candidates of champions found elsewhere on the frame (LPL g1),
+// 18 of 4,400 that scored this much were false, against some 25,000 of the weaker ones; and
+// the ring of a champion icon is faint in some broadcasts (LPL: a thin dark ring that hardly
+// leans toward the team colour) or hidden under another icon. It still must carry the
+// champion's colours: score + mmColourWeight*(uv - mmSatWeight*sat) >= mmSureColour (see
+// colourMatch). A weaker match must have a ring leaning toward the team colour (ringLean)
+// and convincing colours (mmColourMin).
 func (t *mmTracker) plausible(tp *champTpl, x, y int, s float32) bool {
-	lean := ringLean(t.rgb, x, y, tp.d, tp.ref.Team)
 	if s >= mmSureScore {
-		return lean >= mmSureLean
+		return t.colourScore(tp, x, y, s) >= mmSureColour
 	}
-	if lean < mmRingLean {
+	if ringLean(t.rgb, x, y, tp.d, tp.ref.Team) < mmRingLean {
 		return false
 	}
+	return t.colourScore(tp, x, y, s) >= mmColourMin
+}
+
+// colourScore is the match score plus the weighted colour agreement of the patch at (x, y)
+// with the portrait.
+func (t *mmTracker) colourScore(tp *champTpl, x, y int, s float32) float32 {
 	uv, sat := tp.colourMatch(t.rgb, x, y)
-	return s+mmColourWeight*(uv-mmSatWeight*sat) >= mmColourMin
+	return s + mmColourWeight*(uv-mmSatWeight*sat)
 }
 
 var mmRingCache sync.Map // d -> []int32 (dx, dy pairs of the ring pixels)

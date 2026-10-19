@@ -132,10 +132,29 @@ func TestTrackerReacquiresAfterAHideWithAWiderGate(t *testing.T) {
 	expectAt(t, "after", tr.Step(20*mmFPS, synthFrame(synthIconAt{0, 150, 100}), nil)[0], 150, 100)
 }
 
-func TestTrackerAcceptsATeleportOfAKnownChampion(t *testing.T) {
+func TestTrackerAcceptsATeleportOfAKnownChampionOnTheSecondFrame(t *testing.T) {
 	tr := synthTracker(0)
 	expectAt(t, "before", tr.Step(0, synthFrame(synthIconAt{0, 30, 30}), nil)[0], 30, 30)
-	expectAt(t, "after", tr.Step(1, synthFrame(synthIconAt{0, 220, 210}), nil)[0], 220, 210)
+	// a champion seen a moment ago turns up across the map: that may be a swap or a
+	// look-alike, so it is taken when it is there on the next frame too
+	if d := tr.Step(1, synthFrame(synthIconAt{0, 220, 210}), nil)[0]; d.Age == 0 {
+		t.Fatalf("a jump across the map taken on its first frame: %+v", d)
+	}
+	expectAt(t, "after", tr.Step(2, synthFrame(synthIconAt{0, 220, 210}), nil)[0], 220, 210)
+}
+
+func TestTrackerDropsAFarSightingThatDoesNotRepeat(t *testing.T) {
+	tr := synthTracker(0)
+	tr.Step(0, synthFrame(synthIconAt{0, 30, 30}), nil)
+	tr.Step(1, synthFrame(synthIconAt{0, 220, 210}), nil) // a one-frame look-alike
+	expectAt(t, "back", tr.Step(2, synthFrame(synthIconAt{0, 31, 30}), nil)[0], 31, 30)
+}
+
+func TestTrackerTakesALongLostChampionAnywhereAtOnce(t *testing.T) {
+	tr := synthTracker(0)
+	tr.Step(0, synthFrame(synthIconAt{0, 30, 30}), nil)
+	// seen again after mmJumpRecent frames away: it may well have walked there
+	expectAt(t, "found", tr.Step(mmJumpRecent+3, synthFrame(synthIconAt{0, 220, 210}), nil)[0], 220, 210)
 }
 
 func TestTrackerDistinguishesChampions(t *testing.T) {
@@ -145,7 +164,9 @@ func TestTrackerDistinguishesChampions(t *testing.T) {
 	expectAt(t, "rings", dets[1], 200, 40)
 	// they swap sides of the map in a frame (a champion cannot, but the assignment must
 	// follow the portraits, not the old positions)
-	dets = tr.Step(1, synthFrame(synthIconAt{0, 200, 40}, synthIconAt{1, 40, 200}), nil)
+	swapped := synthFrame(synthIconAt{0, 200, 40}, synthIconAt{1, 40, 200})
+	tr.Step(1, swapped, nil) // seen once: not yet believed
+	dets = tr.Step(2, swapped, nil)
 	expectAt(t, "stripes", dets[0], 200, 40)
 	expectAt(t, "rings", dets[1], 40, 200)
 }
@@ -163,8 +184,13 @@ func TestTrackerMarksAChampionHiddenUnderAnotherIconCovered(t *testing.T) {
 	tr := synthTracker(0, 1)
 	tr.Step(0, synthFrame(synthIconAt{0, 100, 100}, synthIconAt{1, 140, 100}), nil)
 	// icon 1 slides over icon 0, which is no longer visible: it stays under it, not lost
+	idx := 1
+	for x := 135; x >= 110; x -= 5 {
+		tr.Step(idx, synthFrame(synthIconAt{1, x, 100}), nil)
+		idx++
+	}
 	covered := synthFrame(synthIconAt{1, 110, 100})
-	for i := 1; i <= 5; i++ {
+	for i := idx; i < idx+2; i++ { // fewer frames than mmCarryFrames: not yet taken for carried
 		dets := tr.Step(i, covered, nil)
 		expectAt(t, "covered", dets[0], 100, 100)
 		expectAt(t, "cover", dets[1], 110, 100)
@@ -173,7 +199,7 @@ func TestTrackerMarksAChampionHiddenUnderAnotherIconCovered(t *testing.T) {
 		}
 	}
 	// icon 1 leaves: the champion is not found where it was, so it is lost now, with an age
-	dets := tr.Step(6, synthFrame(synthIconAt{1, 200, 200}), nil)
+	dets := tr.Step(idx+2, synthFrame(synthIconAt{1, 200, 200}), nil)
 	if dets[0].Covered || dets[0].Age == 0 {
 		t.Fatalf("nothing covers it any more: covered %v age %d", dets[0].Covered, dets[0].Age)
 	}
@@ -315,6 +341,9 @@ func noisyIconFrame(ring [3]byte, orange bool, noise int) []byte {
 	return rgb
 }
 
+// weakNoise is the noise that drops the match of a synthetic icon below mmSureScore.
+const weakNoise = 150
+
 // weakSighting is a clean sighting, then the icon back smeared by an overlay: a weak match.
 func weakSighting(frame []byte) mmDet {
 	tr := synthTracker(0)
@@ -326,13 +355,13 @@ func TestTrackerWeakMatchNeedsTeamRing(t *testing.T) {
 	// the sighting is old enough that "still there, not found" would show an age: a fresh
 	// match is one with age 0
 	fresh := func(d mmDet) bool { return d.Visible && d.Age == 0 }
-	if bare := weakSighting(noisyIconFrame([3]byte{}, false, 95)); fresh(bare) {
+	if bare := weakSighting(noisyIconFrame([3]byte{}, false, weakNoise)); fresh(bare) {
 		t.Errorf("weak match without a ring accepted (score %.2f)", bare.Score)
 	}
-	if red := weakSighting(noisyIconFrame([3]byte{200, 40, 40}, false, 95)); fresh(red) {
+	if red := weakSighting(noisyIconFrame([3]byte{200, 40, 40}, false, weakNoise)); fresh(red) {
 		t.Errorf("weak match inside the other team's ring accepted (score %.2f)", red.Score)
 	}
-	ringed := weakSighting(noisyIconFrame(blueRing, false, 95))
+	ringed := weakSighting(noisyIconFrame(blueRing, false, weakNoise))
 	if !fresh(ringed) {
 		t.Fatalf("weak match with a team ring rejected")
 	}
@@ -344,7 +373,7 @@ func TestTrackerWeakMatchNeedsTeamRing(t *testing.T) {
 func TestTrackerWeakMatchNeedsPortraitColours(t *testing.T) {
 	// the same luminance pattern in the wrong colours (terrain that looks like the icon in
 	// gray) is not the champion, even inside a team ring
-	if orange := weakSighting(noisyIconFrame(blueRing, true, 95)); orange.Visible && orange.Age == 0 && orange.Score < mmSureScore {
+	if orange := weakSighting(noisyIconFrame(blueRing, true, weakNoise)); orange.Visible && orange.Age == 0 && orange.Score < mmSureScore {
 		t.Errorf("weak match in the wrong colours accepted (score %.2f)", orange.Score)
 	}
 }
@@ -352,7 +381,7 @@ func TestTrackerWeakMatchNeedsPortraitColours(t *testing.T) {
 func TestTrackerAcquiresWeakMatchWithRing(t *testing.T) {
 	// a champion never seen before is acquired by a weak match when ring and colours agree
 	tr := synthTracker(0)
-	got := tr.Step(0, noisyIconFrame(blueRing, false, 125), nil)[0]
+	got := tr.Step(0, noisyIconFrame(blueRing, false, 135), nil)[0]
 	if !got.Visible || got.Score >= 0.83 {
 		t.Fatalf("got visible=%v score %.2f, want a weak acquisition", got.Visible, got.Score)
 	}
@@ -516,5 +545,110 @@ func TestTrackerTakesMainViewPositionsForChampionsItDidNotFind(t *testing.T) {
 	cx, cy := px(62, 61)
 	if dets = tr.StepWith(0, frame, nil, []mvObs{{PID: 2, X: cx, Y: cy, Conf: 0.9}}); dets[1].Visible {
 		t.Fatalf("an observation on another champion's icon was taken: %+v", dets[1])
+	}
+}
+
+func TestTrackerTakesASureMatchWithoutARing(t *testing.T) {
+	// some broadcasts draw a thin dark ring that hardly leans toward the team colour: a
+	// match that sure stands on the portrait
+	tr := synthTracker(0)
+	got := tr.Step(0, noisyIconFrame([3]byte{}, false, 60), nil)[0]
+	if got.Score < mmSureScore {
+		t.Fatalf("test frame scores %.2f, want a sure match (at least %.2f)", got.Score, mmSureScore)
+	}
+	if !got.Visible || got.Age != 0 {
+		t.Fatalf("a sure match without a ring rejected: %+v", got)
+	}
+	expectAt(t, "sure", got, 100, 100)
+}
+
+func TestTrackerRejectsASureMatchInTheWrongColours(t *testing.T) {
+	tr := synthTracker(0)
+	if got := tr.Step(0, noisyIconFrame([3]byte{}, true, 60), nil)[0]; got.Visible && got.Age == 0 {
+		t.Fatalf("a sure luminance match in the wrong colours accepted (score %.2f)", got.Score)
+	}
+}
+
+// attachTracker follows a Yuumi (support) and the bottom laner she latches onto.
+func attachTracker() *mmTracker {
+	return newMMTracker([]champTpl{
+		newChampTpl(champRef{PID: 1, Team: 100, Champ: "Yuumi", Role: "support"}, synthIcon(0), mmTplSize),
+		newChampTpl(champRef{PID: 2, Team: 100, Champ: "Jhin", Role: "bottom"}, synthIcon(1), mmTplSize),
+	})
+}
+
+func TestTrackerAttachesASupportThatIsNotOnTheMap(t *testing.T) {
+	tr := attachTracker()
+	// Yuumi was never seen (she latched on before the stream began): after a while off the
+	// map she is with the bottom laner, as fresh as his position, and goes where he goes
+	idx := 0
+	for ; idx < mmAttachLost-1; idx++ {
+		if d := tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}), nil)[0]; d.Attached {
+			t.Fatalf("frame %d: attached before mmAttachLost", idx)
+		}
+	}
+	for x := 100; x < 160; x += 3 {
+		dets := tr.Step(idx, synthFrame(synthIconAt{1, x, 100}), nil)
+		idx++
+		if idx < mmAttachLost+2 {
+			continue
+		}
+		y, j := dets[0], dets[1]
+		if !y.Visible || !y.Attached || !y.Covered || y.Age != 0 || math.Hypot(y.X-j.X, y.Y-j.Y)*mmFrameSize > 2 {
+			t.Fatalf("host at %d: Yuumi %+v, want attached at the host (%.1f,%.1f) with age 0", x, y, j.X*mmFrameSize, j.Y*mmFrameSize)
+		}
+	}
+}
+
+func TestTrackerKeepsASupportWithAHostThatIsHiddenForAWhile(t *testing.T) {
+	tr := attachTracker()
+	idx := 0
+	for ; idx < 2*mmAttachLost; idx++ {
+		tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}), nil)
+	}
+	// the host's icon is gone for 2 s (a replay shot, a banner, a crowd): she stays with
+	// him, and her age is his
+	for i := 0; i < 2*mmFPS; i++ {
+		dets := tr.Step(idx, synthFrame(), nil)
+		idx++
+		y, j := dets[0], dets[1]
+		if !y.Attached || y.Age != j.Age || y.Age == 0 && i > 0 || math.Hypot(y.X-j.X, y.Y-j.Y)*mmFrameSize > 2 {
+			t.Fatalf("frame %d without the host: Yuumi %+v, host %+v", i, y, j)
+		}
+	}
+}
+
+func TestTrackerDetachesASupportThatIsFoundOrWhoseHostDies(t *testing.T) {
+	tr := attachTracker()
+	idx := 0
+	for ; idx < 2*mmAttachLost; idx++ {
+		tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}), nil)
+	}
+	// her own icon appears elsewhere (she jumped off): found there, no longer attached
+	var dets []mmDet
+	for i := 0; i < 6; i++ {
+		dets = tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}, synthIconAt{0, 200, 200}), nil)
+		idx++
+	}
+	expectAt(t, "jumped off", dets[0], 200, 200)
+	if dets[0].Attached {
+		t.Fatal("found on her own icon but still attached")
+	}
+	// lost again, attached again; then the host dies: she is left where he died
+	for i := 0; i < 2*mmAttachLost; i++ {
+		tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}), nil)
+		idx++
+	}
+	if !tr.Step(idx, synthFrame(synthIconAt{1, 100, 100}), nil)[0].Attached {
+		t.Fatal("not attached again after being lost")
+	}
+	idx++
+	dead := mmLives{1: {AliveFor: 100}, 2: {Dead: true, Secs: 30}}
+	for i := 0; i < mmDeathGrace+3; i++ {
+		dets = tr.Step(idx, synthFrame(), dead)
+		idx++
+	}
+	if y := dets[0]; y.Attached || math.Abs(y.X-dets[1].X)*mmFrameSize > 2 {
+		t.Fatalf("host dead: Yuumi %+v, host %+v, want her detached where he died", y, dets[1])
 	}
 }

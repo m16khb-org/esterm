@@ -82,9 +82,11 @@ func mvPairCost(b mvBar, c mvChamp, x, y float64) float64 {
 }
 
 // mvAssign matches the bars to the champions of their team: the assignment of least total
-// cost (team, level, health, proximity to the last sighting) with unmatched bars allowed.
-// Only bars with a known viewport yield observations.
-func mvAssign(bars []mvBar, v mvView, champs []mvChamp) []mvObs {
+// cost (team, level, health, proximity to the last sighting, and the nameplate when book
+// knows the champions' plates) with unmatched bars allowed. A match made with confidence
+// teaches the book that champion's plate (frame idx is the caller's clock). Only bars with
+// a known viewport yield observations. book may be nil.
+func mvAssign(bars []mvBar, v mvView, champs []mvChamp, idx int, book *mvPlates) []mvObs {
 	if !v.OK || len(bars) == 0 {
 		return nil
 	}
@@ -110,10 +112,22 @@ func mvAssign(bars []mvBar, v mvView, champs []mvChamp) []mvObs {
 			continue
 		}
 		cost := make([][]float64, len(bs))
+		match := make([]mvPlateMatch, len(bs))
 		for i, bi := range bs {
 			cost[i] = make([]float64, len(cs))
+			var pc []float64
+			if book != nil && bars[bi].Plate != nil {
+				match[i] = book.match(team, bars[bi].Plate)
+				pc = book.cost(team, match[i], cs)
+			}
 			for j, c := range cs {
+				if pc != nil && pc[j] == 0 {
+					c.HasPrev = false // the plate names this champion: where it was last seen is no evidence
+				}
 				cost[i][j] = mvPairCost(bars[bi], c, xs[i], ys[i])
+				if pc != nil {
+					cost[i][j] += pc[j]
+				}
 			}
 		}
 		best, pick := mvSolve(cost, len(cs), -1, -1)
@@ -125,6 +139,13 @@ func mvAssign(bars []mvBar, v mvView, champs []mvChamp) []mvObs {
 			alt, _ := mvSolve(cost, len(cs), i, j)
 			conf := bars[bs[i]].Conf * math.Min(1, (alt-best)/2)
 			out = append(out, mvObs{PID: cs[j].PID, X: xs[i], Y: ys[i], Conf: conf})
+		}
+		if book != nil {
+			for i, bi := range bs {
+				if bars[bi].Plate != nil {
+					book.observe(idx, team, bars[bi], xs[i], ys[i], match[i], cs)
+				}
+			}
 		}
 	}
 	return out

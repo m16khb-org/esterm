@@ -7,6 +7,7 @@ package main
 //	mvFindViewport  the camera rectangle drawn on the minimap
 //	mvToMap         bar -> champion position on the map
 //	mvAssign        bars -> the feed's champions
+//	mvPlates        nameplates above the bars, clustered by look and tied to champions (mainview_plate.go)
 //
 // The bar finder is a port of a spike measured on 130 labelled live frames of Worlds, LEC,
 // LCK and LPL (precision 0.98, recall 0.91 at full scale): team-coloured run-length scan for
@@ -46,6 +47,7 @@ type mvBar struct {
 	Level  int     // level read from the box left of the bar, 0 unknown
 	LevelC float64 // 0..1 confidence of Level: correlation lead over the next best level
 	Conf   float64 // 0..1, from the template score
+	Plate  []uint8 // the nameplate window above the bar (mvPlateOf), nil when it does not fit
 }
 
 // mvBarFactor is the size of a league's health bars relative to the reference (Worlds,
@@ -322,6 +324,7 @@ func mvDetect(img *image.RGBA, scale, sb float64) []mvBar {
 			Level:  lvl,
 			LevelC: math.Max(0, math.Min(1, float64(lead)/0.3)),
 			Conf:   math.Max(0, math.Min(1, (mvScoreMax-float64(c.score))/0.6)),
+			Plate:  mvPlateOf(sc.lum, w, h, c.x, c.y),
 		})
 	}
 	return bars

@@ -41,3 +41,6 @@ Record structural choices, rejected alternatives, and decisions that affect long
 - [과거 경기는 livestats 기록과 공식 VOD 를 같은 동기 엔진으로 재생한다](2026-10-18-livestats-vod.md)
 - [용·엘더·바론 타이머는 피드의 처치 프레임에서 게임 시계로 계산한다](2026-10-18-objective-timers.md)
 - [챔피언 추적은 포트레이트 가설 + 전역 배정 + 칼만 필터로 하고, 피드와 메인 뷰를 함께 쓴다](2026-10-19-tracker.md)
+- [Game-start gold skew prior and inverse-variance flip weighting](2026-10-19-game-start-skew-prior.md)
+- [트래커 2차: 포트레이트는 CommunityDragon 원형 아이콘, 확실한 매치는 링 없이, 카메라 사각형 지우기, 먼 점프는 확인, 서포터 부착 상태](2026-10-19-tracker-round2.md)
+- [메인 뷰 이름표는 글자로 읽지 않고 모양으로 묶어 투표로 챔피언에 잇는다](2026-10-19-nameplate-clusters.md)

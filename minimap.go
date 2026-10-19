@@ -278,7 +278,7 @@ func mmChampRefs(meta windowResp) []champRef {
 	return refs
 }
 
-// champIcon is a champion with its Data Dragon square icon.
+// champIcon is a champion with the portrait the tracker matches (see mmChampIcon).
 type champIcon struct {
 	ref champRef
 	img image.Image
@@ -295,8 +295,9 @@ func mmLoadIcons(ctx context.Context, refs []champRef, patch string) ([]champIco
 		}
 	}
 	var icons []champIcon
+	circles := true
 	for _, r := range refs {
-		img, err := ddImage(ctx, ver, "img/champion/"+r.Champ+".png")
+		img, err := mmChampIcon(ctx, ver, r.Champ, &circles)
 		if err != nil {
 			continue
 		}
@@ -400,6 +401,7 @@ type mmPipeline struct {
 	crop     []byte
 	cropRGBA *image.RGBA // crop as the main-view reader wants it
 	mvView   mvView      // the camera viewport last found on the map
+	mvPlates mvPlates    // the nameplates of this game's champions as learned from the main view
 
 	// the HUD of the newest frame whose clock was read: while its plate (everything but
 	// the changing digits) is still on screen the HUD is up even if the clock text is not
@@ -1042,9 +1044,10 @@ type mmJSONChamp struct {
 	Score   float32  `json:"score"`
 	// AgeSec is how long ago the champion was last measured (0: on this frame); Covered:
 	// not measured but estimated under another icon; MV: measured from the main view.
-	AgeSec  float64 `json:"ageSec"`
-	Covered bool    `json:"covered,omitempty"`
-	MV      bool    `json:"mv,omitempty"`
+	AgeSec   float64 `json:"ageSec"`
+	Covered  bool    `json:"covered,omitempty"`
+	Attached bool    `json:"attached,omitempty"`
+	MV       bool    `json:"mv,omitempty"`
 }
 
 // mmJSONFrame is one -json line. Present: a broadcast layout is locked; Visible: its
@@ -1069,7 +1072,7 @@ func mmJSONLine(r mmResult) []byte {
 		f.Kills = &[2]int{r.hud.Blue, r.hud.Red}
 	}
 	for _, d := range r.dets {
-		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Score: d.Score, AgeSec: float64(d.Age) / mmFPS, Covered: d.Covered, MV: d.MV}
+		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Score: d.Score, AgeSec: float64(d.Age) / mmFPS, Covered: d.Covered, Attached: d.Attached, MV: d.MV}
 		if d.Visible {
 			x, y := mmGameXY(d.X, d.Y)
 			c.X, c.Y = &x, &y

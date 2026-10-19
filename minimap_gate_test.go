@@ -1,8 +1,6 @@
 package main
 
 import (
-	"image"
-	"image/color"
 	"math"
 	"math/rand"
 	"testing"
@@ -40,12 +38,7 @@ func withPlate(hud []byte) []byte {
 func newGateRig(t *testing.T) *gateRig {
 	mmSetMapRef(synthMap(512))
 	l := mmLayouts[0]
-	icon := image.NewRGBA(image.Rect(0, 0, 64, 64))
-	for y := 0; y < 64; y++ {
-		for x := 0; x < 64; x++ {
-			icon.SetRGBA(x, y, color.RGBA{uint8(x * 4), uint8(y * 4), 90, 255})
-		}
-	}
+	icon := synthIconD(0, 64) // textured: a smooth gradient matches any smooth stretch of the synthetic map
 	g := &gateRig{t: t, live: synthRegion(synthMap(512), l.Map), clock: withPlate(renderHUD(l, 754, 3, 5)), gap: withPlate(darkHUD())}
 	g.covered = make([]byte, len(g.live))
 	g.replay = make([]byte, len(g.clock))

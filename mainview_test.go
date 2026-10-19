@@ -199,7 +199,7 @@ func TestMvAssign(t *testing.T) {
 		{Team: 0, X: 1300, Y: 600, HPFrac: 0.52, Level: 11, LevelC: 1, Conf: 1},
 		{Team: 1, X: 900, Y: 300, HPFrac: 0.9, Level: 9, LevelC: 1, Conf: 1},
 	}
-	obs := mvAssign(bars, v, champs)
+	obs := mvAssign(bars, v, champs, 0, nil)
 	got := map[int]mvObs{}
 	for _, o := range obs {
 		got[o.PID] = o
@@ -216,7 +216,7 @@ func TestMvAssign(t *testing.T) {
 	x, y, _ := mvToMap(bars[1], v)
 	champs[2].HasPrev, champs[2].PrevX, champs[2].PrevY, champs[2].PrevAge = true, x+0.005, y-0.005, 1
 	champs[1].HasPrev, champs[1].PrevX, champs[1].PrevY, champs[1].PrevAge = true, 0.9, 0.9, 1
-	obs = mvAssign(bars, v, champs)
+	obs = mvAssign(bars, v, champs, 0, nil)
 	won := 0
 	for _, o := range obs {
 		if o.PID == 3 && o.X == x && o.Y == y {
@@ -226,7 +226,7 @@ func TestMvAssign(t *testing.T) {
 	if won != 3 {
 		t.Errorf("tie not broken by proximity: %+v", obs)
 	}
-	if mvAssign(bars, mvView{}, champs) != nil {
+	if mvAssign(bars, mvView{}, champs, 0, nil) != nil {
 		t.Error("observations without a viewport")
 	}
 }
