@@ -985,16 +985,29 @@ func kittySpritePixels(sp *mmSprite, cols, rows, cellW, cellH, phx, phy int) *im
 // the phase variant (sub-cell offset of the circle in quarters of a cell).
 type kittyPos struct{ row, col, px, py int }
 
+// kittySubCell says whether sprites use the sub-cell phase variants. herdr re-uploads every
+// image a pane shows to its host terminal and re-sends every placement on each redraw, so the
+// variants cost there what they save elsewhere: a 74 s replay under herdr sent 23.5 MB with
+// 1,584 uploads, against 3.6 MB and 70 uploads with sprites on whole cells, and its remote
+// host window showed the sprites only now and then. Under herdr sprites snap to cells.
+var kittySubCell = !strings.EqualFold(os.Getenv("TERM_PROGRAM"), "herdr")
+
 // kittyAxis splits the pixel px of a circle's leading edge, counted from the slot origin on
 // one axis, into the box cell and the phase. px is rounded to the nearest of kittyPhases
-// steps per cell, so the circle is at most half a step (cell/8 px) off; a position just
-// short of the next cell wraps to phase 0 of that cell, and a circle centred on a cell
-// boundary lands on the step either side of it. The box is box cells wide inside a slot of
-// slot cells, so the last box cell and phase are clamped: a circle at the far edge ends up
-// short of it by up to a quarter cell plus what rounding its diameter up to whole cells left.
+// steps per cell (the nearest whole cell, phase 0, without kittySubCell), so the circle is
+// at most half a step (cell/8 px) off; a position just short of the next cell wraps to
+// phase 0 of that cell, and a circle centred on a cell boundary lands on the step either
+// side of it. The box is box cells wide inside a slot of slot cells, so the last box cell
+// and phase are clamped: a circle at the far edge ends up short of it by up to a quarter
+// cell plus what rounding its diameter up to whole cells left.
 func kittyAxis(px, cell, box, slot int) (c, ph int) {
 	q := (2*kittyPhases*px + cell) / (2 * cell)
-	q = min(max(q, 0), max(slot-box, 0)*kittyPhases+kittyPhases-1)
+	hi := max(slot-box, 0)*kittyPhases + kittyPhases - 1
+	if !kittySubCell {
+		q = (2*px + cell) / (2 * cell) * kittyPhases
+		hi -= kittyPhases - 1
+	}
+	q = min(max(q, 0), hi)
 	return q / kittyPhases, q % kittyPhases
 }
 

@@ -17,7 +17,10 @@ import (
 // tBase is the image id block every test frame uses, so ids are fixed.
 const tBase = 1024
 
-func init() { kittyNewIDBase = func() int { return tBase } }
+func init() {
+	kittyNewIDBase = func() int { return tBase }
+	kittySubCell = true // the tests below are about the variants; TestKittyAxisWholeCells turns them off
+}
 
 // kcmd is one graphics command of an output stream with the cell the cursor was addressed
 // to when it ran (row, col are 1-based; 0 means "not addressed").
@@ -853,6 +856,19 @@ func TestKittyAxisSplitsPixelsIntoCellAndPhase(t *testing.T) {
 	} {
 		if cell, ph := kittyAxis(c.px, c.cell, c.box, c.slot); cell != c.wc || ph != c.wp {
 			t.Errorf("kittyAxis%+v = %d,%d, want %d,%d", c, cell, ph, c.wc, c.wp)
+		}
+	}
+}
+
+func TestKittyAxisWholeCellsUnderARelay(t *testing.T) {
+	kittySubCell = false
+	defer func() { kittySubCell = true }()
+	for _, c := range []struct{ px, cell, box, slot, wc int }{
+		{0, 10, 5, 40, 0}, {4, 10, 5, 40, 0}, {5, 10, 5, 40, 1}, {14, 10, 5, 40, 1}, {16, 10, 5, 40, 2},
+		{-7, 10, 5, 40, 0}, {1000, 10, 5, 40, 35}, {50, 10, 50, 40, 0},
+	} {
+		if cell, ph := kittyAxis(c.px, c.cell, c.box, c.slot); cell != c.wc || ph != 0 {
+			t.Errorf("kittyAxis%+v = %d,%d, want %d,0 (whole cells)", c, cell, ph, c.wc)
 		}
 	}
 }
