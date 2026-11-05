@@ -53,6 +53,10 @@ func mmIsHTTP(src string) bool {
 	return strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://")
 }
 
+// errMMArchive marks a finished broadcast that YouTube serves as a live archive: ffmpeg
+// cannot seek it, so retrying the same URL never helps.
+var errMMArchive = errors.New("live archive VOD is not seekable by ffmpeg; try another VOD")
+
 // mmIsPage reports whether src needs yt-dlp to resolve a media URL.
 func mmIsPage(src string) bool {
 	if !mmIsHTTP(src) {
@@ -300,7 +304,14 @@ func mmResolve(ctx context.Context, page string) (media string, live bool, heigh
 		return "", false, 0, errors.New("yt-dlp returned no URL")
 	}
 	height, _ = strconv.Atoi(lines[1])
-	return lines[2], lines[0] == "True", height, nil
+	live = lines[0] == "True"
+	// A finished broadcast kept as a live archive carries live=1&hang=1: the server holds
+	// the response open until a range request, and range requests break ffmpeg's seeking.
+	// Such a URL yields no frames, so report it instead of stalling the pipeline.
+	if !live && strings.Contains(lines[2], "live=1") {
+		return "", false, height, errMMArchive
+	}
+	return lines[2], live, height, nil
 }
 
 // mmStackW, mmStackH and mmStackBytes describe one ffmpeg output frame: region MM with
@@ -556,7 +567,7 @@ func mmLoop(ctx context.Context, o mmVideoOpts, page, live bool, status func(str
 					return
 				}
 				status("error: " + err.Error())
-				if (resolved && !live) || !mmSleep(ctx, backoff) {
+				if errors.Is(err, errMMArchive) || (resolved && !live) || !mmSleep(ctx, backoff) {
 					return
 				}
 				backoff = min(backoff*2, mmBackoffMax)

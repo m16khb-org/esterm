@@ -178,6 +178,42 @@ func TestMMLoopRetriesPageSourceWhenResolveFails(t *testing.T) {
 	}
 }
 
+// A finished YouTube broadcast served as a live archive is not seekable by ffmpeg; the
+// pipeline must say so instead of stalling until the read timeout.
+func TestMMResolveRejectsALiveArchiveVOD(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "yt-dlp")
+	script := "#!/bin/sh\nprintf 'False\\n1080\\nhttps://h/videoplayback?live=1&hang=1\\n'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ESTERM_YTDLP", fake)
+	_, live, _, err := mmResolve(context.Background(), "https://www.youtube.com/watch?v=x")
+	if err == nil || live {
+		t.Fatalf("got live=%v err=%v, want a seekability error", live, err)
+	}
+}
+
+func TestMMLoopStopsOnALiveArchive(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "yt-dlp")
+	script := "#!/bin/sh\nprintf 'False\\n1080\\nhttps://h/videoplayback?live=1&hang=1\\n'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ESTERM_YTDLP", fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		mmLoop(ctx, mmVideoOpts{Src: "https://www.youtube.com/watch?v=x", FPS: 2}, true, false, func(string) {}, make(chan mmFrame, 1))
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("mmLoop kept retrying a live archive")
+	}
+}
+
 func TestMMFFmpegArgsTimeOutStalledNetworkInput(t *testing.T) {
 	url := strings.Join(mmFFmpegArgs("https://h/live.m3u8", 0, true, false, "vf", false), " ")
 	if !strings.Contains(url, "-rw_timeout "+mmNetTimeoutUs+" -i https://h/live.m3u8") {
