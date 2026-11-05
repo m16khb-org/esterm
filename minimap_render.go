@@ -135,7 +135,11 @@ func mmMapImg() image.Image {
 	img = mmBg.load.get(func(ctx context.Context) (image.Image, error) {
 		v, err := ddLatestVersion(ctx)
 		if err != nil {
-			return nil, err
+			// The map is patch-independent: the newest cached copy still draws the
+			// minimap when the version list (or the network) is down.
+			if v = ddNewestCached(); v == "" {
+				return nil, err
+			}
 		}
 		return ddImage(ctx, v, "img/map/map11.png")
 	})

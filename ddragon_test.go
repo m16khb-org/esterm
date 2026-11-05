@@ -208,6 +208,22 @@ func TestDDVersionEviction(t *testing.T) {
 	}
 }
 
+func TestDDNewestCachedVersion(t *testing.T) {
+	hangNetwork(t)
+	root := ddCacheRoot()
+	for _, v := range []string{"16.9.1", "16.10.2", "16.10.10", "junk"} {
+		if err := os.MkdirAll(filepath.Join(root, v), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "not-a-dir"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ddNewestCached(); got != "16.10.10" {
+		t.Fatalf("newest cached = %q, want 16.10.10", got)
+	}
+}
+
 func TestDDPruneDiskKeepsOnlyListedVersions(t *testing.T) {
 	hangNetwork(t)
 	root := ddCacheRoot()

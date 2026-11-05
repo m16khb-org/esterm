@@ -12,12 +12,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // iconStub serves flat PNGs of the given sizes: circle (CommunityDragon, by champion id in
 // lower case, an absent entry is a 404), square (Data Dragon), and fails every request when
 // down is set. It counts the CommunityDragon requests.
-func iconStub(t *testing.T, circles map[string]int, down bool) *atomic.Int32 {
+func iconStub(t *testing.T, circles map[string]int, down bool, plain ...map[string]int) *atomic.Int32 {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -46,6 +47,13 @@ func iconStub(t *testing.T, circles map[string]int, down bool) *atomic.Int32 {
 			for champ, n := range circles {
 				if strings.HasSuffix(u, "/"+champ+"/hud/"+champ+"_circle_0.png") {
 					return reply(200, flat(n))
+				}
+			}
+			for _, m := range plain {
+				for champ, n := range m {
+					if strings.HasSuffix(u, "/"+champ+"/hud/"+champ+"_circle.png") {
+						return reply(200, flat(n))
+					}
 				}
 			}
 			return reply(404, nil)
@@ -84,8 +92,68 @@ func TestChampIconFallsBackToTheSquareForAnUnknownCircle(t *testing.T) {
 	if !circles {
 		t.Fatal("a champion CommunityDragon has no folder for says nothing about its being reachable")
 	}
-	if _, err := mmChampIcon(context.Background(), "9.9.9", "Ahri", &circles); err != nil || cd.Load() != 2 {
-		t.Fatalf("the next champion is still asked for: err %v, CommunityDragon requests %d, want 2", err, cd.Load())
+	if _, err := mmChampIcon(context.Background(), "9.9.9", "Ahri", &circles); err != nil || cd.Load() != 4 {
+		t.Fatalf("the next champion is still asked for: err %v, CommunityDragon requests %d, want 4", err, cd.Load())
+	}
+}
+
+func TestIconImgFallsBackToTheCircleWhenDDragonIsDown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	flat := func(n int) []byte {
+		im := image.NewRGBA(image.Rect(0, 0, n, n))
+		for i := range im.Pix {
+			im.Pix[i] = 200
+		}
+		var b bytes.Buffer
+		png.Encode(&b, im)
+		return b.Bytes()
+	}
+	old := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.String(), "communitydragon") {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(flat(8))), Header: http.Header{}}, nil
+		}
+		return nil, errors.New("ddragon down")
+	})}
+	ddImgMu.Lock()
+	oldMemo, oldFlights := ddImgMemo, ddFlights
+	ddImgMemo, ddFlights = map[string]image.Image{}, map[string]*ddFlight{}
+	ddImgMu.Unlock()
+	mmIconMemo.Lock()
+	oldIcons := mmIconMemo.m
+	mmIconMemo.m = nil
+	mmIconMemo.Unlock()
+	t.Cleanup(func() {
+		httpClient = old
+		ddImgMu.Lock()
+		ddImgMemo, ddFlights = oldMemo, oldFlights
+		ddImgMu.Unlock()
+		mmIconMemo.Lock()
+		mmIconMemo.m = oldIcons
+		mmIconMemo.Unlock()
+	})
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if img := mmIconImg("9.9.9", "Qiyana"); img != nil {
+			if img.Bounds().Dx() != 8 {
+				t.Fatalf("got %v: want the 8 px CommunityDragon circle", img.Bounds())
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the circle fallback never loaded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestChampIconUsesTheUnnumberedCircle(t *testing.T) {
+	iconStub(t, nil, false, map[string]int{"rumble": 8})
+	circles := true
+	img, err := mmChampIcon(context.Background(), "9.9.9", "Rumble", &circles)
+	if err != nil || img.Bounds().Dx() != 8 || !circles {
+		t.Fatalf("got %v, %v, circles %v: want the 8 px unnumbered circle", img, err, circles)
 	}
 }
 

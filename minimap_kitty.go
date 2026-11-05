@@ -317,7 +317,17 @@ func mmIconImg(ver, champ string) image.Image {
 		mmIconMemo.m[key] = a
 	}
 	mmIconMemo.Unlock()
-	return a.get(func(ctx context.Context) (image.Image, error) { return ddImage(ctx, ver, path) })
+	return a.get(func(ctx context.Context) (image.Image, error) {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		// The CommunityDragon circle is the portrait the tracker already matches, and it
+		// fills the same circle; try it first so a hung Data Dragon never leaves a plain
+		// disc. A cached Data Dragon square (ddPeek above) still wins.
+		if c, cerr := mmCircleIcon(ctx, champ); cerr == nil {
+			return c, nil
+		}
+		return ddImage(ctx, ver, path)
+	})
 }
 
 func mix(a, b uint8, t float64) uint8 { return uint8(float64(a)*(1-t) + float64(b)*t + 0.5) }

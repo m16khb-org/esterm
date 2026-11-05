@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -211,6 +212,48 @@ func ddCacheRoot() string {
 		return ""
 	}
 	return filepath.Join(dir, "esterm", "ddragon")
+}
+
+// ddNewestCached returns the newest version directory under the disk cache, or "". The
+// map image barely changes between patches, so a cached copy still beats a blank map when
+// the version list cannot be fetched.
+func ddNewestCached() string {
+	root := ddCacheRoot()
+	if root == "" {
+		return ""
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		if best == "" || versionLess(best, e.Name()) {
+			best = e.Name()
+		}
+	}
+	return best
+}
+
+// versionLess reports whether dot-separated numeric version a is older than b.
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < max(len(pa), len(pb)); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return a < b
 }
 
 // ddPruneDisk deletes every cached version directory except the kept ones.
