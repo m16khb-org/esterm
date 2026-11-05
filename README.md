@@ -208,3 +208,22 @@ go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=/tmp/bac
 
 > lolesports.com의 비공식 엔드포인트를 사용합니다. 영상은 **개인 시청 목적**으로만 처리하며,
 > 녹화·저장·재배포하지 마세요. 각 플랫폼의 약관을 따릅니다.
+
+## 라이선스
+
+GPL-3.0-or-later. 전문은 [LICENSE](LICENSE)를 참고합니다.
+
+Copyright (C) 2026 m16khb
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
