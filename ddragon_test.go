@@ -208,6 +208,24 @@ func TestDDVersionEviction(t *testing.T) {
 	}
 }
 
+func TestDDCachedFile(t *testing.T) {
+	hangNetwork(t)
+	root := ddCacheRoot()
+	dir := filepath.Join(root, "1.0.1", "img", "map")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "map11.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ddCachedFile("1.0.1", "img/map/map11.png") {
+		t.Fatal("cached map not found")
+	}
+	if ddCachedFile("1.0.1", "img/map/map12.png") {
+		t.Fatal("absent file reported as cached")
+	}
+}
+
 func TestDDNewestCachedVersion(t *testing.T) {
 	hangNetwork(t)
 	root := ddCacheRoot()

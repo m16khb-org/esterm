@@ -238,6 +238,16 @@ func ddNewestCached() string {
 	return best
 }
 
+// ddCachedFile reports whether the version/path image is already on disk.
+func ddCachedFile(version, path string) bool {
+	root := ddCacheRoot()
+	if root == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(version+"/"+path)))
+	return err == nil
+}
+
 // versionLess reports whether dot-separated numeric version a is older than b.
 func versionLess(a, b string) bool {
 	pa, pb := strings.Split(a, "."), strings.Split(b, ".")

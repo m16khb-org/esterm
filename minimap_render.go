@@ -133,10 +133,14 @@ func mmMapImg() image.Image {
 		return img
 	}
 	img = mmBg.load.get(func(ctx context.Context) (image.Image, error) {
+		// The map barely changes between patches, so a cached copy is drawn at once.
+		// Waiting for the version list first leaves the panel black for the whole HTTP
+		// timeout when Data Dragon is unreachable.
+		if v := ddNewestCached(); v != "" && ddCachedFile(v, "img/map/map11.png") {
+			return ddImage(ctx, v, "img/map/map11.png")
+		}
 		v, err := ddLatestVersion(ctx)
 		if err != nil {
-			// The map is patch-independent: the newest cached copy still draws the
-			// minimap when the version list (or the network) is down.
 			if v = ddNewestCached(); v == "" {
 				return nil, err
 			}
