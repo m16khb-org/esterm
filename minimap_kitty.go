@@ -730,7 +730,7 @@ const (
 	kittyPhases   = 4                             // sub-cell positions per axis
 	kittyVariants = 3 * kittyPhases * kittyPhases // states x phase y x phase x
 
-	kittyGlyphChars = 12                  // "0123456789.:"
+	kittyGlyphChars = 13                  // "0123456789.:?"
 	kittyGlyphs     = 2 * kittyGlyphChars // dead style, stale style
 	kittyMaxDigits  = 3                   // longest countdown text
 	kittyDigitID    = kittySpriteID + kittyMaxIcons*kittyVariants
@@ -1055,15 +1055,12 @@ func kittyVariant(state mmIconState, pos kittyPos) int {
 func kittyVariantID(i, v int) int { return kittySpriteID + i*kittyVariants + v }
 
 // kittyCountCell returns the cell of the first of n countdown digits for the sprite at pos
-// whose circle has diameter d: in the cell row right below the circle's lowest pixel row
-// (above its highest when the slot ends there), centred on the circle's cell columns and
-// kept inside the slot.
+// whose circle has diameter d: in the cell row that holds the circle's lowest pixel row
+// (the digits then touch or slightly overlap the circle instead of a full row below it),
+// centred on the circle's cell columns and kept inside the slot.
 func kittyCountCell(pos kittyPos, d, n int, s *mmSlot) (row, col int) {
 	ox, oy := kittyPhaseOffset(pos.px, s.CellW), kittyPhaseOffset(pos.py, s.CellH)
-	row = pos.row + (oy+d-1)/s.CellH + 1
-	if row >= s.Row+s.Rows {
-		row = pos.row + oy/s.CellH - 1
-	}
+	row = pos.row + (oy+d-1)/s.CellH
 	row = min(max(row, s.Row), s.Row+s.Rows-1)
 	left, right := pos.col+ox/s.CellW, pos.col+(ox+d-1)/s.CellW
 	col = min(max((left+right)/2-(n-1)/2, s.Col), max(s.Col+s.Cols-n, s.Col))
@@ -1083,6 +1080,7 @@ var countGlyphs = map[byte][7]string{
 	'7': {"XXXXX", "....X", "...X.", "..X..", ".X...", ".X...", ".X..."},
 	'8': {".XXX.", "X...X", "X...X", ".XXX.", "X...X", "X...X", ".XXX."},
 	'9': {".XXX.", "X...X", "X...X", ".XXXX", "....X", "...X.", ".XX.."},
+	'?': {"..XX.", ".X..X", "....X", "...X.", "..X..", ".....", "..X.."},
 	'.': {".....", ".....", ".....", ".....", ".....", ".XXX.", ".XXX."},
 	':': {".....", "..X..", "..X..", ".....", "..X..", "..X..", "....."},
 }
@@ -1102,6 +1100,8 @@ func kittyGlyph(style int, ch byte) int {
 		return style*kittyGlyphChars + 10
 	case ':':
 		return style*kittyGlyphChars + 11
+	case '?':
+		return style*kittyGlyphChars + 12
 	}
 	return style*kittyGlyphChars + int(ch-'0')
 }
@@ -1322,6 +1322,9 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			sp.placed, sp.cur, sp.pid, sp.row, sp.col = true, v, pid, pos.row, pos.col
 		}
 		text := mmCountText(p.State, p.Secs)
+		if p.State == mmIconStale && text != "" {
+			text = "?" // an estimate, not a respawn countdown
+		}
 		style := 0
 		if p.State == mmIconStale {
 			style = 1

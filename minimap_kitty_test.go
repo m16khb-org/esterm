@@ -1078,7 +1078,7 @@ func TestKittyImageIDsStayInTheBlockAndNeverCollide(t *testing.T) {
 	}
 	glyphs := map[int]bool{}
 	for style := 0; style < 2; style++ {
-		for _, ch := range []byte("0123456789.:") {
+		for _, ch := range []byte("0123456789.:?") {
 			g := kittyGlyph(style, ch)
 			if g < 0 || g >= kittyGlyphs || glyphs[g] {
 				t.Fatalf("glyph %d of %q style %d out of range or duplicate", g, ch, style)
@@ -1132,7 +1132,7 @@ func TestKittyFreeAllFreesEveryVariantAndGlyph(t *testing.T) {
 // has its circle's top-left at px 16,344; across that is quarter 6 -> box cell 1 (canvas
 // col 3), phase 2 (circle at px 5 of the box); down it is quarter 69 -> box cell 17 (canvas
 // row 18), phase 1 (px 5). The circle's last pixel row is box px 37, in box row 1 = canvas
-// row 19, so the digits sit in canvas row 20 and are centred on the circle's cells 3..6.
+// row 19 (1-based 20), so the digits stay in that row and are centred on the circle's cells 3..6.
 func TestKittyDeadCountdownIsGlyphImagesUnderTheSprite(t *testing.T) {
 	offlineMap(t)
 	hangNetwork(t)
@@ -1152,8 +1152,8 @@ func TestKittyDeadCountdownIsGlyphImagesUnderTheSprite(t *testing.T) {
 		if len(tr) != 1 || len(pl) != 1 {
 			t.Fatalf("glyph %q: %d transmissions, %d placements", ch, len(tr), len(pl))
 		}
-		if p := pl[0]; p.row != 21 || p.col != 5+j || p.ctl["c"] != "1" || p.ctl["r"] != "1" || p.ctl["p"] != pid(j) || p.ctl["z"] != strconv.Itoa(kittyDigitZ) {
-			t.Errorf("digit %d placed at cell %d;%d %v, want 21;%d one cell, placement %s, z=%d", j, p.row, p.col, p.ctl, 5+j, pid(j), kittyDigitZ)
+		if p := pl[0]; p.row != 20 || p.col != 5+j || p.ctl["c"] != "1" || p.ctl["r"] != "1" || p.ctl["p"] != pid(j) || p.ctl["z"] != strconv.Itoa(kittyDigitZ) {
+			t.Errorf("digit %d placed at cell %d;%d %v, want 20;%d one cell, placement %s, z=%d", j, p.row, p.col, p.ctl, 5+j, pid(j), kittyDigitZ)
 		}
 		img := testDecode(t, tr[0])
 		if img.Bounds().Dx() != 10 || img.Bounds().Dy() != 20 {
@@ -1210,24 +1210,27 @@ func TestKittyDeadCountdownIsGlyphImagesUnderTheSprite(t *testing.T) {
 	}
 }
 
-func TestKittyStaleAgeIsDimGlyphs(t *testing.T) {
+func TestKittyStaleChampionShowsAQuestionMark(t *testing.T) {
 	offlineMap(t)
 	hangNetwork(t)
 	var k kittyOut
 	ic := iconAt("A", 100, 0.5, 0.5)
 	ic.State, ic.Secs = mmIconStale, 12
 	cmds := parseKitty(t, k.Frame(testSlot(ic), true))
+	if kittyCount(cmds, "a", "t", "i", strconv.Itoa(tBase+kittyDigitID+kittyGlyph(1, '?'))) != 1 {
+		t.Errorf("stale '?' (style 1) not sent: %v", cmds)
+	}
 	for _, ch := range []byte("12") {
-		if kittyCount(cmds, "a", "t", "i", strconv.Itoa(tBase+kittyDigitID+kittyGlyph(1, ch))) != 1 {
-			t.Errorf("stale glyph %q (style 1) not sent: %v", ch, cmds)
+		if kittyCount(cmds, "a", "t", "i", strconv.Itoa(tBase+kittyDigitID+kittyGlyph(1, ch))) != 0 {
+			t.Errorf("a stale estimate must not show the age digit %q: %v", ch, cmds)
 		}
 	}
-	if kittyCount(cmds, "a", "t", "i", strconv.Itoa(tBase+kittyDigitID+kittyGlyph(0, '1'))) != 0 {
-		t.Error("a stale age must not use the dead style")
+	if kittyCount(cmds, "a", "t", "i", strconv.Itoa(tBase+kittyDigitID+kittyGlyph(0, '?'))) != 0 {
+		t.Error("a stale estimate must not use the dead style")
 	}
-	ic.Secs = 0 // just seen: no age to show
-	if cmds = parseKitty(t, k.Frame(testSlot(ic), false)); kittyCount(cmds, "a", "d", "d", "i") != 2 {
-		t.Errorf("an age of 0 shows nothing: %v", cmds)
+	ic.Secs = 0 // just seen: no mark to show
+	if cmds = parseKitty(t, k.Frame(testSlot(ic), false)); kittyCount(cmds, "a", "d", "d", "i") != 1 {
+		t.Errorf("a fresh position shows nothing: %v", cmds)
 	}
 }
 
