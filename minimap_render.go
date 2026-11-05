@@ -382,7 +382,11 @@ func mmPanelView(v mmView, t, h int) ([]line, *mmSlot) {
 		cols, rows := mmGeometryCells(t, h, v.CellW, v.CellH)
 		W := t - 4
 		pad := (W - cols) / 2
-		out := []line{borderedL(line{C(trim(v.Status, W), cDim)}, t)}
+		style := cDim
+		if v.Hidden {
+			style = cYel // the map is gone because the broadcast cut away, not an error
+		}
+		out := []line{borderedL(line{C(trim(v.Status, W), style)}, t)}
 		for i := 0; i < rows; i++ {
 			out = append(out, borderedL(line{S(strings.Repeat(" ", W))}, t))
 		}

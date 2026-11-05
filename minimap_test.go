@@ -281,8 +281,8 @@ func TestMMSnapshotAtFollowsStreamTime(t *testing.T) {
 	if v := m.SnapshotAt(10, nil); len(v.Markers) != 1 || v.Status != "LCK · tracking 1/1" {
 		t.Fatalf("at 10 s: %+v", v)
 	}
-	if v := m.SnapshotAt(15, nil); len(v.Markers) != 0 || v.Status != "LCK · minimap hidden on broadcast" {
-		t.Fatalf("the replay frame must show hidden: %q", v.Status)
+	if v := m.SnapshotAt(15, nil); len(v.Markers) != 0 || !v.Hidden || v.Status != "no live minimap (broadcast replay/desk) · LCK" {
+		t.Fatalf("the replay frame must show hidden: %+v", v)
 	}
 	if got := len(m.results); got > n/2+mmKeepBack {
 		t.Fatalf("old frames must be dropped, %d left", got)

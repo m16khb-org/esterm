@@ -60,6 +60,7 @@ type mmView struct {
 	Ver          string // Data Dragon version of the icons
 	CellW, CellH int    // terminal cell size in pixels (kitty)
 	Status       string
+	Hidden       bool // the broadcast shows no live minimap (replay, desk or draft)
 	Lives        mmLives
 	Obj          objView // objective timers at the shown instant
 }

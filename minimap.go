@@ -945,7 +945,9 @@ func (m *minimap) viewLocked(r mmResult, nx *mmResult, frac float64, lives mmLiv
 	switch {
 	case r.layout == "":
 	case !r.visible:
-		parts = append(parts, "minimap hidden on broadcast")
+		// Keep the reason at the front: the panel trims the status from the right.
+		v.Hidden = true
+		parts = append([]string{"no live minimap (broadcast replay/desk)"}, parts...)
 	default:
 		c := mmChampsOf(r, nx, frac, lives, m.labels)
 		v.Markers, v.Icons = c.Markers, c.Icons
