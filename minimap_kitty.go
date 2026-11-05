@@ -516,6 +516,9 @@ func badgeGeometry(d int) (scale, bw, bh, x0, y0 int, ok bool) {
 // drawBadge paints the lane letter on a dark team-coloured plate with a full-colour edge
 // and a white glyph over the bottom-right corner of sp. Label runes outside A-Z show '?'.
 func drawBadge(sp *mmSprite, rc color.RGBA, label string) {
+	if label == "" {
+		return // the caller uses the corner for a countdown or the stale '?'
+	}
 	scale, bw, bh, x0, y0, ok := badgeGeometry(sp.d)
 	if !ok {
 		return
@@ -1312,7 +1315,11 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			if sp.sent[v] {
 				b = kittyPlacement(b, id, pid, bc, br, 2+i)
 			} else {
-				img := kittySpritePixels(mmSpriteFor(icon, p.Team, d, kittyRing, p.Label, p.State), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
+				label := p.Label
+				if p.State != mmIconLive {
+					label = "" // leave the corner to the countdown or the '?'
+				}
+				img := kittySpritePixels(mmSpriteFor(icon, p.Team, d, kittyRing, label, p.State), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
 				b = kittyTransmitPlace(b, id, pid, bc, br, 2+i, k.png.encode(img, true))
 				sp.sent[v] = true
 			}

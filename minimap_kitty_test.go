@@ -1234,6 +1234,19 @@ func TestKittyStaleChampionShowsAQuestionMark(t *testing.T) {
 	}
 }
 
+func TestBadgeIsSkippedForAnEmptyLabel(t *testing.T) {
+	sp := &mmSprite{d: 32, pix: make([]uint8, 4*32*32)}
+	before := append([]uint8(nil), sp.pix...)
+	drawBadge(sp, mmTeamBlue, "")
+	if !bytes.Equal(before, sp.pix) {
+		t.Fatal("an empty label must leave the sprite untouched")
+	}
+	drawBadge(sp, mmTeamBlue, "J")
+	if bytes.Equal(before, sp.pix) {
+		t.Fatal("a label must draw a badge")
+	}
+}
+
 func TestKittyStaleAndDeadSpritesAreDimmedAndGrey(t *testing.T) {
 	icon := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for i := 0; i < len(icon.Pix); i += 4 {
