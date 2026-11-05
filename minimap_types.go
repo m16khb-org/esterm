@@ -77,6 +77,47 @@ type mmDet struct {
 	// Attached: the champion is latched onto the ally whose icon it is drawn at (a support
 	// has no icon of its own then): Covered too, and it is as fresh as that ally's position.
 	Attached bool
+	// Chan: the champion is channeling Recall or Teleport, read from the swirling ring the
+	// game draws around the minimap icon.
+	Chan mmChannel
+}
+
+// mmChannel is the kind of channel the minimap ring shows: a blue-team Recall is cyan,
+// a blue-team Teleport green, and a red-team channel red (the game does not tell enemy
+// Recall from enemy Teleport there).
+type mmChannel uint8
+
+const (
+	mmChanNone mmChannel = iota
+	mmChanRecall
+	mmChanTeleport
+	mmChanHostile
+)
+
+func (c mmChannel) String() string {
+	switch c {
+	case mmChanRecall:
+		return "recall"
+	case mmChanTeleport:
+		return "teleport"
+	case mmChanHostile:
+		return "hostile"
+	}
+	return ""
+}
+
+// letter is the badge shown while channeling; "?" when the game's red ring does not say
+// whether it is a Recall or a Teleport.
+func (c mmChannel) letter() string {
+	switch c {
+	case mmChanRecall:
+		return "R"
+	case mmChanTeleport:
+		return "T"
+	case mmChanHostile:
+		return "?"
+	}
+	return ""
 }
 
 // mmIconState is how a champion marker is drawn.

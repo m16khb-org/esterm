@@ -46,7 +46,8 @@ type mmIcon struct {
 	Label string  // lane letter (T/J/M/B/S, else the champion's first letter) for the badge
 	X, Y  float64 // normalized 0..1, origin top-left; fractional positions are drawn at sub-cell offsets
 	State mmIconState
-	Secs  int // mmIconStale: seconds since it was last seen; mmIconDead: seconds until the respawn
+	Secs  int       // mmIconStale: seconds since it was last seen; mmIconDead: seconds until the respawn
+	Chan  mmChannel // Recall/Teleport ring seen around the icon
 }
 
 // mmSlot is the cell rectangle the panel reserves for the kitty image, in canvas cells.
@@ -344,6 +345,7 @@ type mmSpriteKey struct {
 	team, d, ring int
 	label         string
 	state         mmIconState
+	chan_         mmChannel
 }
 
 var mmSprites struct {
@@ -351,12 +353,26 @@ var mmSprites struct {
 	m map[mmSpriteKey]*mmSprite
 }
 
+// mmChannelColor is the ring and badge colour of a channel: the game's own ring colours
+// (blue Recall, green Teleport, red for every enemy channel), brightened for the panel.
+func mmChannelColor(c mmChannel) color.RGBA {
+	switch c {
+	case mmChanRecall:
+		return color.RGBA{0x4d, 0xe1, 0xff, 0xff}
+	case mmChanTeleport:
+		return color.RGBA{0x5a, 0xef, 0x7a, 0xff}
+	case mmChanHostile:
+		return color.RGBA{0xff, 0x5a, 0x7a, 0xff}
+	}
+	return color.RGBA{}
+}
+
 // mmSpriteFor returns the cached sprite of an icon (nil: plain disc), lane label and state
 // for a team. Sprites are keyed by the icon image identity, so a placeholder is replaced
 // once the icon arrives. A stale sprite is the portrait at ~55% brightness inside a grey
 // ring; a dead one is the desaturated portrait with a white cross over it.
-func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIconState) *mmSprite {
-	k := mmSpriteKey{icon, team, d, ring, label, state}
+func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIconState, chan_ mmChannel) *mmSprite {
+	k := mmSpriteKey{icon, team, d, ring, label, state, chan_}
 	mmSprites.Lock()
 	defer mmSprites.Unlock()
 	if sp := mmSprites.m[k]; sp != nil {
@@ -371,6 +387,9 @@ func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIcon
 	}
 	if state != mmIconLive {
 		rc = mmRingGrey
+	}
+	if chan_ != mmChanNone {
+		rc = mmChannelColor(chan_)
 	}
 	sp := renderSprite(d, ring, rc, icon, label)
 	switch state {
@@ -557,6 +576,7 @@ type mmPlace struct {
 	Label string // lane letter for the badge
 	State mmIconState
 	Secs  int
+	Chan  mmChannel
 	X, Y  int
 }
 
@@ -574,6 +594,7 @@ func mmPlacements(dst []mmPlace, w, h, d int, icons []mmIcon) []mmPlace {
 			Label: ic.Label,
 			State: ic.State,
 			Secs:  ic.Secs,
+			Chan:  ic.Chan,
 			X:     min(max(int(math.Round(ic.X*float64(w)))-d/2, 0), w-d),
 			Y:     min(max(int(math.Round(ic.Y*float64(h)))-d/2, 0), h-d),
 		})
@@ -1316,10 +1337,13 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 				b = kittyPlacement(b, id, pid, bc, br, 2+i)
 			} else {
 				label := p.Label
-				if p.State != mmIconLive {
+				switch {
+				case p.State != mmIconLive:
 					label = "" // leave the corner to the countdown or the '?'
+				case p.Chan != mmChanNone:
+					label = p.Chan.letter()
 				}
-				img := kittySpritePixels(mmSpriteFor(icon, p.Team, d, kittyRing, label, p.State), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
+				img := kittySpritePixels(mmSpriteFor(icon, p.Team, d, kittyRing, label, p.State, p.Chan), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
 				b = kittyTransmitPlace(b, id, pid, bc, br, 2+i, k.png.encode(img, true))
 				sp.sent[v] = true
 			}

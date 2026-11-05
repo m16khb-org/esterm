@@ -611,7 +611,7 @@ func TestKittySpritesSitOnWholeCellsAndStayRound(t *testing.T) {
 func TestKittySpritePixelsDrawTheRoundCircleAtItsPhase(t *testing.T) {
 	const cw, ch, d = 10, 20, 33
 	cols, rows := kittySpriteCells(d, cw, ch)
-	sp := mmSpriteFor(nil, 100, d, kittyRing, "M", mmIconLive)
+	sp := mmSpriteFor(nil, 100, d, kittyRing, "M", mmIconLive, mmChanNone)
 	seen := map[string]bool{}
 	for py := 0; py < kittyPhases; py++ {
 		for px := 0; px < kittyPhases; px++ {
@@ -1253,9 +1253,9 @@ func TestKittyStaleAndDeadSpritesAreDimmedAndGrey(t *testing.T) {
 		icon.Pix[i], icon.Pix[i+1], icon.Pix[i+2], icon.Pix[i+3] = 200, 40, 40, 255
 	}
 	const d = 32
-	live := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconLive)
-	stale := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconStale)
-	dead := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconDead)
+	live := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconLive, mmChanNone)
+	stale := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconStale, mmChanNone)
+	dead := mmSpriteFor(icon, 100, d, kittyRing, "J", mmIconDead, mmChanNone)
 	px := func(sp *mmSprite, x, y int) [4]uint8 {
 		o := 4 * (y*d + x)
 		return [4]uint8{sp.pix[o], sp.pix[o+1], sp.pix[o+2], sp.pix[o+3]}

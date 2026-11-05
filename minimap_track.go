@@ -59,30 +59,32 @@ func spawnPrior(team int) (x, y float64) {
 
 // mmTrk is the state of one champion.
 type mmTrk struct {
-	kf       mmKF
-	init     bool    // kf holds a position (seen, or spawned)
-	lastIdx  int     // frame the filter was last advanced to
-	measIdx  int     // frame of the last measurement or of the track's start; the age of the position counts from there
-	covered  bool    // not found this frame, hidden under another found icon
-	sim      float32 // portrait similarity of the last measurement
-	spawn    bool    // the track started from a spawn prior and has not been measured since
-	dead     bool    // the feed says dead
-	deadIdx  int     // frame the feed's death was first seen
-	frozen   bool    // dead for longer than mmDeathGrace: the position stays where it was
-	deadX    float64 // position at the death frame, used when no measurement is near it
-	deadY    float64
-	lastMX   float64 // last measured position
-	lastMY   float64
-	measured bool // measured on the current frame
-	viaMV    bool // ... by the main view, not by the portrait
-	coverIdx int  // frame the champion was first seen covered in the current stretch, -1 when not covered
-	carrier  int  // template index of the ally it is covered by, -1 for none
-	carrying bool // follows the carrier: it is hidden under it, whereever it goes
-	pend     bool // a sighting far from where the champion can be waits for its confirmation
-	pendX    float64
-	pendY    float64
-	pendIdx  int // frame of that sighting
-	lastHost int // template index of the ally it was last attached to or carried by, -1 for none
+	kf        mmKF
+	init      bool    // kf holds a position (seen, or spawned)
+	lastIdx   int     // frame the filter was last advanced to
+	measIdx   int     // frame of the last measurement or of the track's start; the age of the position counts from there
+	covered   bool    // not found this frame, hidden under another found icon
+	sim       float32 // portrait similarity of the last measurement
+	spawn     bool    // the track started from a spawn prior and has not been measured since
+	dead      bool    // the feed says dead
+	deadIdx   int     // frame the feed's death was first seen
+	frozen    bool    // dead for longer than mmDeathGrace: the position stays where it was
+	deadX     float64 // position at the death frame, used when no measurement is near it
+	deadY     float64
+	lastMX    float64 // last measured position
+	lastMY    float64
+	measured  bool // measured on the current frame
+	viaMV     bool // ... by the main view, not by the portrait
+	coverIdx  int  // frame the champion was first seen covered in the current stretch, -1 when not covered
+	carrier   int  // template index of the ally it is covered by, -1 for none
+	carrying  bool // follows the carrier: it is hidden under it, whereever it goes
+	pend      bool // a sighting far from where the champion can be waits for its confirmation
+	pendX     float64
+	pendY     float64
+	pendIdx   int       // frame of that sighting
+	lastHost  int       // template index of the ally it was last attached to or carried by, -1 for none
+	chanLast  mmChannel // ring colour read on the previous frame
+	chanState mmChannel // ring colour seen on two frames in a row
 }
 
 // mmTracker follows every champion of a game across the frames of one stream.
@@ -187,6 +189,7 @@ func (t *mmTracker) StepWith(idx int, rgb []byte, lives mmLives, obs []mvObs) []
 	t.match(idx)
 	t.fuse(idx, obs)
 	t.markCovered(idx)
+	t.detectChannels()
 	return t.dets(idx)
 }
 
@@ -598,8 +601,105 @@ func (t *mmTracker) dets(idx int) []mmDet {
 			d.X = math.Min(math.Max(tr.kf.x.p/mmFrameSize, 0), 1)
 			d.Y = math.Min(math.Max(tr.kf.y.p/mmFrameSize, 0), 1)
 			d.Age, d.Covered, d.MV, d.Attached = age, tr.covered, tr.viaMV, tr.carrying
+			d.Chan = tr.chanState
 		}
 		out[k] = d
 	}
 	return out
+}
+
+// detectChannels reads the swirling Recall/Teleport ring around each champion measured on
+// this frame. A colour has to appear on two consecutive frames: the ring is bright and
+// steady, while a single frame can catch a spell effect or a coloured piece of terrain.
+func (t *mmTracker) detectChannels() {
+	for k := range t.trk {
+		tr := &t.trk[k]
+		cs := mmChanNone
+		if tr.measured && !tr.dead && !tr.spawn {
+			cs = mmRingChannel(t.rgb, tr.lastMX, tr.lastMY, t.tpls[k].ref.Team)
+		}
+		if cs == tr.chanLast {
+			tr.chanState = cs
+		} else {
+			tr.chanState = mmChanNone
+		}
+		tr.chanLast = cs
+	}
+}
+
+// mmRingChannel classifies the ring just outside a champion icon at (cx, cy) in the
+// mmFrameSize frame. Blue-team Recall is cyan, blue-team Teleport green, and a red-team
+// channel red; the game draws enemy Recall and Teleport with the same red ring.
+func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
+	if rgb == nil {
+		return mmChanNone
+	}
+	var n, cyan, green, red int
+	for dy := -20; dy <= 20; dy++ {
+		for dx := -20; dx <= 20; dx++ {
+			r2 := dx*dx + dy*dy
+			if r2 < 14*14 || r2 > 20*20 {
+				continue
+			}
+			x, y := int(cx)+dx, int(cy)+dy
+			if x < 0 || y < 0 || x >= mmFrameSize || y >= mmFrameSize {
+				continue
+			}
+			o := 3 * (y*mmFrameSize + x)
+			h, s, v := rgbHSV(rgb[o], rgb[o+1], rgb[o+2])
+			n++
+			if v < 0.72 || s < 0.22 {
+				continue
+			}
+			switch {
+			case team == 100 && h >= 170 && h <= 245:
+				cyan++
+			case team == 100 && h >= 80 && h <= 165:
+				green++
+			case team == 200 && (h < 20 || h >= 335):
+				red++
+			}
+		}
+	}
+	if n == 0 {
+		return mmChanNone
+	}
+	f := float64(n)
+	switch {
+	case float64(cyan)/f > 0.15:
+		return mmChanRecall
+	case float64(green)/f > 0.15:
+		return mmChanTeleport
+	case float64(red)/f > 0.20:
+		return mmChanHostile
+	}
+	return mmChanNone
+}
+
+// rgbHSV converts a colour to hue (degrees), saturation and value (0..1).
+func rgbHSV(r, g, b uint8) (h, s, v float64) {
+	mx := math.Max(float64(r), math.Max(float64(g), float64(b)))
+	mn := math.Min(float64(r), math.Min(float64(g), float64(b)))
+	if mx == 0 {
+		return 0, 0, 0
+	}
+	v = mx / 255
+	d := mx - mn
+	if d == 0 {
+		return 0, 0, v
+	}
+	s = d / mx
+	switch mx {
+	case float64(r):
+		h = math.Mod((float64(g)-float64(b))/d, 6)
+	case float64(g):
+		h = (float64(b)-float64(r))/d + 2
+	default:
+		h = (float64(r)-float64(g))/d + 4
+	}
+	h *= 60
+	if h < 0 {
+		h += 360
+	}
+	return h, s, v
 }

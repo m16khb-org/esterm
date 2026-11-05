@@ -917,8 +917,12 @@ func mmChampsOf(r mmResult, nx *mmResult, frac float64, lives mmLives, labels ma
 		case mmIconStale:
 			c.Stale++
 		}
-		c.Markers = append(c.Markers, mmMarker{Team: d.Team, Label: labels[d.PID], X: x, Y: y, State: state, Secs: secs})
-		c.Icons = append(c.Icons, mmIcon{Team: d.Team, Champ: d.Champ, Label: labels[d.PID], X: x, Y: y, State: state, Secs: secs})
+		label := labels[d.PID]
+		if state == mmIconLive && d.Chan != mmChanNone {
+			label = d.Chan.letter()
+		}
+		c.Markers = append(c.Markers, mmMarker{Team: d.Team, Label: label, X: x, Y: y, State: state, Secs: secs})
+		c.Icons = append(c.Icons, mmIcon{Team: d.Team, Champ: d.Champ, Label: label, X: x, Y: y, State: state, Secs: secs, Chan: d.Chan})
 	}
 	c.Alive = len(r.dets) - c.Dead
 	return c
@@ -1041,6 +1045,7 @@ type mmJSONChamp struct {
 	Role    string   `json:"role"`
 	Team    int      `json:"team"`
 	Visible bool     `json:"visible"`
+	Chan    string   `json:"chan,omitempty"` // recall, teleport, or hostile (enemy channel)
 	X       *float64 `json:"x,omitempty"`
 	Y       *float64 `json:"y,omitempty"`
 	Score   float32  `json:"score"`
@@ -1074,7 +1079,7 @@ func mmJSONLine(r mmResult) []byte {
 		f.Kills = &[2]int{r.hud.Blue, r.hud.Red}
 	}
 	for _, d := range r.dets {
-		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Score: d.Score, AgeSec: float64(d.Age) / mmFPS, Covered: d.Covered, Attached: d.Attached, MV: d.MV}
+		c := mmJSONChamp{PID: d.PID, Champ: d.Champ, Role: d.Role, Team: d.Team, Visible: d.Visible, Chan: d.Chan.String(), Score: d.Score, AgeSec: float64(d.Age) / mmFPS, Covered: d.Covered, Attached: d.Attached, MV: d.MV}
 		if d.Visible {
 			x, y := mmGameXY(d.X, d.Y)
 			c.X, c.Y = &x, &y
