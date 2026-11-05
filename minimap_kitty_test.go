@@ -261,7 +261,7 @@ func TestKittyMapRasterNeverExceedsDataDragon(t *testing.T) {
 	}
 }
 
-func TestKittyTilesCoverTheRasterOnceWithinBudget(t *testing.T) {
+func TestKittyTilesCoverTheRasterWithinBudget(t *testing.T) {
 	for _, c := range []struct{ cols, rows, cw, ch int }{
 		{40, 20, 10, 20}, {48, 24, 8, 16}, {54, 24, 15, 36}, {64, 32, 18, 38}, {120, 60, 20, 40}, {3, 2, 16, 32}, {1, 1, 8, 16}, {200, 100, 8, 16},
 	} {
@@ -293,15 +293,32 @@ func TestKittyTilesCoverTheRasterOnceWithinBudget(t *testing.T) {
 			}
 		}
 		for i, n := range px {
-			if n != 1 {
+			if n < 1 || n > 4 {
 				t.Fatalf("%+v: raster pixel %d,%d covered %d times", c, i%mw, i/mw, n)
 			}
 		}
 		for i, n := range cells {
-			if n != 1 {
+			if n < 1 || n > 4 {
 				t.Fatalf("%+v: cell %d,%d covered %d times", c, i%c.cols, i/c.cols, n)
 			}
 		}
+	}
+}
+
+func TestKittyTilesOverlapTheirNeighbour(t *testing.T) {
+	const cols, rows = 40, 20
+	mw, mh := mmMapRaster(cols*10, rows*20)
+	g := kittyTileGrid(cols, rows, mw, mh)
+	if g.nx < 2 {
+		t.Fatalf("grid %+v has no horizontal neighbour", g)
+	}
+	cell0, px0 := g.rect(0, cols, rows, mw, mh)
+	cell1, px1 := g.rect(1, cols, rows, mw, mh)
+	if cell1.Min.X != cell0.Max.X-1 {
+		t.Fatalf("tile cells do not overlap: %v %v", cell0, cell1)
+	}
+	if px1.Min.X >= px0.Max.X {
+		t.Fatalf("tile pixels do not overlap: %v %v", px0, px1)
 	}
 }
 
@@ -416,8 +433,8 @@ func TestKittyFirstFrameTransmitsOnceAndPlaces(t *testing.T) {
 		x0, y0 := mp[0].col-3, mp[0].row-2 // slot origin is cell 2;3 (1-based)
 		for y := y0; y < y0+r; y++ {
 			for x := x0; x < x0+c; x++ {
-				if x < 0 || y < 0 || x >= s.Cols || y >= s.Rows || covered.Pix[4*(y*s.Cols+x)] != 0 {
-					t.Fatalf("tile %d covers cell %d,%d outside the slot or twice", i, x, y)
+				if x < 0 || y < 0 || x >= s.Cols || y >= s.Rows {
+					t.Fatalf("tile %d covers cell %d,%d outside the slot", i, x, y)
 				}
 				covered.Pix[4*(y*s.Cols+x)] = 1
 			}

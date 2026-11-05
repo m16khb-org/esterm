@@ -780,7 +780,8 @@ type kittyGrid struct{ tc, tr, nx, ny int }
 func kittyTileGrid(cols, rows, mw, mh int) kittyGrid {
 	side := math.Sqrt(kittyTileBytes / 4)
 	pw, ph := float64(mw)/float64(cols), float64(mh)/float64(rows)
-	g := kittyGrid{tc: min(max(int(side/pw), 1), cols), tr: min(max(int(side/ph), 1), rows)}
+	// One cell is kept free for the overlap rect adds on the left/top edge.
+	g := kittyGrid{tc: min(max(int(side/pw)-1, 1), cols), tr: min(max(int(side/ph)-1, 1), rows)}
 	for {
 		g.nx, g.ny = (cols+g.tc-1)/g.tc, (rows+g.tr-1)/g.tr
 		if g.nx*g.ny <= kittyMaxTiles {
@@ -795,14 +796,18 @@ func kittyTileGrid(cols, rows, mw, mh int) kittyGrid {
 }
 
 // rect returns tile i's cell rectangle (col, row, cols, rows) relative to the slot origin
-// and the pixel rectangle it covers in the mw x mh raster. Neighbouring tiles share their
-// pixel edge, so the raster is covered exactly once.
+// and the pixel rectangle it covers in the mw x mh raster. A tile also covers one cell into
+// its left and top neighbour: a terminal scales each placement separately and rounds the
+// shared edge, so without the overlap a hairline of the screen shows between tiles (the
+// backing image hides most of it, but relays such as herdr may drop that image). The
+// overlapping cell carries the same map pixels and the later tile is drawn on top.
 func (g kittyGrid) rect(i, cols, rows, mw, mh int) (cell image.Rectangle, px image.Rectangle) {
 	tx, ty := i%g.nx, i/g.nx
 	c0, r0 := tx*g.tc, ty*g.tr
 	c1, r1 := min(c0+g.tc, cols), min(r0+g.tr, rows)
+	o0, t0 := max(c0-1, 0), max(r0-1, 0)
 	edge := func(c, n, total int) int { return (c*total + n/2) / n }
-	return image.Rect(c0, r0, c1, r1), image.Rect(edge(c0, cols, mw), edge(r0, rows, mh), edge(c1, cols, mw), edge(r1, rows, mh))
+	return image.Rect(o0, t0, c1, r1), image.Rect(edge(o0, cols, mw), edge(t0, rows, mh), edge(c1, cols, mw), edge(r1, rows, mh))
 }
 
 // kittyBacking returns a kittyBackPx-sized, opaque copy of the map raster. It sits under the
