@@ -199,6 +199,19 @@ func mmGeometry(t, h int) (cols, rows int) {
 	return cols, rows
 }
 
+// mmGeometryCells is mmGeometry for a known cell pixel size: the largest cols x rows
+// whose pixels cols*cellW by rows*cellH form a square, so the minimap is not stretched
+// on a font whose cells are not exactly 1:2. One row is reserved for the title.
+func mmGeometryCells(t, h, cellW, cellH int) (cols, rows int) {
+	if cellW <= 0 || cellH <= 0 {
+		return mmGeometry(t, h)
+	}
+	W, H := max(8, t-4), max(2, h-1)
+	rows = min(H, max(2, (W*cellW+cellH/2)/cellH))
+	cols = min(W, max(8, (rows*cellH+cellW/2)/cellW))
+	return cols, rows
+}
+
 const brailleBits = "\x01\x08\x02\x10\x04\x20\x40\x80" // dot (dx,dy) bit, index dy*2+dx
 
 func renderMinimap(markers []mmMarker, objs []mmObj, status string, t, h int, bg mmDots) []line {
@@ -366,7 +379,7 @@ func placeMarkersAround(markers []mmMarker, cols, rows int, reserved map[[2]int]
 func mmPanelView(v mmView, t, h int) ([]line, *mmSlot) {
 	switch v.Mode {
 	case mmModeKitty:
-		cols, rows := mmGeometry(t, h)
+		cols, rows := mmGeometryCells(t, h, v.CellW, v.CellH)
 		W := t - 4
 		pad := (W - cols) / 2
 		out := []line{borderedL(line{C(trim(v.Status, W), cDim)}, t)}

@@ -305,6 +305,19 @@ func TestKittyTilesCoverTheRasterWithinBudget(t *testing.T) {
 	}
 }
 
+func TestMMGeometryCellsKeepsTheMapSquare(t *testing.T) {
+	for _, c := range []struct{ cw, ch int }{{8, 16}, {10, 20}, {10, 26}, {9, 18}, {12, 17}} {
+		cols, rows := mmGeometryCells(100, 25, c.cw, c.ch)
+		if cols < 8 || rows < 2 || cols > 96 || rows > 24 {
+			t.Fatalf("cell %dx%d: %dx%d cells outside the panel", c.cw, c.ch, cols, rows)
+		}
+		w, h := cols*c.cw, rows*c.ch
+		if d := w - h; d < -max(c.cw, c.ch) || d > max(c.cw, c.ch) {
+			t.Fatalf("cell %dx%d: %dx%d cells are %dx%d px, not square", c.cw, c.ch, cols, rows, w, h)
+		}
+	}
+}
+
 func TestKittyTilesOverlapTheirNeighbour(t *testing.T) {
 	const cols, rows = 40, 20
 	mw, mh := mmMapRaster(cols*10, rows*20)
