@@ -1045,7 +1045,7 @@ type mmJSONChamp struct {
 	Role    string   `json:"role"`
 	Team    int      `json:"team"`
 	Visible bool     `json:"visible"`
-	Chan    string   `json:"chan,omitempty"` // recall, teleport, or hostile (enemy channel)
+	Chan    string   `json:"chan,omitempty"` // recall, teleport, or red (red-team channel)
 	X       *float64 `json:"x,omitempty"`
 	Y       *float64 `json:"y,omitempty"`
 	Score   float32  `json:"score"`

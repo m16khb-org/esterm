@@ -32,7 +32,9 @@ func TestMMRingChannelReadsTheSwirlColours(t *testing.T) {
 	}{
 		{"blue recall", 40, 220, 255, 100, mmChanRecall},
 		{"blue teleport", 60, 240, 90, 100, mmChanTeleport},
-		{"enemy channel", 255, 60, 90, 200, mmChanHostile},
+		{"purple teleport", 165, 90, 255, 100, mmChanTeleport},
+		{"purple teleport red team", 165, 90, 255, 200, mmChanTeleport},
+		{"red team channel", 255, 60, 90, 200, mmChanRed},
 		{"red on blue is ignored", 255, 60, 90, 100, mmChanNone},
 		{"cyan on red is ignored", 40, 220, 255, 200, mmChanNone},
 		{"plain terrain", 120, 130, 90, 100, mmChanNone},

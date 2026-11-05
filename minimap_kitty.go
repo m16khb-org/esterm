@@ -353,15 +353,15 @@ var mmSprites struct {
 	m map[mmSpriteKey]*mmSprite
 }
 
-// mmChannelColor is the ring and badge colour of a channel: the game's own ring colours
-// (blue Recall, green Teleport, red for every enemy channel), brightened for the panel.
+// mmChannelColor is the ring and badge colour of a channel: cyan Recall, purple Teleport,
+// red for a red-team channel.
 func mmChannelColor(c mmChannel) color.RGBA {
 	switch c {
 	case mmChanRecall:
 		return color.RGBA{0x4d, 0xe1, 0xff, 0xff}
 	case mmChanTeleport:
-		return color.RGBA{0x5a, 0xef, 0x7a, 0xff}
-	case mmChanHostile:
+		return color.RGBA{0xb4, 0x6b, 0xff, 0xff} // purple, the summoner spell's colour
+	case mmChanRed:
 		return color.RGBA{0xff, 0x5a, 0x7a, 0xff}
 	}
 	return color.RGBA{}

@@ -628,13 +628,13 @@ func (t *mmTracker) detectChannels() {
 }
 
 // mmRingChannel classifies the ring just outside a champion icon at (cx, cy) in the
-// mmFrameSize frame. Blue-team Recall is cyan, blue-team Teleport green, and a red-team
-// channel red; the game draws enemy Recall and Teleport with the same red ring.
+// mmFrameSize frame. A blue-team Recall is cyan, a Teleport purple (green in the client
+// asset), and a red-team Recall red; a red-team Teleport may share that red ring.
 func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
 	if rgb == nil {
 		return mmChanNone
 	}
-	var n, cyan, green, red int
+	var n, cyan, green, purple, red int
 	for dy := -20; dy <= 20; dy++ {
 		for dx := -20; dx <= 20; dx++ {
 			r2 := dx*dx + dy*dy
@@ -654,8 +654,10 @@ func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
 			switch {
 			case team == 100 && h >= 170 && h <= 245:
 				cyan++
-			case team == 100 && h >= 80 && h <= 165:
+			case h >= 80 && h <= 165:
 				green++
+			case h >= 265 && h <= 335:
+				purple++
 			case team == 200 && (h < 20 || h >= 335):
 				red++
 			}
@@ -666,12 +668,12 @@ func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
 	}
 	f := float64(n)
 	switch {
-	case float64(cyan)/f > 0.15:
+	case float64(cyan)/f > 0.15 && team == 100:
 		return mmChanRecall
-	case float64(green)/f > 0.15:
+	case float64(green)/f > 0.15 || float64(purple)/f > 0.15:
 		return mmChanTeleport
 	case float64(red)/f > 0.20:
-		return mmChanHostile
+		return mmChanRed
 	}
 	return mmChanNone
 }
