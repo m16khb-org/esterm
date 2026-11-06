@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -148,6 +149,26 @@ func TestProbeStepsBackUntilFramesThenFollowsNewest(t *testing.T) {
 	}
 	if len(ff.starts) != 2 || !got["2026-10-17T12:19:30.000Z"] || !got["2026-10-17T12:19:40.000Z"] {
 		t.Fatalf("late follow-up starts %v", ff.starts)
+	}
+}
+
+// The real feed answers a window that is too new with HTTP 400. The live probe must treat
+// that as "not published yet" and step back instead of stopping.
+func TestProbeStepsBackPastRejectedWindow(t *testing.T) {
+	ff := &fakeFeed{clock: t0.Add(20 * time.Minute), gid: "g"}
+	f := ff.newFeed(2 * time.Second)
+	serve := f.window
+	first := true
+	f.window = func(gid, start string) (windowResp, error) {
+		if first {
+			first = false
+			return windowResp{}, &httpStatusError{Code: http.StatusBadRequest, Body: "ahead of broadcast"}
+		}
+		return serve(gid, start)
+	}
+	f.FetchOnce()
+	if len(f.frames) == 0 {
+		t.Fatal("a 400 on the newest window stopped the live probe")
 	}
 }
 
