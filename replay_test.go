@@ -39,6 +39,16 @@ func synthFrames() []frame {
 	return out
 }
 
+// synthFramesAt moves the synthetic game so that its first frame is at t0.
+func synthFramesAt(t0 time.Time) []frame {
+	out := synthFrames()
+	d := t0.Sub(replayT0)
+	for i := range out {
+		out[i].RFC460Timestamp = parseTime(out[i].RFC460Timestamp).Add(d).Format(time.RFC3339Nano)
+	}
+	return out
+}
+
 // synthWindow serves synthFrames in 10 s windows and records the requests.
 type synthWindow struct {
 	mu     sync.Mutex
@@ -520,16 +530,29 @@ func TestReplayStoreBackfillIsPaced(t *testing.T) {
 }
 
 // replayFeed answers the gateway and the livestats feed with the synthetic game and counts
-// the requests per kind.
+// the requests per kind. spawn/end default to the synthetic game; published, when set,
+// decides whether the feed serves a window (the real feed rejects the newest ~20 s).
 type replayFeed struct {
-	sw     *synthWindow
-	mu     sync.Mutex
-	window int // livestats window requests
-	event  int // getEventDetails requests
+	sw        *synthWindow
+	spawn     time.Time
+	end       time.Time
+	published func(time.Time) bool
+	mu        sync.Mutex
+	window    int // livestats window requests
+	event     int // getEventDetails requests
+	rejected  int // windows the feed refused as not published yet
 }
 
 func (f *replayFeed) RoundTrip(r *http.Request) (*http.Response, error) {
+	spawn, end := f.spawn, f.end
+	if spawn.IsZero() {
+		spawn = replayT0
+	}
+	if end.IsZero() {
+		end = spawn.Add(200 * time.Second)
+	}
 	body := ""
+	code := 200
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/getEventDetails"):
 		f.mu.Lock()
@@ -542,7 +565,7 @@ func (f *replayFeed) RoundTrip(r *http.Request) (*http.Response, error) {
 		f.mu.Lock()
 		f.window++
 		f.mu.Unlock()
-		at := replayT0
+		at := spawn
 		if q := r.URL.Query().Get("startingTime"); q != "" {
 			ts, err := time.Parse("2006-01-02T15:04:05.000Z", q)
 			if err != nil {
@@ -550,14 +573,22 @@ func (f *replayFeed) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			at = ts
 		}
-		at = time.Unix(min(max(at.Unix(), replayT0.Unix()), replayT0.Unix()+200), 0).UTC() // past the end → final frames
+		if f.published != nil && !f.published(at) {
+			f.mu.Lock()
+			f.rejected++
+			f.mu.Unlock()
+			code = 400
+			body = `{"httpStatus":400,"errorCode":"BAD_QUERY_PARAMETER","message":"disallowed window ahead of broadcast"}`
+			break
+		}
+		at = time.Unix(min(max(at.Unix(), spawn.Unix()), end.Unix()), 0).UTC() // past the end → final frames
 		w, _ := f.sw.win("g1", startingTime(at))
 		b, _ := json.Marshal(w)
 		body = string(b)
 	default:
 		return nil, fmt.Errorf("unexpected request %s", (&url.URL{Path: r.URL.Path}).String())
 	}
-	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+	return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
 }
 
 func TestReplayReopenedGameCostsNoWindowRequest(t *testing.T) {

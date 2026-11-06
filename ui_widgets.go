@@ -28,6 +28,23 @@ func (c *canvas) blit(src *canvas, r rect) {
 	}
 }
 
+// setCell writes one cell, clearing the other half of a wide rune it would otherwise
+// bisect. Wide runes keep their second cell as ch==0 so rendering can skip it.
+func (c *canvas) setCell(x, y int, ch rune, sty string) {
+	if x < 0 || x >= c.w || y < 0 || y >= c.h {
+		return
+	}
+	old := c.buf[y][x]
+	if old.ch == 0 {
+		if x > 0 {
+			c.buf[y][x-1] = cell{ch: ' '}
+		}
+	} else if runeWidth(old.ch) == 2 && x+1 < c.w && c.buf[y][x+1].ch == 0 {
+		c.buf[y][x+1] = cell{ch: ' '}
+	}
+	c.buf[y][x] = cell{ch: ch, sty: sty}
+}
+
 // fill paints r (clipped) with ch in style sty.
 func (c *canvas) fill(r rect, ch rune, sty string) {
 	for y := r.Y; y < r.Y+r.H; y++ {
@@ -36,7 +53,7 @@ func (c *canvas) fill(r rect, ch rune, sty string) {
 		}
 		for x := r.X; x < r.X+r.W; x++ {
 			if x >= 0 && x < c.w {
-				c.buf[y][x] = cell{ch: ch, sty: sty}
+				c.setCell(x, y, ch, sty)
 			}
 		}
 	}
@@ -44,19 +61,27 @@ func (c *canvas) fill(r rect, ch rune, sty string) {
 
 // textStyled is text with base prepended to every segment's own colour.
 func (c *canvas) textStyled(row, col int, l line, maxW int, base string) {
-	if row < 0 || row >= c.h {
+	if row < 0 || row >= c.h || maxW <= 0 {
 		return
 	}
-	n := 0
+	x := col
 	for _, s := range l {
 		for _, ch := range s.text {
-			if n >= maxW {
+			w := runeWidth(ch)
+			if w == 0 {
+				continue
+			}
+			if x-col+w > maxW {
 				return
 			}
-			if x := col + n; x >= 0 && x < c.w {
-				c.buf[row][x] = cell{ch: ch, sty: base + s.color}
+			if w == 2 && x+1 >= c.w {
+				return
 			}
-			n++
+			c.setCell(x, row, ch, base+s.color)
+			if w == 2 {
+				c.buf[row][x+1] = cell{ch: 0}
+			}
+			x += w
 		}
 	}
 }
@@ -75,14 +100,21 @@ func truncLine(l line, w int) line {
 	var out line
 	left := w - 1
 	for _, s := range l {
-		r := []rune(s.text)
-		if len(r) >= left {
-			out = append(out, seg{text: string(r[:left]), color: s.color})
-			left = 0
-			break
+		var b []rune
+		for _, r := range s.text {
+			rw := runeWidth(r)
+			if rw > left {
+				if len(b) > 0 {
+					out = append(out, seg{text: string(b), color: s.color})
+				}
+				return append(out, S("…"))
+			}
+			b = append(b, r)
+			left -= rw
 		}
-		out = append(out, s)
-		left -= len(r)
+		if len(b) > 0 {
+			out = append(out, seg{text: string(b), color: s.color})
+		}
 	}
 	return append(out, S("…"))
 }
@@ -324,7 +356,8 @@ func tooSmallCanvas(w, h, needW, needH int) *canvas {
 
 // drawPopup draws a centred modal sized to its body (title included), clipped to screen,
 // and returns the inner rect. The frame uses the focused pane style.
-func drawPopup(c *canvas, screen rect, title string, body []line) rect {
+// popupBox sizes and places a popup on screen and returns its outer and inner rects.
+func popupBox(screen rect, title string, body []line) (rect, rect) {
 	w := runeLen(title) + 4
 	for _, l := range body {
 		if v := l.vis() + 4; v > w {
@@ -339,7 +372,12 @@ func drawPopup(c *canvas, screen rect, title string, body []line) rect {
 		h = screen.H
 	}
 	r := rect{screen.X + (screen.W-w)/2, screen.Y + (screen.H-h)/2, w, h}
-	in := drawPane(c, r, pane{Title: title, Focused: true})
+	return r, rect{r.X + 1, r.Y + 1, max(w-2, 0), max(h-2, 0)}
+}
+
+func drawPopup(c *canvas, screen rect, title string, body []line) rect {
+	r, in := popupBox(screen, title, body)
+	drawPane(c, r, pane{Title: title, Focused: true})
 	for i := 0; i < in.H && i < len(body); i++ {
 		c.text(in.Y+i, in.X+1, truncLine(body[i], in.W-2), in.W-2)
 	}
@@ -364,6 +402,11 @@ func (m *menu) Move(n int) {
 // Draw renders the picker as a popup: one row per item ("▸ Label   Value"), the selected
 // row highlighted, and the selected item's Desc dim under a rule.
 func (m *menu) Draw(c *canvas, screen rect) {
+	drawPopup(c, screen, m.Title, m.body())
+}
+
+// body is the popup content, shared by Draw and the mouse hit test.
+func (m *menu) body() []line {
 	lw := 0
 	for _, it := range m.Items {
 		if v := runeLen(it.Label); v > lw {
@@ -385,5 +428,11 @@ func (m *menu) Draw(c *canvas, screen rect) {
 	if m.Sel >= 0 && m.Sel < len(m.Items) && m.Items[m.Sel].Desc != "" {
 		body = append(body, nil, line{C(m.Items[m.Sel].Desc, cGray)})
 	}
-	drawPopup(c, screen, m.Title, body)
+	return body
+}
+
+// inner is the popup's content rect on screen, where body row i sits at inner.Y+i.
+func (m *menu) inner(screen rect) rect {
+	_, in := popupBox(screen, m.Title, m.body())
+	return in
 }

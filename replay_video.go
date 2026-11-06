@@ -149,7 +149,7 @@ func (v *replayVideo) view(vt float64, known bool, lives mmLives) mmView {
 	mm := v.r.mm
 	lo, hi, ok := mm.span()
 	if !ok || vt < lo-0.5 || vt > hi+1.5 {
-		return mm.statusView("buffering video · " + mm.Status())
+		return mm.statusView(tr("buffering_video") + " · " + mm.Status())
 	}
 	view := mm.SnapshotAt(vt, lives)
 	if !known {

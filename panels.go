@@ -152,8 +152,8 @@ func itemsPlayerRow(name, champ string, dp detailsParticipant, tc string, budget
 func itemsPlayerHeader(budget int) line {
 	nameW, champW, skillW, itemsW := itemsCols(budget)
 	return line{
-		C(padR("PLAYER", nameW), cDim), S(" "),
-		C(padR("CHAMP", champW), cDim), S(" "),
+		C(padR(tr("player"), nameW), cDim), S(" "),
+		C(padR(tr("champion"), champW), cDim), S(" "),
 		C(padR("ITEMS", itemsW), cDim), S(" "),
 		C(padL("SKILL", skillW), cDim),
 	}
@@ -180,8 +180,8 @@ func runesPlayerHeader(budget int) line {
 		rW = 20
 	}
 	return line{
-		C(padR("PLAYER", nameW), cDim), S(" "),
-		C(padR("CHAMP", champW), cDim), S(" "),
+		C(padR(tr("player"), nameW), cDim), S(" "),
+		C(padR(tr("champion"), champW), cDim), S(" "),
 		C(padR("RUNES", rW), cDim), S(" "),
 		C(padL("SKILL", skillW), cDim),
 	}
@@ -204,7 +204,7 @@ func sparkline(series []goldPt, width int) line {
 	}
 	ch := []rune("▁▂▃▄▅▆▇█")
 	var l line
-	l = append(l, C("GOLD", cBold), S(" "))
+	l = append(l, C(tr("gold"), cBold), S(" "))
 	cur := series[len(series)-1].diff
 	tail := fmt.Sprintf("  %+dk", cur/1000)
 	barW := width - 5 - len(tail)

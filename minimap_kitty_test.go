@@ -470,7 +470,7 @@ func TestKittyFirstFrameTransmitsOnceAndPlaces(t *testing.T) {
 		t.Errorf("%d commands, want %d map tiles + backing (t,p) + 2x(t,p)", len(cmds), n)
 	}
 	// one transmission per sprite variant, one placement each above the map; the sprite box
-	// is one cell larger than the circle's cells in each axis
+	// has a one-cell margin on every side of the circle's cells
 	cols, rows := kittySpriteCells(d, s.CellW, s.CellH)
 	for i, champ := range []string{"A", "B"} {
 		id := strconv.Itoa(testVariantID(s, champ, i))
@@ -479,7 +479,7 @@ func TestKittyFirstFrameTransmitsOnceAndPlaces(t *testing.T) {
 		}
 		pl := kittyFind(cmds, "a", "p", "i", id)
 		if len(pl) != 1 || pl[0].ctl["p"] != strconv.Itoa(i+1) || pl[0].ctl["z"] != strconv.Itoa(i+2) || pl[0].ctl["C"] != "1" || pl[0].ctl["q"] != "2" ||
-			pl[0].ctl["c"] != strconv.Itoa(cols+1) || pl[0].ctl["r"] != strconv.Itoa(rows+1) {
+			pl[0].ctl["c"] != strconv.Itoa(cols+2) || pl[0].ctl["r"] != strconv.Itoa(rows+2) {
 			t.Errorf("sprite %s placement %v", champ, pl)
 		}
 	}
@@ -495,8 +495,8 @@ func TestKittyFirstFrameTransmitsOnceAndPlaces(t *testing.T) {
 			}
 			continue
 		}
-		if img.Bounds().Dx() != (cols+1)*s.CellW || img.Bounds().Dy() != (rows+1)*s.CellH {
-			t.Errorf("sprite %v, want %dx%d px (whole cells)", img.Bounds(), (cols+1)*s.CellW, (rows+1)*s.CellH)
+		if img.Bounds().Dx() != (cols+2)*s.CellW || img.Bounds().Dy() != (rows+2)*s.CellH {
+			t.Errorf("sprite %v, want %dx%d px (whole cells with a margin)", img.Bounds(), (cols+2)*s.CellW, (rows+2)*s.CellH)
 		}
 		if _, ok := img.(*image.NRGBA); !ok {
 			t.Errorf("sprite decoded as %T, want straight RGBA", img)
@@ -508,7 +508,7 @@ func TestKittyFirstFrameTransmitsOnceAndPlaces(t *testing.T) {
 	for i, champ := range []string{"A", "B"} { // the circle's centre is opaque, at its phase
 		_, pos := testPos(s, champ)
 		img := testDecode(t, kittyFind(cmds, "a", "t", "i", strconv.Itoa(testVariantID(s, champ, i)))[0])
-		cx, cy := kittyPhaseOffset(pos.px, s.CellW)+d/2, kittyPhaseOffset(pos.py, s.CellH)+d/2
+		cx, cy := kittyPhaseOffset(pos.px, s.CellW)+s.CellW+d/2, kittyPhaseOffset(pos.py, s.CellH)+s.CellH+d/2
 		if _, _, _, a := img.At(cx, cy).RGBA(); a != 0xffff {
 			t.Errorf("sprite %s: circle centre %d,%d must be opaque", champ, cx, cy)
 		}
@@ -543,7 +543,7 @@ func TestKittySteadyTicksEmitOnlyMovedPlacements(t *testing.T) {
 	// 400x400 slot, d=33 in a 5x3 cell box: circle left edge px 224 -> quarter 90 -> cell 22 and
 	// phase 2 across, top edge px 184 -> quarter 37 -> cell 9 and phase 1 down: no pixel offset
 	c := cmds[0]
-	if c.row != 1+9+1 || c.col != 2+22+1 || c.ctl["X"] != "" || c.ctl["Y"] != "" {
+	if c.row != 1+9 || c.col != 2+22 || c.ctl["X"] != "" || c.ctl["Y"] != "" {
 		t.Errorf("cell %d;%d X=%q Y=%q", c.row, c.col, c.ctl["X"], c.ctl["Y"])
 	}
 	if len(out) > 200 {
@@ -599,11 +599,12 @@ func TestKittySpritesSitOnWholeCellsAndStayRound(t *testing.T) {
 		if id, _ := strconv.Atoi(c.ctl["i"]); !isSpriteID(id) {
 			continue
 		}
-		if c.ctl["c"] != strconv.Itoa(cols+1) || c.ctl["r"] != strconv.Itoa(rows+1) {
-			t.Errorf("sprite box %sx%s cells, want %dx%d", c.ctl["c"], c.ctl["r"], cols+1, rows+1)
+		if c.ctl["c"] != strconv.Itoa(cols+2) || c.ctl["r"] != strconv.Itoa(rows+2) {
+			t.Errorf("sprite box %sx%s cells, want %dx%d", c.ctl["c"], c.ctl["r"], cols+2, rows+2)
 		}
-		if c.col-1 < s.Col || c.row-1 < s.Row || c.col-1+cols+1 > s.Col+s.Cols || c.row-1+rows+1 > s.Row+s.Rows {
-			t.Errorf("sprite box at cell %d;%d leaves the slot", c.row, c.col)
+		// the one-cell margin may stick out of the slot; the circle itself may not
+		if c.col < s.Col || c.row < s.Row || c.col+cols+1 > s.Col+s.Cols || c.row+rows+1 > s.Row+s.Rows {
+			t.Errorf("sprite circle at cell %d;%d leaves the slot", c.row, c.col)
 		}
 	}
 }
@@ -616,8 +617,8 @@ func TestKittySpritePixelsDrawTheRoundCircleAtItsPhase(t *testing.T) {
 	for py := 0; py < kittyPhases; py++ {
 		for px := 0; px < kittyPhases; px++ {
 			img := kittySpritePixels(sp, cols, rows, cw, ch, px, py)
-			if img.Bounds().Dx() != (cols+1)*cw || img.Bounds().Dy() != (rows+1)*ch {
-				t.Fatalf("phase %d,%d: image %v is not one cell larger than the circle", px, py, img.Bounds())
+			if img.Bounds().Dx() != (cols+2)*cw || img.Bounds().Dy() != (rows+2)*ch {
+				t.Fatalf("phase %d,%d: image %v is not one margin cell larger than the circle", px, py, img.Bounds())
 			}
 			minx, maxx, miny, maxy := img.Bounds().Dx(), -1, img.Bounds().Dy(), -1
 			for y := 0; y < img.Bounds().Dy(); y++ {
@@ -630,8 +631,8 @@ func TestKittySpritePixelsDrawTheRoundCircleAtItsPhase(t *testing.T) {
 			if w, h := maxx-minx+1, maxy-miny+1; w != d || h != d {
 				t.Errorf("phase %d,%d: circle bounding box %dx%d, want %dx%d (round)", px, py, w, h, d, d)
 			}
-			if minx != kittyPhaseOffset(px, cw) || miny != kittyPhaseOffset(py, ch) {
-				t.Errorf("phase %d,%d: circle at %d,%d, want %d,%d", px, py, minx, miny, kittyPhaseOffset(px, cw), kittyPhaseOffset(py, ch))
+			if minx != kittyPhaseOffset(px, cw)+cw || miny != kittyPhaseOffset(py, ch)+ch {
+				t.Errorf("phase %d,%d: circle at %d,%d, want %d,%d", px, py, minx, miny, kittyPhaseOffset(px, cw)+cw, kittyPhaseOffset(py, ch)+ch)
 			}
 			seen[string(img.Pix)] = true
 		}

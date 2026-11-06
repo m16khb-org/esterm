@@ -59,7 +59,7 @@ func C(s, c string) seg { return seg{text: s, color: c} }
 func (l line) vis() int {
 	w := 0
 	for _, s := range l {
-		w += len([]rune(s.text))
+		w += runeLen(s.text)
 	}
 	return w
 }
@@ -146,15 +146,7 @@ func (c *canvas) drawLine(row int, l line) {
 	if row < 0 || row >= c.h {
 		return
 	}
-	x := 0
-	for _, s := range l {
-		for _, ch := range []rune(s.text) {
-			if x < c.w {
-				c.buf[row][x] = cell{ch: ch, sty: s.color}
-			}
-			x++
-		}
-	}
+	c.text(row, 0, l, c.w)
 }
 
 func linesToCanvas(rows []line, w int) *canvas {
@@ -185,6 +177,9 @@ func renderDiff(prev, cur *canvas) string {
 	var b strings.Builder
 	ls := "\x00" // sentinel: terminal style unknown, forces the first style emit
 	emit := func(ce cell) {
+		if ce.ch == 0 { // right half of a wide rune: the terminal already moved past it
+			return
+		}
 		writeStyle(&b, &ls, ce.sty)
 		b.WriteRune(ce.ch)
 	}
@@ -244,6 +239,9 @@ func canvasString(c *canvas) string {
 	for r := 0; r < c.h; r++ {
 		for col := 0; col < c.w; col++ {
 			ce := c.buf[r][col]
+			if ce.ch == 0 {
+				continue
+			}
 			writeStyle(&b, &ls, ce.sty)
 			b.WriteRune(ce.ch)
 		}
@@ -254,34 +252,79 @@ func canvasString(c *canvas) string {
 }
 
 // ---------------- helpers ----------------
-func runeLen(s string) int { return len([]rune(s)) }
+
+// runeWidth is the number of terminal cells a rune occupies. The UI is laid out in
+// cells, so Korean and Chinese labels (two cells per rune) must count double or every
+// border and mouse target after them drifts.
+func runeWidth(r rune) int {
+	if r == 0 {
+		return 0
+	}
+	if r >= 0x1100 {
+		switch {
+		case r <= 0x115f, // Hangul Jamo
+			r >= 0x2e80 && r <= 0xa4cf, // CJK radicals, Kangxi, CJK, Yi
+			r >= 0xac00 && r <= 0xd7a3, // Hangul syllables
+			r >= 0xf900 && r <= 0xfaff, // CJK compatibility ideographs
+			r >= 0xfe10 && r <= 0xfe19,
+			r >= 0xfe30 && r <= 0xfe6f,
+			r >= 0xff00 && r <= 0xff60, // fullwidth forms
+			r >= 0xffe0 && r <= 0xffe6,
+			r >= 0x1f300 && r <= 0x1faff, // emoji and pictographs
+			r >= 0x20000 && r <= 0x3fffd:
+			return 2
+		}
+	}
+	return 1
+}
+
+// runeLen is the display width of s in terminal cells.
+func runeLen(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeWidth(r)
+	}
+	return w
+}
+
+// cutWidth returns the longest prefix of s that fits in n cells.
+func cutWidth(s string, n int) string {
+	var b strings.Builder
+	left := n
+	for _, r := range s {
+		w := runeWidth(r)
+		if w > left {
+			break
+		}
+		b.WriteRune(r)
+		left -= w
+	}
+	return b.String()
+}
 
 func padR(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
+	if runeLen(s) > n {
 		if n <= 1 {
-			return string(r[:n])
+			return cutWidth(s, n)
 		}
-		return string(r[:n-1]) + "…"
+		return cutWidth(s, n-1) + "…"
 	}
-	return s + strings.Repeat(" ", n-len(r))
+	return s + strings.Repeat(" ", n-runeLen(s))
 }
 func padL(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
+	if runeLen(s) > n {
+		return cutWidth(s, n)
 	}
-	return strings.Repeat(" ", n-len(r)) + s
+	return strings.Repeat(" ", n-runeLen(s)) + s
 }
 func trim(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		if n <= 1 {
-			return string(r[:n])
-		}
-		return string(r[:n-1]) + "…"
+	if runeLen(s) <= n {
+		return s
 	}
-	return s
+	if n <= 1 {
+		return cutWidth(s, n)
+	}
+	return cutWidth(s, n-1) + "…"
 }
 
 func barSegs(left, right, width int) []seg {
@@ -440,10 +483,10 @@ func playerRow(p participant, m pmeta, c cols, tc string, lives mmLives) line {
 func playerHeader(c cols) line {
 	fs := []pfield{}
 	if c.name > 0 {
-		fs = append(fs, pfield{"PLAYER", cDim, c.name, true})
+		fs = append(fs, pfield{tr("player"), cDim, c.name, true})
 	}
 	if c.champ > 0 {
-		fs = append(fs, pfield{"CHAMP", cDim, c.champ, true})
+		fs = append(fs, pfield{tr("champion"), cDim, c.champ, true})
 	}
 	if c.kda > 0 {
 		fs = append(fs, pfield{"K/D/A", cDim, c.kda, false})
@@ -452,7 +495,7 @@ func playerHeader(c cols) line {
 		fs = append(fs, pfield{"CS", cDim, c.cs, false})
 	}
 	if c.gold > 0 {
-		fs = append(fs, pfield{"GOLD", cDim, c.gold, false})
+		fs = append(fs, pfield{tr("gold"), cDim, c.gold, false})
 	}
 	if c.hpbar > 0 {
 		fs = append(fs, pfield{"HP", cDim, c.hpbar, false})
@@ -669,7 +712,7 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 		f := w.Frames[len(w.Frames)-1]
 		b := f.BlueTeam
 		r := f.RedTeam
-		rows = append(rows, borderedL(statBarLine("KILLS", b.TotalKills, r.TotalKills,
+		rows = append(rows, borderedL(statBarLine(tr("kills"), b.TotalKills, r.TotalKills,
 			fmt.Sprintf("%d", b.TotalKills), fmt.Sprintf("%d", r.TotalKills), W), t))
 		rows = append(rows, borderedL(statBarLine("GOLD ", b.TotalGold, r.TotalGold,
 			gold(b.TotalGold), gold(r.TotalGold), W), t))
@@ -894,7 +937,22 @@ func fetchSpawn(gameID string) time.Time {
 // SIGTERM and SIGHUP (the terminal window closing) run stop (it must kill child processes) before the terminal is restored and the
 // process exits. leave restores the terminal and is safe to call more than once.
 func enterFullscreen(stop func()) (keys <-chan key, leave func()) {
-	fmt.Print("\033[?1049h\033[?25l")
+	return enterFullscreenMode(stop, false)
+}
+
+// enterFullscreenMouse is enterFullscreen plus click and wheel reporting (SGR 1006), so
+// the app can focus panes and select rows with the mouse. The standalone boards keep
+// text selection and scrollback by using the plain variant.
+func enterFullscreenMouse(stop func()) (keys <-chan key, leave func()) {
+	return enterFullscreenMode(stop, true)
+}
+
+func enterFullscreenMode(stop func(), mouse bool) (keys <-chan key, leave func()) {
+	mouseOn, mouseOff := "", ""
+	if mouse {
+		mouseOn, mouseOff = "\033[?1000h\033[?1006h", "\033[?1006l\033[?1000l"
+	}
+	fmt.Print("\033[?1049h\033[?25l" + mouseOn)
 	fd := int(os.Stdin.Fd())
 	oldTerm, _ := makeRaw(fd)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -903,7 +961,7 @@ func enterFullscreen(stop func()) (keys <-chan key, leave func()) {
 		once.Do(func() {
 			cancel()
 			restoreTerm(fd, oldTerm)
-			fmt.Print("\033[?25h\033[?1049l")
+			fmt.Print(mouseOff + "\033[?25h\033[?1049l")
 		})
 	}
 	sig := make(chan os.Signal, 1)

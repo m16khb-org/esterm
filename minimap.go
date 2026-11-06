@@ -633,7 +633,7 @@ func (m *minimap) run(ctx context.Context, gen int, matchID string, meta windowR
 		return
 	}
 	src := m.cfg.Src
-	status("loading champion icons")
+	status(tr("loading_icons"))
 	icons, ver, err := mmLoadIcons(ctx, refs, meta.GameMetadata.PatchVersion)
 	if err != nil {
 		status("error: " + err.Error())
@@ -936,7 +936,7 @@ func (m *minimap) viewLocked(r mmResult, nx *mmResult, frac float64, lives mmLiv
 	v := mmView{Ver: m.ver}
 	var parts []string
 	if r.layout == "" {
-		parts = append(parts, "detecting broadcast layout")
+		parts = append(parts, tr("detecting_layout"))
 		if m.srcNote != "" {
 			parts = append(parts, m.srcNote)
 		}
@@ -951,17 +951,17 @@ func (m *minimap) viewLocked(r mmResult, nx *mmResult, frac float64, lives mmLiv
 	case !r.visible:
 		// Keep the reason at the front: the panel trims the status from the right.
 		v.Hidden = true
-		parts = append([]string{"no live minimap (broadcast replay/desk)"}, parts...)
+		parts = append([]string{tr("no_live_minimap")}, parts...)
 	default:
 		c := mmChampsOf(r, nx, frac, lives, m.labels)
 		v.Markers, v.Icons = c.Markers, c.Icons
-		s := fmt.Sprintf("tracking %d/%d", c.Live, c.Alive)
+		s := fmt.Sprintf("%s %d/%d", tr("tracking"), c.Live, c.Alive)
 		if c.Stale > 0 {
-			s += fmt.Sprintf(" (%d est.)", c.Stale)
+			s += fmt.Sprintf(" (%d %s)", c.Stale, tr("estimated"))
 		}
 		parts = append(parts, s)
 		if c.Dead > 0 {
-			parts = append(parts, fmt.Sprintf("%d dead", c.Dead))
+			parts = append(parts, fmt.Sprintf("%d %s", c.Dead, tr("dead")))
 		}
 	}
 	v.Status = strings.Join(parts, " · ")
@@ -987,7 +987,7 @@ func (m *minimap) Snapshot(now time.Time, lives mmLives) mmView {
 	r, rest, ok := mmPick(m.results, now)
 	if !ok {
 		if len(m.results) > 0 {
-			return m.waitingLocked(fmt.Sprintf("buffering %ds", int(m.results[0].due.Sub(now).Seconds())+1))
+			return m.waitingLocked(fmt.Sprintf(tr("buffering_n"), int(m.results[0].due.Sub(now).Seconds())+1))
 		}
 		return m.waitingLocked("")
 	}
@@ -1011,7 +1011,7 @@ func (m *minimap) SnapshotAt(t float64, lives mmLives) mmView {
 	defer m.mu.Unlock()
 	k := sort.Search(len(m.results), func(i int) bool { return float64(m.results[i].idx)/mmFPS > t }) - 1
 	if k < 0 {
-		return m.waitingLocked("buffering")
+		return m.waitingLocked(tr("buffering"))
 	}
 	r := m.results[k]
 	var nx *mmResult

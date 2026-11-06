@@ -374,7 +374,7 @@ func objTimerRow(o objView, t int) line {
 		return nil
 	}
 	W := t - 4
-	dName, dShort, dLetter := "Dragon", "DRG", "D"
+	dName, dShort, dLetter := tr("dragon"), "DRG", "D"
 	if o.Dragon.Drake == objElderName {
 		dName, dShort, dLetter = "Elder", "ELD", "E"
 	}
@@ -393,7 +393,7 @@ func objTimerRow(o objView, t int) line {
 			soul += " " + n
 		}
 	case o.Point >= 0:
-		soul = "Soul point " + objTeamName(o.Point)
+		soul = tr("soul_point") + " " + objTeamName(o.Point)
 	}
 	sep := line{C(" · ", cGray)}
 	join := func(parts ...line) line {
@@ -408,14 +408,14 @@ func objTimerRow(o objView, t int) line {
 	}
 	forms := []func() line{
 		func() line {
-			parts := []line{pit(dName, o.Dragon.Drake, o.Dragon, objDrakeNames), pit("Baron", "", o.Baron, objDrakeNames)}
+			parts := []line{pit(dName, o.Dragon.Drake, o.Dragon, objDrakeNames), pit(tr("baron"), "", o.Baron, objDrakeNames)}
 			if soul != "" {
 				parts = append(parts, line{C(soul, cDim)})
 			}
 			return join(parts...)
 		},
 		func() line {
-			return join(pit(dName, o.Dragon.Drake, o.Dragon, objDrakeNames), pit("Baron", "", o.Baron, objDrakeNames))
+			return join(pit(dName, o.Dragon.Drake, o.Dragon, objDrakeNames), pit(tr("baron"), "", o.Baron, objDrakeNames))
 		},
 		func() line {
 			return join(pit(dShort, o.Dragon.Drake, o.Dragon, objDrakeShort), pit("BRN", "", o.Baron, objDrakeShort))

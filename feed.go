@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -376,6 +378,12 @@ func (f *feed) fetchFrames() {
 			var err error
 			w, d, err = f.fetchPair(gid, startingTime(at.Add(-feedProbeStep*time.Duration(i+1))), det)
 			if err != nil {
+				// The feed rejects a window whose end is less than ~20 s old. The live
+				// edge is found by stepping further back, so keep probing on that 400.
+				var he *httpStatusError
+				if errors.As(err, &he) && he.Code == http.StatusBadRequest {
+					continue
+				}
 				return
 			}
 			if len(w.Frames) > 0 {

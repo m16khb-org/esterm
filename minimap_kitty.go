@@ -336,8 +336,9 @@ func mix(a, b uint8, t float64) uint8 { return uint8(float64(a)*(1-t) + float64(
 // mmSprite is a pre-rendered d*d circular icon with its team ring and lane badge: r,g,b plus
 // the circle's coverage (0..255) per pixel, ready to blit.
 type mmSprite struct {
-	d   int
-	pix []uint8
+	d     int
+	pix   []uint8
+	chan_ mmChannel
 }
 
 type mmSpriteKey struct {
@@ -388,10 +389,8 @@ func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIcon
 	if state != mmIconLive {
 		rc = mmRingGrey
 	}
-	if chan_ != mmChanNone {
-		rc = mmChannelColor(chan_)
-	}
 	sp := renderSprite(d, ring, rc, icon, label)
+	sp.chan_ = chan_
 	switch state {
 	case mmIconStale:
 		shadeSprite(sp, false, 0.55)
@@ -995,7 +994,7 @@ func (p *mmPNG) chunk(typ string, data []byte) {
 }
 
 // kittySpriteCells is the cell size of the circle of a sprite: d px rounded up to whole
-// cells. The sprite image is one cell larger in each axis (see kittySpritePixels).
+// cells. The sprite image has a one-cell margin on every side (see kittySpritePixels).
 func kittySpriteCells(d, cellW, cellH int) (cols, rows int) {
 	return (d + cellW - 1) / cellW, (d + cellH - 1) / cellH
 }
@@ -1007,18 +1006,65 @@ func kittyPhaseOffset(ph, cell int) int {
 }
 
 // kittySpritePixels returns the sprite image of one phase variant: a transparent
-// (cols+1)*cellW x (rows+1)*cellH image, straight (non-premultiplied) RGBA, with the
+// (cols+2)*cellW x (rows+2)*cellH image, straight (non-premultiplied) RGBA, with the
 // circle drawn phx/kittyPhases of a cell right of and phy/kittyPhases of a cell below the
-// box corner. The extra cell is what lets the circle sit anywhere inside a cell on a
-// placement that itself sits on whole cells and is shown unscaled.
+// box corner. One margin cell on every side leaves room for a channeling aura outside the
+// team ring; the placement shifts one cell left and up so the circle keeps its position.
 func kittySpritePixels(sp *mmSprite, cols, rows, cellW, cellH, phx, phy int) *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, (cols+1)*cellW, (rows+1)*cellH))
-	ox, oy := kittyPhaseOffset(phx, cellW), kittyPhaseOffset(phy, cellH)
+	img := image.NewRGBA(image.Rect(0, 0, (cols+2)*cellW, (rows+2)*cellH))
+	ox, oy := kittyPhaseOffset(phx, cellW)+cellW, kittyPhaseOffset(phy, cellH)+cellH
 	for y := 0; y < sp.d; y++ {
 		o := (oy+y)*img.Stride + 4*ox
 		copy(img.Pix[o:o+4*sp.d], sp.pix[4*y*sp.d:4*(y+1)*sp.d])
 	}
+	if sp.chan_ != mmChanNone {
+		drawChannelAura(img, float64(ox)+float64(sp.d)/2, float64(oy)+float64(sp.d)/2, float64(sp.d)/2, sp.chan_)
+	}
 	return img
+}
+
+// drawChannelAura paints a wavy ring just outside the team ring. The wave is a sum of two
+// sines so the ring reads as a swirling channel effect rather than a second team colour.
+func drawChannelAura(img *image.RGBA, cx, cy, r0 float64, c mmChannel) {
+	col := mmChannelColor(c)
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			dx, dy := float64(x)+0.5-cx, float64(y)+0.5-cy
+			d := math.Hypot(dx, dy)
+			if d < r0+0.5 || d > r0+7 {
+				continue
+			}
+			th := math.Atan2(dy, dx)
+			wave := 1.0*math.Sin(3*th+0.7) + 0.45*math.Sin(5*th+2.1)
+			rr := r0 + 2.6 + wave
+			delta := math.Abs(d - rr)
+			if delta > 1.8 {
+				continue
+			}
+			o := img.PixOffset(x, y)
+			if delta > 1.0 {
+				blendRGBA(img.Pix[o:o+4], color.RGBA{0, 0, 0, 255}, (delta-1.0)/0.8*0.45)
+				continue
+			}
+			blendRGBA(img.Pix[o:o+4], col, (1-delta/1.0)*0.9)
+		}
+	}
+}
+
+// blendRGBA blends straight-alpha src over dst.
+func blendRGBA(dst []uint8, src color.RGBA, a float64) {
+	if a <= 0 {
+		return
+	}
+	da := float64(dst[3]) / 255
+	na := a + da*(1-a)
+	if na <= 0 {
+		return
+	}
+	dst[0] = uint8((float64(src.R)*a+float64(dst[0])*da*(1-a))/na + 0.5)
+	dst[1] = uint8((float64(src.G)*a+float64(dst[1])*da*(1-a))/na + 0.5)
+	dst[2] = uint8((float64(src.B)*a+float64(dst[2])*da*(1-a))/na + 0.5)
+	dst[3] = uint8(na*255 + 0.5)
 }
 
 // kittyPos is where a sprite is placed: the top-left cell of its box in canvas cells and
@@ -1314,7 +1360,7 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 	}
 	k.scratch = mmPlacements(k.scratch, w, h, d, s.Icons)
 	cols, rows := kittySpriteCells(d, s.CellW, s.CellH)
-	bc, br := cols+1, rows+1 // the sprite box: one cell more than the circle in each axis
+	bc, br := cols+2, rows+2 // the sprite box: one margin cell on every side
 	for _, p := range k.scratch {
 		i := k.slot(kittyChamp{p.Team, p.Champ})
 		if i < 0 {
@@ -1328,11 +1374,12 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			sp.icon, sp.label = icon, p.Label
 		}
 		pos := kittyPosOf(p, cols, rows, s)
+		pr, pc := pos.row-1, pos.col-1 // the image has one margin cell on every side
 		v := kittyVariant(p.State, pos)
-		if !sp.placed || replace || sp.cur != v || sp.row != pos.row || sp.col != pos.col {
+		if !sp.placed || replace || sp.cur != v || sp.row != pr || sp.col != pc {
 			id := k.id(kittyVariantID(i, v))
 			pid := kittySpritePID(i, sp.placed && sp.pid == kittySpritePID(i, false))
-			goTo(pos.row, pos.col)
+			goTo(pr, pc)
 			if sp.sent[v] {
 				b = kittyPlacement(b, id, pid, bc, br, 2+i)
 			} else {
@@ -1350,7 +1397,7 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 			if sp.placed { // the new placement is up: only now drop the old one
 				b = kittyUnplace(b, k.id(kittyVariantID(i, sp.cur)), sp.pid)
 			}
-			sp.placed, sp.cur, sp.pid, sp.row, sp.col = true, v, pid, pos.row, pos.col
+			sp.placed, sp.cur, sp.pid, sp.row, sp.col = true, v, pid, pr, pc
 		}
 		text := mmCountText(p.State, p.Secs)
 		if p.State == mmIconStale && text != "" {

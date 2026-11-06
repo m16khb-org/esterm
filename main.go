@@ -31,6 +31,21 @@ var kst = time.FixedZone("KST", 9*60*60)
 
 var httpClient = &http.Client{Timeout: 8 * time.Second}
 
+// httpStatusError is a non-2xx response from a JSON endpoint. The body carries the API's
+// own explanation (lolesports reports BAD_QUERY_PARAMETER and the rejected window), which
+// is more useful than the status alone.
+type httpStatusError struct {
+	Code int
+	Body string
+}
+
+func (e *httpStatusError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("HTTP %d", e.Code)
+	}
+	return fmt.Sprintf("HTTP %d: %s", e.Code, e.Body)
+}
+
 func getJSON(url string, v any) error { return getJSONCtx(context.Background(), url, v) }
 
 func getJSONCtx(ctx context.Context, url string, v any) error {
@@ -48,6 +63,13 @@ func getJSONCtx(ctx context.Context, url string, v any) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(body))
+		if len(msg) > 300 {
+			msg = msg[:300]
+		}
+		return &httpStatusError{Code: resp.StatusCode, Body: msg}
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil // empty feed (e.g. game just started)
@@ -224,33 +246,25 @@ func clearScreen() {
 // --------------------------- commands ---------------------------
 
 func main() {
-	if len(os.Args) < 2 {
+	args := initLanguage(os.Args[1:])
+	if len(args) < 1 {
 		cmdApp()
 		return
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "lol":
-		runLoL(os.Args[2:])
+		runLoL(args[1:])
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown game: %s\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown game: %s\n\n", args[0])
 		usage()
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Println(`esterm — esports terminal client
-
-Usage:
-  esterm                       interactive app (leagues, matches, live boards, replays)
-  esterm <game> <command> [flags]
-
-Games:
-  lol    League of Legends (https://lolesports.com endpoints)
-
-Run 'esterm <game> help' for game commands.`)
+	fmt.Println(tr("usage"))
 }
 
 func runLoL(args []string) {

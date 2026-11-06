@@ -38,6 +38,15 @@ func TestDecodeKeys(t *testing.T) {
 		{"split utf8", "a\xed\x95", []key{r('a')}, "\xed\x95"},
 		{"alt korean", "\x1b한", []key{{Kind: keyAlt, Rune: '한'}}, ""},
 		{"sequence then rest", "\x1b[Aj\x1b", []key{k(keyUp), r('j')}, "\x1b"},
+		{"mouse press", "\x1b[<0;10;5M", []key{{Kind: keyMouse, Mouse: mouseEvent{X: 9, Y: 4, Btn: mouseLeft}}}, ""},
+		{"mouse release", "\x1b[<0;10;5m", []key{{Kind: keyMouse, Mouse: mouseEvent{X: 9, Y: 4, Btn: mouseLeft, Release: true}}}, ""},
+		{"mouse wheel", "\x1b[<64;3;2M\x1b[<65;3;2M", []key{
+			{Kind: keyMouse, Mouse: mouseEvent{X: 2, Y: 1, Btn: mouseWheelUp}},
+			{Kind: keyMouse, Mouse: mouseEvent{X: 2, Y: 1, Btn: mouseWheelDown}},
+		}, ""},
+		{"mouse modifiers", "\x1b[<20;4;7M", []key{{Kind: keyMouse, Mouse: mouseEvent{X: 3, Y: 6, Btn: mouseLeft}}}, ""},
+		{"mouse motion dropped", "\x1b[<32;4;7M", nil, ""},
+		{"broken mouse dropped", "\x1b[<0;4M", nil, ""},
 	}
 	for _, tc := range tests {
 		got, rest := decodeKeys([]byte(tc.in))

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -29,11 +31,27 @@ const (
 	keySpace
 	keyCtrl // ctrl+letter other than ctrl-c (Rune = lower-case letter)
 	keyAlt  // alt+Rune (ESC prefix)
+	keyMouse
 )
 
+// Mouse buttons as reported by the SGR mouse protocol (xterm 1006). Wheel values are
+// offset by 64 so the low bits stay unambiguous.
+const (
+	mouseLeft      = 0
+	mouseWheelUp   = 64
+	mouseWheelDown = 65
+)
+
+type mouseEvent struct {
+	X, Y    int // zero-based cell
+	Btn     int
+	Release bool
+}
+
 type key struct {
-	Kind keyKind
-	Rune rune
+	Kind  keyKind
+	Rune  rune
+	Mouse mouseEvent
 }
 
 // escTimeout is how long a lone ESC byte waits for the rest of a sequence before it is a
@@ -147,9 +165,16 @@ func csiKey(params []byte, final byte) (key, bool) {
 		return key{Kind: keyEnd}, true
 	case 'Z':
 		return key{Kind: keyBackTab}, true
-	case 'M': // SS3 M = keypad enter
+	case 'M': // SS3 M = keypad enter; CSI <...M = SGR mouse press
 		if len(params) == 0 {
 			return key{Kind: keyEnter}, true
+		}
+		if params[0] == '<' {
+			return mouseCSI(params, false)
+		}
+	case 'm': // SGR mouse release
+		if len(params) > 0 && params[0] == '<' {
+			return mouseCSI(params, true)
 		}
 	case '~':
 		num := 0
@@ -176,6 +201,34 @@ func csiKey(params []byte, final byte) (key, bool) {
 		}
 	}
 	return key{}, false
+}
+
+// mouseCSI parses the SGR mouse payload "<b;x;y". Coordinates are 1-based in the
+// protocol and zero-based in a mouseEvent.
+func mouseCSI(params []byte, release bool) (key, bool) {
+	parts := strings.Split(string(params[1:]), ";")
+	if len(parts) != 3 {
+		return key{}, false
+	}
+	var v [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || n > 100000 {
+			return key{}, false
+		}
+		v[i] = n
+	}
+	if v[1] < 1 || v[2] < 1 {
+		return key{}, false
+	}
+	if v[0]&32 != 0 { // motion report: the app enables clicks and wheel only
+		return key{}, false
+	}
+	btn := v[0] & 3
+	if v[0]&64 != 0 {
+		btn += 64
+	}
+	return key{Kind: keyMouse, Mouse: mouseEvent{X: v[1] - 1, Y: v[2] - 1, Btn: btn, Release: release || v[0]&3 == 3}}, true
 }
 
 // flushKeys resolves an incomplete tail after escTimeout: a lone ESC is the Escape key,

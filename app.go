@@ -180,7 +180,7 @@ func (b replayBoard) Key(k key) bool {
 }
 
 func (b replayBoard) Hints() []hint {
-	return []hint{{"space", "pause"}, {"←/→", "seek"}, {"+/-", "speed"}}
+	return []hint{{"space", tr("pause")}, {"←/→", tr("seek")}, {"+/-", tr("speed")}}
 }
 
 func (b replayBoard) Close() { b.rp.Close() }
@@ -290,6 +290,8 @@ const (
 
 var appTabs = [3]string{"Live", "Upcoming", "Recent"}
 
+func refreshAppTabs() { appTabs = [3]string{tr("live"), tr("upcoming"), tr("recent")} }
+
 type app struct {
 	deps appDeps
 	opt  appOptions
@@ -322,6 +324,11 @@ type app struct {
 	help bool
 	menu *menu
 	msg  string
+
+	// mouse double-click tracking (one list row, or the main pane for a zoom toggle)
+	clickAt    time.Time
+	clickFocus appFocus
+	clickIdx   int
 
 	msgs    chan func(*app) // results of background work, applied by the main loop
 	done    chan struct{}
@@ -511,7 +518,7 @@ func (a *app) loadMore() {
 		token, older = d.older, true
 	}
 	if token == "" {
-		a.msg = "no more matches"
+		a.msg = tr("no_more_matches")
 		return
 	}
 	d.busy = true
@@ -578,7 +585,7 @@ func (a *app) open(ev event, game int) {
 				a.openReplay(ev, game)
 				return
 			} else if g == "unstarted" {
-				a.msg = fmt.Sprintf("game %d has not started", game)
+				a.msg = fmt.Sprintf(tr("game_not_started"), game)
 				return
 			}
 		}
@@ -586,7 +593,7 @@ func (a *app) open(ev event, game int) {
 	case "completed":
 		a.openReplay(ev, max(game, 1))
 	default:
-		a.msg = "not started yet · starts " + parseTime(ev.StartTime).In(kst).Format("01-02 15:04") + " KST"
+		a.msg = fmt.Sprintf(tr("starts_at"), parseTime(ev.StartTime).In(kst).Format("01-02 15:04")+" KST")
 	}
 }
 
@@ -608,8 +615,8 @@ func (a *app) beginBoard(title, loading string, reopen func()) int {
 }
 
 func (a *app) openLive(ev event) {
-	title := "Live · " + a.matchTitle(ev)
-	seq := a.beginBoard(title, "opening live board…", func() { a.openLive(ev) })
+	title := tr("live") + " · " + a.matchTitle(ev)
+	seq := a.beginBoard(title, tr("opening_live"), func() { a.openLive(ev) })
 	opt := a.opt
 	a.async(func() func(*app) {
 		b, err := a.deps.openLive(ev, opt)
@@ -618,8 +625,8 @@ func (a *app) openLive(ev event) {
 }
 
 func (a *app) openReplay(ev event, game int) {
-	title := fmt.Sprintf("Replay · %s · G%d", a.matchTitle(ev), game)
-	seq := a.beginBoard(title, fmt.Sprintf("loading game %d…", game), nil)
+	title := fmt.Sprintf("%s · %s · G%d", tr("replay"), a.matchTitle(ev), game)
+	seq := a.beginBoard(title, fmt.Sprintf(tr("loading_game"), game), nil)
 	opt := a.opt
 	a.async(func() func(*app) {
 		b, err := a.deps.openReplay(ev, game, opt)
@@ -636,7 +643,7 @@ func (a *app) boardReady(seq int, b board, err error) {
 	}
 	a.loading = ""
 	if err != nil {
-		a.msg = "cannot open: " + err.Error()
+		a.msg = fmt.Sprintf(tr("cannot_open"), err.Error())
 		a.boardTitle, a.reopen = "", nil
 		a.focus = fMatches
 		return
@@ -651,24 +658,25 @@ func cycleIdx(i, n, dir int) int { return ((i+dir)%n + n) % n }
 func (a *app) menuItems() []menuItem {
 	onOff := func(b bool) string {
 		if b {
-			return "on"
+			return tr("on")
 		}
-		return "off"
+		return tr("off")
 	}
-	left := "shown"
+	left := tr("shown")
 	if a.opt.HideLeft {
-		left = "hidden"
+		left = tr("hidden")
 	}
 	return []menuItem{
-		{"Minimap drawing", a.opt.Mode, "auto · kitty (pixel icons) · blocks (half-blocks) · text (braille)"},
-		{"Broadcast video sync", onOff(a.opt.Video), "decode the broadcast minimap (needs yt-dlp + ffmpeg)"},
-		{"Poll interval", a.opt.Poll.String(), "how often the live feed is fetched"},
-		{"Left column in board view", left, "hide the lists while a board has the focus"},
+		{tr("minimap_drawing"), a.opt.Mode, tr("desc_drawing")},
+		{tr("video_sync"), onOff(a.opt.Video), tr("desc_video")},
+		{tr("poll_interval"), a.opt.Poll.String(), tr("desc_poll")},
+		{tr("left_column"), left, tr("desc_left")},
+		{tr("language"), langNames[currentLang], tr("lang_hint")},
 	}
 }
 
 func (a *app) openMenu() {
-	a.menu = &menu{Title: "Options"}
+	a.menu = &menu{Title: tr("options")}
 	a.menu.Items = a.menuItems()
 }
 
@@ -696,6 +704,8 @@ func (a *app) cycleOption(i, dir int) {
 		a.opt.Poll = appPolls[cycleIdx(k, len(appPolls), dir)]
 	case 3:
 		a.opt.HideLeft = !a.opt.HideLeft
+	case 4:
+		setLanguage(langID(cycleIdx(int(currentLang), len(langNames), dir)))
 	}
 	if a.opt.Video != prev.Video && a.board != nil {
 		a.tg.video, a.tg.mm = a.opt.Video, a.opt.Video
@@ -712,10 +722,14 @@ func isRune(k key, rs string) bool { return k.Kind == keyRune && strings.Contain
 
 // Key applies one key and reports whether the app should quit.
 func (a *app) Key(k key) (quit bool) {
-	a.msg = ""
 	if k.Kind == keyCtrlC {
 		return true
 	}
+	if k.Kind == keyMouse {
+		a.Mouse(k.Mouse)
+		return false
+	}
+	a.msg = ""
 	switch {
 	case a.menu != nil:
 		a.menuKey(k)
@@ -810,7 +824,7 @@ func (a *app) enter() {
 			}
 			a.open(*ev, game)
 		} else {
-			a.msg = "no match selected"
+			a.msg = tr("no_match_selected")
 		}
 	case fGames:
 		if ev := a.selEvent(); ev != nil {
@@ -984,7 +998,7 @@ func (a *app) Render(now time.Time) *canvas {
 		a.menu.Draw(c, screen)
 		c.mm = nil // the popup covers the images: kitty removes them until it closes
 	case a.help:
-		drawPopup(c, screen, "Keybindings", a.helpLines())
+		drawPopup(c, screen, tr("keybindings"), a.helpLines())
 		c.mm = nil
 	}
 	return c
@@ -994,9 +1008,9 @@ func (a *app) drawLeague(c *canvas, r rect) {
 	if r.empty() {
 		return
 	}
-	in := drawPane(c, r, pane{Num: 1, Title: "Leagues", Focused: a.focus == fLeagues})
+	in := drawPane(c, r, pane{Num: 1, Title: tr("leagues"), Focused: a.focus == fLeagues})
 	if len(a.leagues) == 0 {
-		msg := "loading…"
+		msg := tr("loading")
 		if a.lerr != "" {
 			msg = "error: " + a.lerr
 		}
@@ -1017,9 +1031,9 @@ func (a *app) drawMatches(c *canvas, r rect) {
 	d := a.curData()
 	footer := ""
 	if evs := a.curEvents(); len(evs) > 0 {
-		footer = fmt.Sprintf("%d of %d", a.mv.Sel+1, len(evs))
+		footer = fmt.Sprintf(tr("count_of"), a.mv.Sel+1, len(evs))
 	}
-	in := drawPane(c, r, pane{Num: 2, Title: "Matches", Footer: footer, Focused: a.focus == fMatches})
+	in := drawPane(c, r, pane{Num: 2, Title: tr("matches"), Footer: footer, Focused: a.focus == fMatches})
 	if in.empty() {
 		return
 	}
@@ -1038,12 +1052,12 @@ func (a *app) drawMatches(c *canvas, r rect) {
 	body := rect{in.X, in.Y + 1, in.W, in.H - 1}
 	evs := a.curEvents()
 	if len(evs) == 0 {
-		msg := "no " + strings.ToLower(appTabs[a.tab]) + " matches"
+		msg := fmt.Sprintf(tr("no_matches"), strings.ToLower(appTabs[a.tab]))
 		switch {
 		case d == nil || (!d.loaded && d.err == ""):
-			msg = "loading…"
+			msg = tr("loading")
 		case d.err != "":
-			msg = "error: " + d.err
+			msg = tr("error_prefix") + d.err
 		}
 		c.text(body.Y, body.X, truncLine(line{C(msg, cDim)}, body.W), body.W)
 		return
@@ -1059,10 +1073,10 @@ func (a *app) drawGames(c *canvas, r rect) {
 	if r.empty() {
 		return
 	}
-	in := drawPane(c, r, pane{Num: 3, Title: "Games", Focused: a.focus == fGames})
+	in := drawPane(c, r, pane{Num: 3, Title: tr("games"), Focused: a.focus == fGames})
 	rows := a.games()
 	if len(rows) == 0 {
-		c.text(in.Y, in.X, truncLine(line{C("select a match", cDim)}, in.W), in.W)
+		c.text(in.Y, in.X, truncLine(line{C(tr("select_match"), cDim)}, in.W), in.W)
 		return
 	}
 	a.gv.Items = a.gv.Items[:0]
@@ -1076,7 +1090,7 @@ func (a *app) drawMain(c *canvas, r rect, now time.Time) {
 	if r.empty() {
 		return
 	}
-	title := "[0] Preview"
+	title := "[0] " + tr("preview")
 	if a.boardTitle != "" {
 		title = "[0] " + a.boardTitle
 	}
@@ -1089,7 +1103,7 @@ func (a *app) drawMain(c *canvas, r rect, now time.Time) {
 		c.text(in.Y, in.X+1, line{C(a.loading, cYel)}, in.W-1)
 	case a.board != nil:
 		if in.W < 50 {
-			c.text(in.Y, in.X+1, truncLine(line{C("terminal too narrow for the board", cDim)}, in.W-1), in.W-1)
+			c.text(in.Y, in.X+1, truncLine(line{C(tr("narrow_board"), cDim)}, in.W-1), in.W-1)
 			return
 		}
 		bc := a.board.Draw(now, in.W, in.H, &a.tg, a.resolveMode())
@@ -1134,7 +1148,7 @@ func matchLine(ev event) line {
 		score = S(lw + "-" + rw)
 	}
 	if ev.State == "inProgress" {
-		when = C("LIVE "+t.Format("15:04"), cBold+cRed)
+		when = C(strings.ToUpper(tr("live"))+" "+t.Format("15:04"), cBold+cRed)
 	}
 	ls, rs := S(l), S(r)
 	if lwin {
@@ -1150,18 +1164,18 @@ func gameLine(g gameRow) line {
 	var st seg
 	switch g.State {
 	case "completed":
-		st = C("done", cGreen)
+		st = C(tr("done_state"), cGreen)
 	case "inProgress":
-		st = C("live", cBold+cRed)
+		st = C(tr("live"), cBold+cRed)
 	default:
-		st = C("not played", cDim)
+		st = C(tr("not_played"), cDim)
 	}
 	l := line{S(fmt.Sprintf("G%d ", g.No)), st}
 	switch {
 	case g.Vods > 0:
 		l = append(l, C("  VOD", cCyan))
 	case g.Known && g.State == "completed":
-		l = append(l, C("  no VOD", cDim))
+		l = append(l, C("  "+tr("no_vod"), cDim))
 	}
 	return l
 }
@@ -1172,9 +1186,9 @@ func (a *app) previewLines() []line {
 	if ev == nil || ev.Match == nil {
 		l := a.selLeague()
 		if l == nil {
-			return []line{{C("esterm · League of Legends esports", cBold)}, nil, {C("pick a league on the left", cDim)}}
+			return []line{{C("esterm · League of Legends esports", cBold)}, nil, {C(tr("pick_league"), cDim)}}
 		}
-		return []line{{C(l.Name, cBold)}, {C("league "+l.Slug, cDim)}, nil, {C("pick a match: 2 / enter", cDim)}}
+		return []line{{C(l.Name, cBold)}, {C(fmt.Sprintf(tr("league_label"), l.Slug), cDim)}, nil, {C(tr("pick_match"), cDim)}}
 	}
 	m := ev.Match
 	l, r := "TBD", "TBD"
@@ -1191,10 +1205,10 @@ func (a *app) previewLines() []line {
 	}
 	out := []line{
 		{C(l, cBold+cCyan), S("  vs  "), C(r, cBold+cRed)},
-		{C(strings.ToUpper(ev.League.Slug), cBold), S(" · " + or(ev.BlockName, "Match") + fmt.Sprintf(" · BO%d", bo))},
+		{C(strings.ToUpper(ev.League.Slug), cBold), S(" · " + or(ev.BlockName, tr("match_label")) + fmt.Sprintf(" · BO%d", bo))},
 		nil,
 	}
-	state := map[string]string{"inProgress": "LIVE", "completed": "completed", "unstarted": "upcoming"}[ev.State]
+	state := map[string]string{"inProgress": strings.ToUpper(tr("live")), "completed": tr("completed_state"), "unstarted": tr("upcoming")}[ev.State]
 	if state == "" {
 		state = ev.State
 	}
@@ -1203,8 +1217,8 @@ func (a *app) previewLines() []line {
 		score = fmt.Sprintf("%d - %d", lw, rw)
 	}
 	out = append(out,
-		line{C("Score  ", cGray), S(score + "  (" + state + ")")},
-		line{C("Start  ", cGray), S(parseTime(ev.StartTime).In(kst).Format("2006-01-02 15:04") + " KST")},
+		line{C(padR(tr("score_label"), 7), cGray), S(score + "  (" + state + ")")},
+		line{C(padR(tr("start_label"), 7), cGray), S(parseTime(ev.StartTime).In(kst).Format("2006-01-02 15:04") + " KST")},
 	)
 	if d, ok := a.det[m.ID]; ok && len(d.Data.Event.Match.Games) > 0 {
 		vods, played := 0, 0
@@ -1217,7 +1231,7 @@ func (a *app) previewLines() []line {
 			}
 		}
 		if played > 0 {
-			out = append(out, line{C("VODs   ", cGray), S(fmt.Sprintf("%d of %d played games have an official VOD", vods, played))})
+			out = append(out, line{C(padR(tr("vods_label"), 7), cGray), S(fmt.Sprintf(tr("vods_count"), vods, played))})
 		}
 	}
 	out = append(out, nil, line{C("enter ▸ ", cGreen), S(a.enterDoes(*ev))})
@@ -1228,11 +1242,11 @@ func (a *app) enterDoes(ev event) string {
 	g := max(a.gv.Sel+1, 1)
 	switch ev.State {
 	case "inProgress":
-		return "open the live board (scoreboard + broadcast minimap)"
+		return tr("enter_live")
 	case "completed":
-		return fmt.Sprintf("replay game %d (scoreboard + VOD minimap, space ←/→ +/-)", g)
+		return fmt.Sprintf(tr("enter_replay"), g)
 	}
-	return "nothing yet: the match has not started"
+	return tr("enter_upcoming")
 }
 
 // ---------------- hints and help ----------------
@@ -1247,24 +1261,24 @@ func (a *app) hints() []hint {
 func (a *app) hintParts() (ctx, fixed []hint) {
 	switch {
 	case a.menu != nil:
-		return []hint{{"↑/↓", "move"}, {"enter", "change"}, {"esc", "close"}}, nil
+		return []hint{{"↑/↓", tr("move")}, {"enter", tr("change")}, {"esc", tr("close")}}, nil
 	case a.help:
-		return nil, []hint{{"esc", "close"}}
+		return nil, []hint{{"esc", tr("close")}}
 	}
-	fixed = []hint{{"?", "help"}, {"q", "quit"}}
+	fixed = []hint{{"?", tr("help")}, {"q", tr("quit")}}
 	if a.focus == fMain && a.board != nil {
-		ctx = append(a.board.Hints(), hint{"f", "zoom"}, hint{",", "options"},
-			hint{"b", "view"}, hint{"s", "spark"}, hint{"o", "obj"}, hint{"m", "map"}, hint{"v", "video"})
-		return ctx, append([]hint{{"esc", "back"}}, fixed...)
+		ctx = append(a.board.Hints(), hint{"f", tr("zoom")}, hint{",", tr("options")},
+			hint{"b", tr("view")}, hint{"s", tr("spark")}, hint{"o", tr("obj")}, hint{"m", tr("map")}, hint{"v", tr("video")})
+		return ctx, append([]hint{{"esc", tr("back")}}, fixed...)
 	}
 	switch a.focus {
 	case fMatches:
-		ctx = []hint{{"j/k", "move"}, {"enter", "open"}, {"[/]", "tab"}, {"PgDn", "more"}, {"tab", "pane"}, {",", "options"}}
+		ctx = []hint{{"j/k", tr("move")}, {"enter", tr("open")}, {"[/]", tr("tab")}, {"PgDn", tr("more")}, {"tab", tr("pane")}, {",", tr("options")}}
 	case fMain:
-		ctx = []hint{{"enter", "open"}, {"tab", "pane"}, {",", "options"}}
+		ctx = []hint{{"enter", tr("open")}, {"tab", tr("pane")}, {",", tr("options")}}
 	default:
-		ctx = []hint{{"j/k", "move"}, {"enter", "open"}, {"tab", "pane"}, {",", "options"}}
-		fixed = append([]hint{{"esc", "back"}}, fixed...)
+		ctx = []hint{{"j/k", tr("move")}, {"enter", tr("open")}, {"tab", tr("pane")}, {",", tr("options")}}
+		fixed = append([]hint{{"esc", tr("back")}}, fixed...)
 	}
 	return ctx, fixed
 }
@@ -1272,29 +1286,30 @@ func (a *app) hintParts() (ctx, fixed []hint) {
 func (a *app) helpLines() []line {
 	k := func(key, desc string) line { return line{C(padR(key, 12), cGreen), S(desc)} }
 	out := []line{
-		{C("Everywhere", cBold)},
-		k("tab/S-tab", "next / previous pane"),
-		k("1 2 3 0", "focus Leagues / Matches / Games / main pane"),
-		k(",", "options (minimap drawing, video sync, poll, left column)"),
-		k("?", "this help"),
-		k("q  ctrl+c", "quit"),
-		k("esc", "back: close popup, unzoom, leave the board, close the board"),
+		{C(tr("everywhere"), cBold)},
+		k("tab/S-tab", tr("next_pane")),
+		k("1 2 3 0", tr("focus_panes")),
+		k(",", tr("options_help")),
+		k("?", tr("this_help")),
+		k("q  ctrl+c", tr("quit_help")),
+		k("esc", tr("esc_help")),
+		k("mouse", tr("help_mouse")),
 		nil,
-		{C("Lists", cBold)},
-		k("j/k ↑/↓", "move"),
-		k("PgUp/PgDn", "page (PgDn at the end loads older / newer matches)"),
-		k("g/G", "first / last"),
-		k("h/l ←/→", "previous / next pane"),
-		k("[ ]", "Live / Upcoming / Recent tab (Matches)"),
-		k("r", "reload the league's matches"),
-		k("enter", "open: live match → live board, finished → replay"),
+		{C(tr("lists"), cBold)},
+		k("j/k ↑/↓", tr("help_move")),
+		k("PgUp/PgDn", tr("help_page")),
+		k("g/G", tr("help_first")),
+		k("h/l ←/→", tr("help_prev")),
+		k("[ ]", tr("help_tab")),
+		k("r", tr("help_reload")),
+		k("enter", tr("help_open")),
 	}
 	if a.board != nil {
-		out = append(out, nil, line{C("Board (main pane focused)", cBold)},
-			k("b", "stats / items / runes"), k("s", "gold sparkline"), k("o", "objective map"),
-			k("m", "minimap panel"), k("v", "broadcast video sync"), k("f", "zoom the board"))
+		out = append(out, nil, line{C(tr("board_help"), cBold)},
+			k("b", tr("help_stats")), k("s", tr("help_spark")), k("o", tr("help_obj")),
+			k("m", tr("help_map")), k("v", tr("help_video")), k("f", tr("help_zoom")))
 		if len(a.board.Hints()) > 0 {
-			out = append(out, k("space", "pause / resume"), k("←/→", "seek ±10 s"), k("+/-", "speed 1× 2× 4×"))
+			out = append(out, k("space", tr("help_pause")), k("←/→", tr("help_seek")), k("+/-", tr("help_speed")))
 		}
 	}
 	return out
@@ -1313,7 +1328,7 @@ func (a *app) runApp() {
 		a.autoMode = m
 	}
 	var kit kittyOut
-	keys, leave := enterFullscreen(func() { a.shutdown(&kit) })
+	keys, leave := enterFullscreenMouse(func() { a.shutdown(&kit) })
 	defer leave()
 	defer a.shutdown(&kit)
 

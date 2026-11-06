@@ -26,6 +26,11 @@ const (
 	// late end of that range: landing in the game, where the HUD clock reads, locks the sync
 	// within seconds; landing in the pre-game does not until the game starts.
 	replayVodLag = 370.0
+	// replayFeedLag is how far behind the wall clock the livestats feed publishes: a window
+	// whose end is less than ~20 s old is rejected, and a window spans 10 s. Asking for the
+	// newest published window finds the final frames of a game that just finished; a fixed
+	// offset from spawn (the old +6 h) can still be ahead of the broadcast.
+	replayFeedLag = 40 * time.Second
 )
 
 var replaySpeeds = []float64{1, 2, 4}
@@ -142,7 +147,7 @@ func replayEvent(matchID string, er replayEventResp, n int) (event, replayGameJS
 	if g.ID == "" {
 		return event{}, g, fmt.Errorf("match %s has no game %d (%d games)", matchID, n, len(m.Games))
 	}
-	ev := event{ID: matchID, State: "completed", Type: "match", BlockName: "Replay"}
+	ev := event{ID: matchID, State: "completed", Type: "match", BlockName: tr("replay")}
 	ev.League.ID, ev.League.Slug, ev.League.Name = er.Data.Event.League.ID, er.Data.Event.League.Slug, er.Data.Event.League.Name
 	side := map[string]string{}
 	for _, t := range g.Teams {
@@ -261,8 +266,14 @@ func newReplay(ctx context.Context, o replayOpts) (*replay, error) {
 			return nil, fmt.Errorf("game %d of match %s has no livestats data", o.Game, o.MatchID)
 		}
 		spawn := parseTime(w0.Frames[0].RFC460Timestamp)
-		// A startingTime past the end returns the final frames.
-		if err := getJSONCtx(ctx, feedBase+"/window/"+g.ID+"?startingTime="+startingTime(spawn.Add(6*time.Hour)), &wEnd); err != nil {
+		// A startingTime past the end returns the final frames. Ask for the newest window
+		// the feed has published, not a fixed offset from spawn: a game that just finished
+		// is still ahead of a +6 h probe, and the feed rejects such a future window.
+		endAt := time.Now().Add(-replayFeedLag)
+		if !endAt.After(spawn) {
+			return nil, fmt.Errorf("game %d of match %s has no end in the feed yet", o.Game, o.MatchID)
+		}
+		if err := getJSONCtx(ctx, feedBase+"/window/"+g.ID+"?startingTime="+startingTime(endAt), &wEnd); err != nil {
 			return nil, err
 		}
 		end := spawn
@@ -270,6 +281,9 @@ func newReplay(ctx context.Context, o replayOpts) (*replay, error) {
 			end = parseTime(wEnd.Frames[n-1].RFC460Timestamp)
 		}
 		if !end.After(spawn) {
+			return nil, fmt.Errorf("game %d of match %s has no end in the feed yet", o.Game, o.MatchID)
+		}
+		if st := wEnd.Frames[len(wEnd.Frames)-1].GameState; st != "finished" {
 			return nil, fmt.Errorf("game %d of match %s has no end in the feed yet", o.Game, o.MatchID)
 		}
 		st = newReplayStore(g.ID, spawn, end, o.Poll)
@@ -428,7 +442,7 @@ func (r *replay) State() replayState {
 
 func (r *replay) status() string {
 	if p := r.st.progress(); p < 1 {
-		return fmt.Sprintf("loading game data %d%%", int(p*100))
+		return fmt.Sprintf(tr("loading_game_data"), int(p*100))
 	}
 	switch {
 	case r.vid == nil:
