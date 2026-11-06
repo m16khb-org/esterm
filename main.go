@@ -1,3 +1,6 @@
+// Esterm is a tiny terminal client for esports, organized as `esterm <game> <command>`.
+// The lol game uses the same unofficial lolesports endpoints that lolesports.com renders.
+// All times are shown in KST (Asia/Seoul).
 package main
 
 import (
@@ -13,10 +16,6 @@ import (
 	"strings"
 	"time"
 )
-
-// esterm — a tiny terminal client for esports, organized as `esterm <game> <command>`.
-// The lol game uses the same unofficial lolesports endpoints that lolesports.com renders.
-// All times are shown in KST (Asia/Seoul).
 
 const (
 	apiKey   = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
@@ -615,7 +614,7 @@ func cmdSchedule(args []string) {
 			}
 		}
 		if ev.State == "inProgress" {
-			score = score + "  [LIVE]"
+			score += "  [LIVE]"
 		}
 		league := strings.ToUpper(ev.League.Slug)
 		if len(league) > 12 {

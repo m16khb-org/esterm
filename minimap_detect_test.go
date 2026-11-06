@@ -324,7 +324,7 @@ func noisyIconFrame(ring [3]byte, orange bool, noise int) []byte {
 					rgb[i+k] = byte(clampInt(int(rgb[i+k])+rng.Intn(2*noise)-noise, 0, 255))
 				}
 				if orange {
-					rgb[i+2] = rgb[i+2] / 3
+					rgb[i+2] /= 3
 					rgb[i] = byte(clampInt(int(rgb[i])*5/4, 0, 255))
 				}
 			}

@@ -216,7 +216,8 @@ func objAt(evs []objEvent, cur frame, curTS time.Time, clock func(time.Time) tim
 		}
 		switch e.Kind {
 		case objDrake:
-			if counts[e.Team]++; counts[e.Team] == objSoulDrakes && v.Soul < 0 {
+			counts[e.Team]++
+			if counts[e.Team] == objSoulDrakes && v.Soul < 0 {
 				v.Soul = e.Team
 			}
 			seq = append(seq, *e)
@@ -268,7 +269,8 @@ func objRift(seq []objEvent, types []string) string {
 	}
 	n := map[string]int{}
 	for _, t := range types {
-		if n[t]++; n[t] == 2 {
+		n[t]++
+		if n[t] == 2 {
 			return t
 		}
 	}
@@ -279,7 +281,7 @@ func objRift(seq []objEvent, types []string) string {
 // its uncertainty. last is the newest kill there (nil: none yet, the pit spawns first at
 // first on the game clock); complete says the log holds every kill the frame counts;
 // respawn is the delay after that kill.
-func objTime(last *objEvent, complete bool, now time.Duration, clock func(time.Time) time.Duration, absolute bool, first, respawn time.Duration) (objState, time.Duration, time.Duration) {
+func objTime(last *objEvent, complete bool, now time.Duration, clock func(time.Time) time.Duration, absolute bool, first, respawn time.Duration) (st objState, left, uncertainty time.Duration) {
 	state := func(left time.Duration) objState {
 		if left <= 0 {
 			return objUp
@@ -293,7 +295,7 @@ func objTime(last *objEvent, complete bool, now time.Duration, clock func(time.T
 		if !absolute {
 			return objUnknown, 0, 0
 		}
-		left := first - now
+		left = first - now
 		return state(left), left, 0
 	}
 	since := now - clock(last.T) // time since the first frame that showed the kill
@@ -305,7 +307,7 @@ func objTime(last *objEvent, complete bool, now time.Duration, clock func(time.T
 		return objUnknown, 0, 0
 	}
 	// The kill lies in (T-Gap, T]: assume the middle.
-	left := respawn - since - last.Gap/2
+	left = respawn - since - last.Gap/2
 	return state(left), left, last.Gap / 2
 }
 

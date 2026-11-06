@@ -193,7 +193,8 @@ func mvFindViewport(mapCrop *image.RGBA, prev mvView) mvView {
 		for x := 0; x < w; x++ {
 			s.hp[base+x+1] = s.hp[base+x] + int32(m[x])
 			if m[x] != 0 {
-				if run++; run > longest {
+				run++
+				if run > longest {
 					longest = run
 				}
 			} else {
@@ -221,7 +222,8 @@ func mvFindViewport(mapCrop *image.RGBA, prev mvView) mvView {
 			v := s.vm[y*w+x]
 			s.vp[base+y+1] = s.vp[base+y] + int32(v)
 			if v != 0 {
-				if run++; run > longest {
+				run++
+				if run > longest {
 					longest = run
 				}
 			} else {

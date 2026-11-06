@@ -158,7 +158,8 @@ func TestMMLoopRetriesPageSourceWhenResolveFails(t *testing.T) {
 	attempts := 0
 	status := func(s string) {
 		if s == "resolving stream" {
-			if attempts++; attempts == 2 {
+			attempts++
+			if attempts == 2 {
 				cancel()
 			}
 		}

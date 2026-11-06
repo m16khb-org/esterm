@@ -9,10 +9,11 @@ import (
 )
 
 // ---------------- shared types for event details / standings ----------------
+
 type streamInfo struct {
-	Provider  string `json:"provider"`
-	Locale    string `json:"locale"`
-	Parameter string `json:"parameter"`
+	Provider    string `json:"provider"`
+	Locale      string `json:"locale"`
+	Parameter   string `json:"parameter"`
 	MediaLocale struct {
 		EnglishName string `json:"englishName"`
 	} `json:"mediaLocale"`
@@ -21,9 +22,11 @@ type streamInfo struct {
 type eventDetailsResp struct {
 	Data struct {
 		Event struct {
-			ID         string       `json:"id"`
-			Tournament struct{ ID string `json:"id"` } `json:"tournament"`
-			Streams    []streamInfo `json:"streams"`
+			ID         string `json:"id"`
+			Tournament struct {
+				ID string `json:"id"`
+			} `json:"tournament"`
+			Streams []streamInfo `json:"streams"`
 		} `json:"event"`
 	} `json:"data"`
 }
@@ -46,7 +49,7 @@ type standingsResp struct {
 			Stages []struct {
 				Name     string `json:"name"`
 				Sections []struct {
-					Name     string          `json:"name"`
+					Name     string         `json:"name"`
 					Matches  []bracketMatch `json:"matches"`
 					Rankings []struct {
 						Teams []bracketTeam `json:"teams"`
@@ -57,7 +60,6 @@ type standingsResp struct {
 	} `json:"data"`
 }
 
-// findEventID returns the id of the live event for a league (or next upcoming).
 // eventID returns the match id (schedule events expose id only at match.id).
 func eventID(e event) string {
 	if e.Match != nil && e.Match.ID != "" {
@@ -66,6 +68,7 @@ func eventID(e event) string {
 	return e.ID
 }
 
+// findEventID returns the id of the live event for a league (or next upcoming).
 func findEventID(lid string) string {
 	var lr scheduleResp
 	url := gwBase + "/getLive?hl=en-US"
@@ -226,11 +229,12 @@ func cmdStandings(args []string) {
 					winB = m.Teams[1].Result.GameWins
 				}
 				marker := " "
-				if m.State == "inProgress" {
+				switch m.State {
+				case "inProgress":
 					marker = "🔴"
-				} else if m.State == "unstarted" {
+				case "unstarted":
 					marker = "·"
-				} else if m.State == "completed" {
+				case "completed":
 					marker = "✓"
 				}
 				fmt.Printf("    %s %-5s vs %-5s  %d-%d\n", marker, codeA, codeB, winA, winB)

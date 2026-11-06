@@ -266,10 +266,10 @@ func (b *mvPlates) observe(idx, team int, bar mvBar, x, y float64, m mvPlateMatc
 	for _, ch := range cs {
 		v := 0.0
 		if bar.Level > 0 && bar.LevelC >= 0.3 {
-			switch d := bar.Level - ch.Level; {
-			case d == 0:
+			switch bar.Level - ch.Level {
+			case 0:
 				v++
-			case d == 1 || d == -1:
+			case 1, -1:
 				v += 0.25
 			}
 		}

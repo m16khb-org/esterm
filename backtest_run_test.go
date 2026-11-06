@@ -27,7 +27,7 @@ type btPeak struct {
 	lean      float64
 	col       float32
 	uv, sat   float32
-	true_     bool
+	truePos   bool
 	team      int
 	champ     string
 	otherNear bool // another champion's found icon is at the candidate
@@ -155,7 +155,7 @@ func (r *btRun) addPeaks(trk *mmTracker, k int, dets []mmDet) {
 			continue
 		}
 		uv, sat := tp.colourMatch(trk.rgb, h.x, h.y)
-		p := btPeak{score: h.score, lean: ringLean(trk.rgb, h.x, h.y, d, tp.ref.Team), uv: uv, sat: sat, true_: dist < 0.3*float64(d), team: tp.ref.Team, champ: tp.ref.Champ}
+		p := btPeak{score: h.score, lean: ringLean(trk.rgb, h.x, h.y, d, tp.ref.Team), uv: uv, sat: sat, truePos: dist < 0.3*float64(d), team: tp.ref.Team, champ: tp.ref.Champ}
 		p.col = h.score + mmColourWeight*(uv-mmSatWeight*sat)
 		for o, od := range dets {
 			if o != k && od.Visible && od.Age == 0 && !od.Covered && math.Hypot(od.X*mmFrameSize-cx, od.Y*mmFrameSize-cy) < 0.5*float64(d) {

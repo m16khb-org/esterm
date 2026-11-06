@@ -354,10 +354,8 @@ func tooSmallCanvas(w, h, needW, needH int) *canvas {
 
 // ---------------- popup / menu ----------------
 
-// drawPopup draws a centred modal sized to its body (title included), clipped to screen,
-// and returns the inner rect. The frame uses the focused pane style.
 // popupBox sizes and places a popup on screen and returns its outer and inner rects.
-func popupBox(screen rect, title string, body []line) (rect, rect) {
+func popupBox(screen rect, title string, body []line) (outer, inner rect) {
 	w := runeLen(title) + 4
 	for _, l := range body {
 		if v := l.vis() + 4; v > w {
@@ -375,6 +373,8 @@ func popupBox(screen rect, title string, body []line) (rect, rect) {
 	return r, rect{r.X + 1, r.Y + 1, max(w-2, 0), max(h-2, 0)}
 }
 
+// drawPopup draws a centred modal sized to its body (title included), clipped to screen,
+// and returns the inner rect. The frame uses the focused pane style.
 func drawPopup(c *canvas, screen rect, title string, body []line) rect {
 	r, in := popupBox(screen, title, body)
 	drawPane(c, r, pane{Title: title, Focused: true})

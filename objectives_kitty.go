@@ -60,7 +60,7 @@ func kittyObjCell(m mmObj, cols, rows, w, h int, s *mmSlot) (row, col int) {
 
 // kittyObjCountCell returns the cell of the first of n countdown characters of a marker at
 // (row, col): centred in the cell row below the icon, above it when the slot ends there.
-func kittyObjCountCell(row, col, cols, rows, n int, s *mmSlot) (int, int) {
+func kittyObjCountCell(row, col, cols, rows, n int, s *mmSlot) (countRow, countCol int) {
 	r := row + rows
 	if r >= s.Row+s.Rows {
 		r = max(row-1, s.Row)

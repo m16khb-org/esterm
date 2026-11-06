@@ -379,11 +379,10 @@ func mvTeamCands(sc *mvScratch, team, w, h int, sb float64, tpl *mvTpl) {
 				s := x
 				for x < w {
 					j := y*w + x
-					if v2 := sc.vr[j]; v2 >= lo && v2 <= hi && (y == 0 || m[j-w] == 0) {
-						x++
-					} else {
+					if v2 := sc.vr[j]; v2 < lo || v2 > hi || (y != 0 && m[j-w] != 0) {
 						break
 					}
+					x++
 				}
 				sc.runs = append(sc.runs, mvRun{int32(y), int32(s), int32(x - 1), int32(len(sc.runs))})
 			} else {
@@ -487,8 +486,11 @@ func mvTeamCands(sc *mvScratch, team, w, h int, sb float64, tpl *mvTpl) {
 		for x < w && x < x0+int(mvBarW*sb)+4 {
 			if m[row*w+x] != 0 {
 				last, gap = x, 0
-			} else if gap++; gap > gapFill {
-				break
+			} else {
+				gap++
+				if gap > gapFill {
+					break
+				}
 			}
 			x++
 		}

@@ -91,9 +91,9 @@ const (
 	btDeathLate    = 1.0  // seconds after the feed's death tick up to which a measurement still counts as the champion's last position
 	btClusterScale = 0.8  // champions closer than this many icon diameters overlap
 	btPreRoll      = 45.0 // seconds of video kept before the game's first feed frame (with At)
-	btApiPreRoll   = 150.0
+	btAPIPreRoll   = 150.0
 	btPostRoll     = 60.0
-	btApiPostRoll  = 120.0
+	btAPIPostRoll  = 120.0
 )
 
 // ---- cache ------------------------------------------------------------------------
@@ -280,7 +280,7 @@ func btPrepare(ctx context.Context, g btGame, dl chan struct{}) *btPrep {
 			p.err = errors.New("the API lists no VOD and the game has no Vod override")
 			return p
 		}
-		p.vodURL, at, pre, post = vods[0].URL, vods[0].SpawnAt, btApiPreRoll, btApiPostRoll
+		p.vodURL, at, pre, post = vods[0].URL, vods[0].SpawnAt, btAPIPreRoll, btAPIPostRoll
 	}
 	from := math.Max(0, math.Floor(at-pre))
 	p.atClip = at - from

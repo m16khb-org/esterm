@@ -77,7 +77,7 @@ type mmTrk struct {
 	viaMV     bool // ... by the main view, not by the portrait
 	coverIdx  int  // frame the champion was first seen covered in the current stretch, -1 when not covered
 	carrier   int  // template index of the ally it is covered by, -1 for none
-	carrying  bool // follows the carrier: it is hidden under it, whereever it goes
+	carrying  bool // follows the carrier: it is hidden under it, wherever it goes
 	pend      bool // a sighting far from where the champion can be waits for its confirmation
 	pendX     float64
 	pendY     float64

@@ -7,6 +7,7 @@ import (
 )
 
 // ---------------- details feed types (item/rune/skill) ----------------
+
 type detailsResp struct {
 	Frames []detailsFrame `json:"frames"`
 }
@@ -39,6 +40,7 @@ func detFrom(dr detailsResp) detMap {
 }
 
 // ---------------- toggle state ----------------
+
 type toggles struct {
 	view  int  // b cycles: 0 stats, 1 items, 2 runes
 	spark bool // s: gold-diff sparkline
@@ -66,12 +68,16 @@ type mmView struct {
 }
 
 // ---------------- gold-diff series ----------------
+
 type goldPt struct {
 	gameMin int
 	diff    int // blueGold - redGold
 }
 
 // ---------------- skill order ----------------
+
+// skillPriority returns the basic abilities (R excluded) in the order they were first
+// levelled, joined by ">".
 func skillPriority(ab []string) string {
 	seen := []string{}
 	for _, a := range ab {
@@ -93,11 +99,12 @@ func skillPriority(ab []string) string {
 }
 
 // ---------------- build view rows ----------------
+
 var runeTrees = map[int]string{
 	8000: "Precision", 8100: "Domination", 8200: "Sorcery", 8300: "Inspiration", 8400: "Resolve",
 }
 
-// runePage: keystone + 3 primary runes + secondary tree + 2 secondary runes (full names).
+// runePage formats keystone + 3 primary runes + secondary tree + 2 secondary runes (full names).
 func runePage(dp detailsParticipant) string {
 	pm := dp.PerkMetadata
 	if len(pm.Perks) == 0 {
@@ -126,7 +133,7 @@ func runePage(dp detailsParticipant) string {
 	return out
 }
 
-// items view: champion + FULL item names + skill (one focus, wide).
+// itemsCols splits budget for the items view: champion + FULL item names + skill (one focus, wide).
 func itemsCols(budget int) (nameW, champW, skillW, itemsW int) {
 	nameW, champW, skillW = 12, 8, 6
 	itemsW = budget - nameW - champW - skillW - 3
@@ -159,7 +166,7 @@ func itemsPlayerHeader(budget int) line {
 	}
 }
 
-// runes view: champion + FULL rune page (keystone + primary path + secondary) + skill.
+// runesPlayerRow renders the runes view row: champion + FULL rune page (keystone + primary path + secondary) + skill.
 func runesPlayerRow(name, champ string, dp detailsParticipant, tc string, budget int) line {
 	nameW, champW, skillW := 12, 8, 6
 	rW := budget - nameW - champW - skillW - 3
@@ -188,6 +195,7 @@ func runesPlayerHeader(budget int) line {
 }
 
 // ---------------- sparkline (gold diff over time) ----------------
+
 func sparkline(series []goldPt, width int) line {
 	if len(series) < 2 {
 		return line{C("gold trend · collecting…", cDim)}
@@ -242,6 +250,7 @@ func sparkline(series []goldPt, width int) line {
 }
 
 // ---------------- objective map panel ----------------
+
 func elemChar(e string) string {
 	if e == "" {
 		return "?"

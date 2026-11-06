@@ -353,7 +353,8 @@ func (k *layoutLock) vote(l *mmLayout) bool {
 	if l != k.cand {
 		k.cand, k.votes = l, 0
 	}
-	if k.votes++; k.votes < mmLayoutVotes {
+	k.votes++
+	if k.votes < mmLayoutVotes {
 		return false
 	}
 	k.cur, k.cand, k.votes = l, nil, 0
@@ -1144,7 +1145,8 @@ func cmdMinimap(args []string) {
 		if *asJSON {
 			fmt.Printf("%s\n", mmJSONLine(r))
 		}
-		if count++; count == *n {
+		count++
+		if count == *n {
 			close(finished)
 		}
 	}

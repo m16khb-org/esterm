@@ -15,6 +15,7 @@ import (
 )
 
 // ---------------- ANSI ----------------
+
 const (
 	cReset  = "\033[0m"
 	cBold   = "\033[1m"
@@ -29,9 +30,10 @@ const (
 )
 
 // ---------------- terminal size ----------------
+
 type winsize struct{ Row, Col, Xpixel, Ypixel uint16 }
 
-func termSize() (int, int) {
+func termSize() (cols, rows int) {
 	ws := &winsize{}
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(),
 		uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(ws)))
@@ -50,6 +52,7 @@ const (
 )
 
 // ---------------- line/segment model (logical content) ----------------
+
 type seg struct{ text, color string }
 type line []seg
 
@@ -105,6 +108,7 @@ func padLineTo(l line, width int) line {
 }
 
 // ---------------- cell grid (framebuffer) + diff renderer ----------------
+
 type cell struct {
 	ch  rune
 	sty string // SGR prefix (e.g. "\033[1m\033[31m") or "" for plain
@@ -387,6 +391,7 @@ func metaMap(m teamMeta) map[int]pmeta {
 }
 
 // ---------------- column layout (width-responsive) ----------------
+
 type cols struct{ name, champ, kda, cs, gold, hpbar, hpnum int }
 
 func pickCols(budget int) cols {
@@ -509,6 +514,7 @@ func buildFields(fs []pfield) line {
 }
 
 // ---------------- bordering (return full-width lines) ----------------
+
 func topBorderL(t int) line { return line{S("╔" + strings.Repeat("═", t-2) + "╗")} }
 func botBorderL(t int) line { return line{S("╚" + strings.Repeat("═", t-2) + "╝")} }
 func blankL(t int) line     { return borderedL(line{}, t) }
@@ -577,6 +583,7 @@ func objectivesRow(b, r teamStats, t int) line {
 }
 
 // ---------------- frame -> canvas ----------------
+
 // buildCanvas draws the board at t×h. Embedded boards (tg.embed) live inside the app's own
 // pane: they lose the outer double border and the footer and use the whole area.
 func buildCanvas(ev event, w windowResp, det detailsResp, game time.Duration, now time.Time, t, h int, interval time.Duration, tg toggles, series []goldPt, mm mmView) *canvas {
@@ -654,7 +661,7 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 	rows = append(rows, borderedL(joinLR(hdL, hdR, W), t))
 	bl()
 
-	var lname, rname string = "TBD", "TBD"
+	lname, rname := "TBD", "TBD"
 	lwins, rwins := "0", "0"
 	if tg.replay != nil {
 		lwins, rwins = "-", "-" // a replay knows the series score only when the final game is shown
@@ -768,7 +775,8 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 		rm := metaMap(w.GameMetadata.RedTeamMetadata)
 		dm := detFrom(det)
 
-		if tg.view != 0 {
+		switch {
+		case tg.view != 0:
 			var hdr line
 			var row func(string, string, detailsParticipant, string, int) line
 			if tg.view == 1 {
@@ -788,7 +796,7 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 				m := rm[p.ParticipantID]
 				rows = append(rows, borderedL(row(m.name, m.champ, dm[p.ParticipantID], cRed, W), t))
 			}
-		} else if wide {
+		case wide:
 			side := (W - 3) / 2
 			cL := pickCols(side)
 			cR := pickCols(W - 3 - side)
@@ -807,7 +815,7 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 				}
 				rows = append(rows, sideLine(lp, rp, side, t))
 			}
-		} else {
+		default:
 			c := pickCols(W)
 			rows = append(rows, borderedL(playerHeader(c), t))
 			for i := range b.Participants {
@@ -852,9 +860,10 @@ func finishCanvas(rows []line, t, h int, now time.Time, compact bool, interval t
 		fL = line{C("◷", cPurple), S(fmt.Sprintf(" replay %s / %s · %g× · played %s KST", fmtClock(rs.Pos.Seconds()), fmtClock(rs.Total.Seconds()), rs.Speed, rs.Start.In(kst).Format("01-02 15:04")))}
 	}
 	mode, next := "stats", "items"
-	if tg.view == 1 {
+	switch tg.view {
+	case 1:
 		mode, next = "items", "runes"
-	} else if tg.view == 2 {
+	case 2:
 		mode, next = "runes", "stats"
 	}
 	// Longest key hint that still fits next to the clock; narrow terminals get the short forms.
@@ -887,6 +896,7 @@ func finishCanvas(rows []line, t, h int, now time.Time, compact bool, interval t
 }
 
 // ---------------- data fetch ----------------
+
 func fetchLiveEvent(lid, matchID string) (event, string, bool) {
 	url := gwBase + "/getLive?hl=en-US"
 	if lid != "" {
@@ -919,6 +929,7 @@ func fetchSpawn(gameID string) time.Time {
 }
 
 // ---------------- command ----------------
+
 // enterFullscreen switches to the alternate screen with raw single-key input. SIGINT,
 // SIGTERM and SIGHUP (the terminal window closing) run stop (it must kill child processes) before the terminal is restored and the
 // process exits. leave restores the terminal and is safe to call more than once.
@@ -1226,6 +1237,7 @@ func cmdRelay(args []string) {
 }
 
 // ---------------- demo (synthetic frame for preview/screenshot) ----------------
+
 func cmdDemo(args []string) {
 	fs := flag.NewFlagSet("lol demo", flag.ExitOnError)
 	w := fs.Int("w", 0, "force terminal width (0 = detect)")
@@ -1364,7 +1376,7 @@ func pmetaRow(id int, n, c string) struct {
 
 func itoa(i int) string { return fmt.Sprintf("%d", i) }
 
-// bench proves the double-buffer diff: full repaint vs 1-second diff byte cost.
+// cmdBench proves the double-buffer diff: full repaint vs 1-second diff byte cost.
 func cmdBench(args []string) {
 	fs := flag.NewFlagSet("lol bench", flag.ExitOnError)
 	wf := fs.Int("w", 0, "force width")

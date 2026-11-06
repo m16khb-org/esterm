@@ -111,8 +111,8 @@ func decodeEsc(buf []byte) (n int, k key, ok, complete bool) {
 	if len(buf) == 1 {
 		return 0, key{}, false, false
 	}
-	switch c := buf[1]; {
-	case c == '[':
+	switch buf[1] {
+	case '[':
 		j := 2
 		for j < len(buf) && buf[j] >= 0x30 && buf[j] <= 0x3f {
 			j++
@@ -128,13 +128,13 @@ func decodeEsc(buf []byte) (n int, k key, ok, complete bool) {
 		}
 		k, ok = csiKey(buf[2:j], buf[j])
 		return j + 1, k, ok, true
-	case c == 'O':
+	case 'O':
 		if len(buf) < 3 {
 			return 0, key{}, false, false
 		}
 		k, ok = csiKey(nil, buf[2])
 		return 3, k, ok, true
-	case c == 0x1b: // ESC ESC: first is a plain Escape
+	case 0x1b: // ESC ESC: first is a plain Escape
 		return 1, key{Kind: keyEsc}, true, true
 	default:
 		if !utf8.FullRune(buf[1:]) {

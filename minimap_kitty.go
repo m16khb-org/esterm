@@ -169,7 +169,7 @@ var termCell struct {
 }
 
 // winsizeCellPx returns the cell size from the tty's pixel size, or 0, 0 when it reports none.
-func winsizeCellPx() (int, int) {
+func winsizeCellPx() (cellW, cellH int) {
 	var ws winsize
 	_, _, e := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
 	if e != 0 || ws.Col == 0 || ws.Row == 0 || ws.Xpixel == 0 || ws.Ypixel == 0 {
@@ -180,7 +180,7 @@ func winsizeCellPx() (int, int) {
 
 // termCellPx returns the cell size in pixels: the tty's pixel size, else what the terminal
 // answered to the startup query, else 8x16.
-func termCellPx() (int, int) {
+func termCellPx() (cellW, cellH int) {
 	if w, h := winsizeCellPx(); w > 0 {
 		return w, h
 	}
@@ -199,7 +199,7 @@ var (
 
 // parseCellReplies extracts the cell size from XTWINOPS replies to CSI 16 t and CSI 14 t:
 // the 16 t answer as it is, else the 14 t text area divided by cols x rows. 0, 0: neither.
-func parseCellReplies(got []byte, cols, rows int) (int, int) {
+func parseCellReplies(got []byte, cols, rows int) (cellW, cellH int) {
 	if m := reCell16.FindSubmatch(got); m != nil {
 		h, _ := strconv.Atoi(string(m[1]))
 		w, _ := strconv.Atoi(string(m[2]))
@@ -220,7 +220,7 @@ func parseCellReplies(got []byte, cols, rows int) (int, int) {
 // cellProbe asks the terminal for its cell size (CSI 16 t, then the text area with CSI 14 t)
 // followed by a DA1 request, which every terminal answers, so one that ignores XTWINOPS ends
 // the wait at once. Gives up after ~400 ms; 0, 0 when nothing usable came back.
-func cellProbe() (int, int) {
+func cellProbe() (cellW, cellH int) {
 	cols, rows := termSize()
 	return parseCellReplies(ttyQuery("\x1b[16t\x1b[14t\x1b[c", 4), cols, rows)
 }
@@ -336,9 +336,9 @@ func mix(a, b uint8, t float64) uint8 { return uint8(float64(a)*(1-t) + float64(
 // mmSprite is a pre-rendered d*d circular icon with its team ring and lane badge: r,g,b plus
 // the circle's coverage (0..255) per pixel, ready to blit.
 type mmSprite struct {
-	d     int
-	pix   []uint8
-	chan_ mmChannel
+	d       int
+	pix     []uint8
+	channel mmChannel
 }
 
 type mmSpriteKey struct {
@@ -346,7 +346,7 @@ type mmSpriteKey struct {
 	team, d, ring int
 	label         string
 	state         mmIconState
-	chan_         mmChannel
+	channel       mmChannel
 }
 
 var mmSprites struct {
@@ -372,8 +372,8 @@ func mmChannelColor(c mmChannel) color.RGBA {
 // for a team. Sprites are keyed by the icon image identity, so a placeholder is replaced
 // once the icon arrives. A stale sprite is the portrait at ~55% brightness inside a grey
 // ring; a dead one is the desaturated portrait with a white cross over it.
-func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIconState, chan_ mmChannel) *mmSprite {
-	k := mmSpriteKey{icon, team, d, ring, label, state, chan_}
+func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIconState, channel mmChannel) *mmSprite {
+	k := mmSpriteKey{icon, team, d, ring, label, state, channel}
 	mmSprites.Lock()
 	defer mmSprites.Unlock()
 	if sp := mmSprites.m[k]; sp != nil {
@@ -390,7 +390,7 @@ func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIcon
 		rc = mmRingGrey
 	}
 	sp := renderSprite(d, ring, rc, icon, label)
-	sp.chan_ = chan_
+	sp.channel = channel
 	switch state {
 	case mmIconStale:
 		shadeSprite(sp, false, 0.55)
@@ -780,13 +780,10 @@ func randomKittyIDBase() int {
 // kittyNewIDBase picks a process's id block; a variable so tests can pin it.
 var kittyNewIDBase = randomKittyIDBase
 
-// id returns the image id for offset off of this process's block.
-func (k *kittyOut) id(off int) int { return k.idBase + off }
-
 // mmMapRaster returns the pixel size the map is transmitted at for a w*h px slot: the slot
 // size, scaled down to at most kittyMapMaxPx on the longest side. The terminal scales the
 // placement up to the slot, which adds nothing to a bilinear enlargement done here.
-func mmMapRaster(w, h int) (int, int) {
+func mmMapRaster(w, h int) (rasterW, rasterH int) {
 	m := max(w, h)
 	if m <= kittyMapMaxPx {
 		return w, h
@@ -1017,8 +1014,8 @@ func kittySpritePixels(sp *mmSprite, cols, rows, cellW, cellH, phx, phy int) *im
 		o := (oy+y)*img.Stride + 4*ox
 		copy(img.Pix[o:o+4*sp.d], sp.pix[4*y*sp.d:4*(y+1)*sp.d])
 	}
-	if sp.chan_ != mmChanNone {
-		drawChannelAura(img, float64(ox)+float64(sp.d)/2, float64(oy)+float64(sp.d)/2, float64(sp.d)/2, sp.chan_)
+	if sp.channel != mmChanNone {
+		drawChannelAura(img, float64(ox)+float64(sp.d)/2, float64(oy)+float64(sp.d)/2, float64(sp.d)/2, sp.channel)
 	}
 	return img
 }
@@ -1280,6 +1277,9 @@ type kittyOut struct {
 	buf       []byte
 	png       mmPNG
 }
+
+// id returns the image id for offset off of this process's block.
+func (k *kittyOut) id(off int) int { return k.idBase + off }
 
 // Frame returns the escape output to append after a frame's cell diff. full is true when
 // the screen was cleared and repainted (which also removes the terminal's images). A nil

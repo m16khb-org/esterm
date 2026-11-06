@@ -101,7 +101,7 @@ func mvReadLevel(lum []uint8, w, h, bx, by int, sb float64) (level int, corr, le
 	t := mvLevelTemplates(sb)
 	y0 := by + t.oy
 	var buf [1024]float32
-	win := buf[:0]
+	var win []float32
 	if n := t.w * t.h; n <= len(buf) {
 		win = buf[:n]
 	} else {
