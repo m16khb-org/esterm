@@ -1,74 +1,70 @@
-<h1 align="center">esterm</h1>
+<div align="center">
 
-<p align="center">
-  <strong>리그 오브 레전드 e스포츠를 터미널에서 보는 싱글 바이너리 CLI</strong><br />
-  라이브 보드와 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치
+# esterm
+
+**리그 오브 레전드 e스포츠를 터미널에서 보는 CLI**
+
+라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치
+
+<p>
+  <a href="https://github.com/m16khb-org/esterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/esterm?style=flat-square&label=release&color=4de1ff"></a>
+  <a href="go.mod"><img alt="go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
+  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-333?style=flat-square">
+  <a href="https://github.com/m16khb-org/esterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/esterm?style=flat-square&color=4de1ff"></a>
 </p>
 
-<p align="center">
-  한국어 · English · 中文
-</p>
+[한국어](README.md) · [English](https://m16khb-org.github.io/esterm/?lang=en) · [中文](https://m16khb-org.github.io/esterm/?lang=zh) · [웹 소개](https://m16khb-org.github.io/esterm/) · [설치](INSTALL.md)
 
-<p align="center">
-  <a href="README.md"><strong>한국어</strong></a>
-  ·
-  <a href="INSTALL.md">설치 가이드</a>
-  ·
-  <a href="https://m16khb-org.github.io/esterm/">웹 소개</a>
-</p>
+<img src="docs/assets/hero.png" alt="esterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
 
-<p align="center">
-  <img src="docs/assets/hero.png" alt="esterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
-</p>
+</div>
+
+> **v0.1.0** — 첫 공개 릴리스입니다. [릴리스 노트](https://github.com/m16khb-org/esterm/releases/tag/v0.1.0)에서 변경 사항과 설치 방법을 확인하세요.
+
+[왜 esterm](#왜-esterm인가) · [한눈에](#한눈에) · [설치](#설치) · [빠른 시작](#빠른-시작) ·
+[대화형 앱](#대화형-앱) · [미니맵](#미니맵) · [작동 방식](#작동-방식) · [검증](#검증) ·
+[터미널 설정](#터미널-설정) · [문서](#문서) · [기여](#기여) · [라이선스](#라이선스)
+
+## 왜 esterm인가
+
+Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언 좌표는 주지 않습니다. esterm은 공식 방송 화면에서 미니맵을 직접 읽어 이 빈칸을 채웁니다.
+
+- **방송을 읽습니다.** 공식 1080p 방송의 미니맵과 게임 시계를 인식하고, 초상화 템플릿 매칭·칼만 필터·메인 뷰 체력바를 함께 사용해 10명의 위치를 추정합니다.
+- **터미널에서 끝납니다.** 라이브 보드와 다시 보기를 한 화면에서 보고, 클릭·더블클릭·휠로 조작합니다. UI는 한국어·영어·중국어를 지원합니다.
+- **숫자로 확인합니다.** Worlds·LCK·LPL·LEC 16경기 백테스트에서 생존 챔피언 검출 94.0%, 죽은 챔피언 오검출 0.00%를 기록했습니다.
 
 <p align="center">
   <a href="docs/assets/demo.mp4"><img src="docs/assets/demo.gif" alt="esterm 실제 구동 화면: Worlds 리플레이 보드와 실시간 미니맵" width="100%" /></a>
 </p>
-
-<p align="center">
-  <a href="docs/assets/demo.mp4">실제 구동 영상 보기 (MP4, 15초)</a>
-</p>
-
-esterm은 프로 경기의 **일정·결과·실시간 인게임 보드**와 **지난 경기 다시 보기**를 터미널에서 보여 줍니다.
-lolesports.com이 쓰는 비공식 엔드포인트를 사용하며, API 키는 사이트에 하드코딩된 공용 키라 따로 발급할 필요가 없습니다.
-
-가장 큰 차별점은 **방송 미니맵을 직접 읽는 것**입니다. Riot의 스탯 피드에는 챔피언 좌표가 없습니다.
-esterm은 공식 방송 VOD에서 미니맵 영역을 잘라 내고, 챔피언 초상화 템플릿 매칭·칼만 필터 추적·메인 뷰 체력바로
-10명의 위치를 추정합니다. 사망, 놓친 챔피언, 귀환·텔레포트 채널링까지 색과 문자로 구분합니다.
-
-[한눈에](#한눈에) · [빠른 시작](#빠른-시작) · [대화형 앱](#대화형-앱) ·
-[미니맵](#미니맵) · [동기화](#동기화) · [검증](#검증) · [문제 해결](#문제-해결)
+<p align="center"><sub>Worlds 리플레이 보드 · 15초 실제 구동 영상 · <a href="docs/assets/demo.mp4">MP4</a></sub></p>
 
 ## 한눈에
 
 | 기능 | 내용 |
 |---|---|
-| **라이브 보드** | 킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바, 0.5초 갱신 |
+| **라이브 보드** | 킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신 |
 | **다시 보기** | 공식 VOD 영상과 livestats 피드를 같은 게임 시각에 맞춰 재생. `Space`·`←`·`→`·배속 지원 |
 | **방송 미니맵** | 공식 1080p 방송 4종(Worlds·LCK·LPL·LEC) 레이아웃 자동 인식, 초당 5프레임 추적 |
 | **상태 표시** | 사망 `✕`+부활 초, 놓침은 흐린 초상화+`?`, 귀환 `R`·텔레포트 `T` |
-| **오브젝트 타이머** | 용·엘더·바론의 다음 등장 시각과 소울 포인트 |
 | **마우스 조작** | 클릭으로 창 선택과 항목 이동, 더블클릭으로 열기, 휠로 목록 스크롤 |
 | **3개 언어** | 한국어·영어·중국어 UI. `-lang ko\|en\|zh` 또는 `ESTERM_LANG`, 옵션 메뉴에서 전환 |
-| **반응형 TUI** | lazygit 스타일 창, 50~200컬럼까지 자동 재배치 |
 | **단일 바이너리** | Go 표준 라이브러리만 사용. 외부 의존성은 미니맵용 `yt-dlp`·`ffmpeg`·JS 런타임뿐 |
 
-## 빠른 시작
+## 설치
 
-필수 환경은 **Go 1.21 이상**입니다. 미니맵을 쓰려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno` 권장, 없으면 `bun` 또는 `node`)이 필요합니다.
+Go 1.21 이상이 필요합니다. 미니맵을 쓰려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno` 권장, 없으면 `bun` 또는 `node`)이 필요합니다.
 
 ```bash
 go install github.com/m16khb-org/esterm@latest
 # $(go env GOPATH)/bin 이 PATH 에 있어야 합니다
-
-esterm                              # 대화형 앱
-esterm -lang ko                     # 한국어 UI (en, zh)
-esterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
-esterm lol replay -match 115660588583040710 -g 1
-esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 ```
 
-소스에서 빌드하려면:
+미니맵 의존성은 macOS에서 `brew install yt-dlp ffmpeg deno`, Linux에서 `apt install ffmpeg`와 `pipx install yt-dlp`로 설치합니다.
+자세한 사전 점검·PATH·검증 절차는 **[INSTALL.md](INSTALL.md)** 에 있습니다.
+
+<details>
+<summary>소스에서 빌드하기</summary>
 
 ```bash
 git clone https://github.com/m16khb-org/esterm.git
@@ -77,8 +73,20 @@ mkdir -p ~/.local/bin
 go build -o ~/.local/bin/esterm .
 ```
 
-미니맵 의존성은 macOS에서 `brew install yt-dlp ffmpeg deno`, Linux는 `apt install ffmpeg`와 `pipx install yt-dlp`로 설치합니다.
-자세한 사전 점검·PATH·검증 절차는 **[INSTALL.md](INSTALL.md)** 에 있습니다.
+</details>
+
+## 빠른 시작
+
+```bash
+esterm                              # 대화형 앱
+esterm -lang ko                     # 한국어 UI (en, zh)
+esterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
+esterm lol replay -match 115660588583040710 -g 1
+esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
+```
+
+대화형 앱에서 리그를 고르고 `Enter`로 경기를 열면 라이브 보드나 다시 보기가 시작됩니다.
+방송 미니맵은 공식 1080p 방송에서만 동작하며, 리플레이·데스크·밴픽 화면에서는 챔피언을 숨기고 이유를 표시합니다.
 
 ## 대화형 앱
 
@@ -138,28 +146,19 @@ esterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk \
 `-json`은 프레임마다 한 줄을 출력합니다. `present`(레이아웃 잠금), `clock`, `kills`, `visible`,
 `champions[{pid,champ,role,team,visible,x,y,score,chan}]`을 담습니다. 좌표는 게임 단위입니다.
 
-## 동기화
+## 작동 방식
 
-방송 화면과 피드의 시각을 맞추는 것이 미니맵·점수판·헤더의 기준입니다.
-
-- **지원 화면**: Worlds, LCK, LPL, LEC의 공식 1080p 방송. 상단 게임 시계 글꼴로 레이아웃을 자동 판별합니다.
-- **계속 재보정**: 방송 시계(`mm:ss`)와 킬 카운터 변화를 피드의 킬 이벤트와 대조해 오프셋을 갱신합니다.
-- **첫 잠금**: 약 5초. 그동안 상태 줄은 `sync: calibrating`입니다.
-- **화면 전환**: 리플레이·데스크·밴픽처럼 라이브 미니맵이 없으면 챔피언을 숨기고
-  `no live minimap (broadcast replay/desk)`를 노란색으로 표시합니다. 라이브로 돌아오면 다시 나타납니다.
-- **영상 정지**: 8초 넘게 멎으면 피드만 재생하고 `video stalled`로 표시합니다.
-
-## 오브젝트 타이머
-
-보드의 오브젝트 행 아래에 용 구덩이와 바론 구덩이의 다음 등장 시각을 한 줄로 보여 줍니다.
+1. **피드** — `getEventDetails`로 경기·세트·VOD를 찾고, livestats 피드에서 점수판·게임 시계·선수 스탯을 가져옵니다.
+2. **방송** — 공식 VOD에서 1080p 스트림을 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.
+3. **추적** — 미니맵 영역을 잘라 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이의 이동을 잇습니다. 메인 뷰 체력바와 피드의 사망·부활 정보를 함께 씁니다.
+4. **정렬** — 방송 시계와 피드의 킬 이벤트를 대조해 오프셋을 계속 보정합니다. 점수판·선수 스탯·오브젝트·미니맵이 같은 게임 시각을 가리킵니다.
 
 ```text
-DRG 2 ── 4 ★SOUL     BRN 0 ── 1     TWR 4 ── 7     INB 0 ── 1
-Dragon 3:12 Infernal · Baron UP · Soul point blue
+lolesports API ──▶ livestats feed ──▶ scoreboard · clock · deaths
+                                      │
+official VOD ──▶ ffmpeg ──▶ minimap ──┴──▶ template match ──▶ Kalman ──▶ terminal
+                              + game clock        (Go, pure)
 ```
-
-용 첫 등장 5:00, 재등장 5:00, 장로 6:00, 바론 첫 등장 20:00·재등장 6:00을 게임 시계에 더해 계산합니다.
-일시정지 구간은 게임 시계가 멈추는 만큼 타이머도 멈춥니다.
 
 ## 검증
 
@@ -197,30 +196,28 @@ go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=/tmp/bac
 `auto`는 `TERM_PROGRAM`(ghostty/wezterm/herdr), `KITTY_WINDOW_ID`, `TERM=xterm-kitty`를 보고 kitty를 고릅니다.
 환경변수로 판단이 안 되면 시작할 때 kitty 그래픽 질의를 보내 최대 0.2초 기다립니다.
 
-## 문제 해결
-
-| 증상 | 확인할 내용 |
-|---|---|
-| `command not found: esterm` | `$(go env GOPATH)/bin` 또는 `~/.local/bin`이 PATH에 있는지 확인 |
-| 미니맵이 `missing tools` | `brew install yt-dlp ffmpeg deno` 후 재실행 |
-| `detecting broadcast layout`에서 멈춤 | 공식 1080p 방송인지 확인. 720p·공동 시청 방송은 시계를 읽지 못합니다 |
-| 라이브 경기가 안 보임 | 방송이 아직 시작되지 않았을 수 있습니다. `esterm lol schedule`로 확인 |
-| 미니맵이 잠깐 사라짐 | 리플레이·데스크·밴픽 화면이면 정상입니다. 상태 줄에 이유가 나옵니다 |
-| 아이콘/아이템 이름이 오래됨 | `~/Library/Caches/esterm`(macOS) 또는 `~/.cache/esterm` 삭제 |
-| 최근 경기 VOD가 재생되지 않음 | 라이브 아카이브 VOD는 seek할 수 없어 다음 VOD로 자동 전환합니다 |
-
-## 더 알아보기
+## 문서
 
 | 문서 | 용도 |
 |---|---|
 | [INSTALL.md](INSTALL.md) | 사전 점검, PATH, 미니맵 의존성, 검증 체크리스트 |
 | [구현 상세](docs/internals.md) | 미니맵 파이프라인, 동기화, 백테스트 전체 수치, 데이터 소스 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 개발 환경, 테스트, 커밋·PR 규칙 |
 | [.issueops/ARCHITECTURE.md](.issueops/ARCHITECTURE.md) | 구조와 설계 결정 |
 | [.issueops/TESTING.md](.issueops/TESTING.md) | 검증 기준 |
-| [웹 소개](https://m16khb-org.github.io/esterm/) | 스크린샷과 설치 안내 |
+| [웹 소개](https://m16khb-org.github.io/esterm/) | 스크린샷과 설치 안내 (한국어·영어·중국어) |
 
-> lolesports.com의 비공식 엔드포인트를 사용합니다. 영상은 **개인 시청 목적**으로만 처리하며,
-> 녹화·저장·재배포하지 마세요. 각 플랫폼의 약관을 따릅니다.
+## 기여
+
+이슈와 PR을 환영합니다. 버그를 재현했다면 경기 ID·세트 번호·터미널·`-icons` 모드·재현 시각을 함께 적어 주세요.
+
+```bash
+go test -count=1 ./...          # 전체 테스트
+go build -o ~/.local/bin/esterm .
+```
+
+UI를 바꿨다면 스크린샷을 PR에 첨부합니다. 커밋은 Conventional Commits 형식을 따르고, 비밀값·로컬 캐시·생성물은 올리지 않습니다.
+자세한 내용은 **[CONTRIBUTING.md](CONTRIBUTING.md)** 를 참고하세요.
 
 ## 라이선스
 
@@ -228,15 +225,5 @@ GPL-3.0-or-later. 전문은 [LICENSE](LICENSE)를 참고합니다.
 
 Copyright (C) 2026 m16khb
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+> lolesports.com의 비공식 엔드포인트를 사용합니다. 영상은 **개인 시청 목적**으로만 처리하며,
+> 녹화·저장·재배포하지 마세요. 각 플랫폼의 약관을 따릅니다. Riot Games와 공식적인 관련이 없습니다.

@@ -87,6 +87,7 @@
   .stat span { color: var(--dim); font-size: 12px; }
 
   section { padding: 76px 0; }
+  section[id] { scroll-margin-top: 76px; }
   .section-head { max-width: 720px; margin-bottom: 34px; }
   .section-head h2 { margin: 0 0 10px; font-size: clamp(28px, 3.2vw, 40px); letter-spacing: -1.4px; line-height: 1.12; }
   .section-head p { margin: 0; color: var(--muted); }
@@ -98,7 +99,9 @@
   .card p { margin: 0; color: var(--muted); font-size: 14px; }
 
   .split { display: grid; grid-template-columns: 1.02fr 1fr; gap: 44px; align-items: center; }
+  .split > * { min-width: 0; }
   .split.img-first { grid-template-columns: 1.25fr .85fr; }
+  .split img { max-width: 100%; height: auto; }
   .wide-img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #0a0d0c; }
   .legend { display: grid; gap: 9px; }
   .legend.row { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 16px; }
@@ -111,7 +114,8 @@
 
   .install { background: #0b100e; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); }
   .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
-  pre { margin: 0; padding: 18px; background: #070b09; border: 1px solid var(--line); border-radius: 12px;
+  .install-grid > * { min-width: 0; }
+  pre { margin: 0; max-width: 100%; padding: 18px; background: #070b09; border: 1px solid var(--line); border-radius: 12px;
     overflow-x: auto; color: #cfe0d6; font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre .c { color: var(--dim); } pre .p { color: var(--cyan); }
   .req { color: var(--muted); font-size: 14px; }
@@ -122,7 +126,7 @@
   th { color: var(--dim); font: 600 11px/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
   td { color: #cdd9d1; }
   tr:last-child td { border-bottom: 0; }
-  .table-wrap { border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: var(--panel); }
+  .table-wrap { border: 1px solid var(--line); border-radius: 13px; overflow-x: auto; background: var(--panel); }
 
   footer { padding: 44px 0 56px; border-top: 1px solid rgba(255,255,255,.05); color: var(--dim); font-size: 13px; }
   footer .wrap { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
@@ -130,7 +134,7 @@
   footer .sp { margin-left: auto; }
 
   @media (max-width: 900px) {
-    .hero .wrap, .split, .install-grid { grid-template-columns: 1fr; }
+    .hero .wrap, .split, .split.img-first, .install-grid { grid-template-columns: 1fr; }
     .cards { grid-template-columns: 1fr 1fr; }
     .stats .wrap { grid-template-columns: 1fr 1fr; }
     .term { order: -1; }
@@ -144,15 +148,84 @@
     html { scroll-behavior: auto; }
     .term video { display: none; }
   }
+
+  .releasebar { background: linear-gradient(90deg, rgba(77,225,255,.10), rgba(180,107,255,.10));
+    border-bottom: 1px solid rgba(77,225,255,.16); }
+  .releasebar .wrap { display: flex; align-items: center; gap: 10px; min-height: 38px;
+    font-size: 12px; color: var(--muted); }
+  .releasebar .tag { font: 700 10px/1 ui-monospace, monospace; letter-spacing: .06em; color: #04100f;
+    background: var(--cyan); padding: 4px 7px; border-radius: 5px; }
+  .releasebar a { margin-left: auto; color: var(--text); font-weight: 600; }
+  .releasebar a:hover { text-decoration: none; color: var(--cyan); }
+
+  .hero-meta { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 18px; }
+  .hero-meta span { border: 1px solid var(--line); background: #0d1411; border-radius: 6px;
+    padding: 5px 8px; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .hero-meta .tag { color: var(--cyan); border-color: #1d4a4a; }
+
+  .native { background: #0b100e; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); }
+  .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #0a0d0c;
+    box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+  .shot img { display: block; width: 100%; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .chips span { border: 1px solid var(--line); background: #0d1411; color: #c3d0c7;
+    border-radius: 999px; padding: 6px 10px; font: 11px/1 ui-monospace, monospace; }
+
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .step { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 20px; }
+  .step b { display: block; margin-bottom: 14px; font: 700 28px/1 ui-monospace, monospace; color: rgba(77,225,255,.42); }
+  .step h3 { margin: 0 0 7px; font-size: 15px; letter-spacing: -.2px; }
+  .step p { margin: 0; color: var(--muted); font-size: 13px; }
+  .step:not(:last-child)::after { content: "→"; position: absolute; right: -13px; top: 50%;
+    transform: translateY(-50%); color: #385045; font: 16px/1 ui-monospace, monospace; }
+
+  .docs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .doc { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px; color: var(--text); transition: border-color .15s ease, transform .15s ease; }
+  .doc:hover { border-color: #3b5247; text-decoration: none; transform: translateY(-1px); }
+  .doc .k { font: 600 10px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
+  .doc h3 { margin: 10px 0 6px; font-size: 15px; }
+  .doc p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .contribute { background: linear-gradient(90deg, rgba(77,225,255,.08), rgba(180,107,255,.08));
+    border-top: 1px solid rgba(77,225,255,.14); padding: 54px 0; }
+  .contribute .wrap { display: flex; align-items: center; justify-content: space-between; gap: 26px; flex-wrap: wrap; }
+  .contribute h2 { margin: 0 0 8px; font-size: clamp(26px, 3vw, 36px); letter-spacing: -1.1px; }
+  .contribute p { margin: 0; color: var(--muted); max-width: 620px; }
+  .contribute .cta { margin: 0; }
+
+  footer .fine { margin-top: 16px; color: #5f7469; font-size: 12px; }
+
+  @media (max-width: 900px) {
+    .steps { grid-template-columns: 1fr 1fr; }
+    .step:nth-child(2)::after { display: none; }
+    .docs-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .steps, .docs-grid { grid-template-columns: 1fr; }
+    .step::after { display: none; }
+    .releasebar .wrap { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+    .releasebar a { margin-left: 0; }
+    .contribute .wrap { display: block; }
+    .contribute .cta { margin-top: 20px; }
+  }
 </style>
 </head>
 <body>
+<div class="releasebar">
+  <div class="wrap">
+    <span class="tag">v0.1.0</span>
+    <span data-i18n="release_text">첫 공개 릴리스</span>
+    <a href="https://github.com/m16khb-org/esterm/releases/tag/v0.1.0" data-i18n="release_notes">릴리스 노트 →</a>
+  </div>
+</div>
 <nav>
   <div class="wrap">
     <a class="brand" href="#top">es<span>term</span></a>
     <div class="links">
       <a href="#features" data-i18n="nav_features">기능</a>
       <a href="#minimap" data-i18n="nav_minimap">미니맵</a>
+      <a href="#how" data-i18n="nav_how">작동 방식</a>
       <a href="#install" data-i18n="nav_install">설치</a>
       <div class="langs" role="group" aria-label="Language">
         <button type="button" data-lang="ko" class="on">KO</button>
@@ -169,6 +242,12 @@
     <div>
       <div class="eyebrow">Esports terminal cli</div>
       <h1>es<span>term</span></h1>
+      <div class="hero-meta">
+        <span class="tag">v0.1.0</span>
+        <span>Go 1.21+</span>
+        <span>GPL-3.0</span>
+        <span>macOS · Linux</span>
+      </div>
       <p class="tagline" data-i18n-html="hero_tagline">리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.</p>
       <p class="lede" data-i18n="hero_lede">라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
       <div class="cmd"><b>$</b> go install github.com/m16khb-org/esterm@latest
@@ -176,7 +255,7 @@
       </div>
       <div class="cta">
         <a class="btn primary" href="#install" data-i18n="start">시작하기</a>
-        <a class="btn ghost" href="https://github.com/m16khb-org/esterm" data-i18n="source">소스 보기</a>
+        <a class="btn ghost" href="https://github.com/m16khb-org/esterm" data-i18n="github_view">GitHub에서 보기</a>
       </div>
     </div>
     <div class="demo-col">
@@ -214,18 +293,34 @@
       <div class="card"><div class="ico">✕</div><h3 data-i18n="f4_title">상태 구분</h3><p data-i18n-html="f4_desc">사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.</p></div>
       <div class="card"><div class="ico">R</div><h3 data-i18n="f5_title">채널링 색</h3><p data-i18n-html="f5_desc">귀환은 청록 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>, 레드 팀 채널링은 빨강 <span class="mono">?</span>. 팀 링 바깥에 물결 아우라로 표시합니다.</p></div>
       <div class="card"><div class="ico">⏱</div><h3 data-i18n="f6_title">오브젝트 타이머</h3><p data-i18n="f6_desc">용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
-      <div class="card"><div class="ico">↖</div><h3 data-i18n="f7_title">마우스와 언어</h3><p data-i18n="f7_desc">클릭으로 창 선택과 행 이동, 더블클릭으로 열기, 휠로 스크롤. 한국어·영어·중국어 UI.</p></div>
     </div>
   </div>
 </section>
 
+
+<section class="native">
+  <div class="wrap split img-first">
+    <div class="shot"><img src="assets/demo-poster.png" alt="esterm 리플레이 보드" loading="lazy"></div>
+    <div>
+      <div class="eyebrow" data-i18n="native_eyebrow">Terminal native</div>
+      <h2 data-i18n="native_title">키보드, 마우스, 세 가지 언어</h2>
+      <p data-i18n="native_desc">lazygit처럼 창을 누르고, 행을 고르고, 휠로 스크롤합니다. 더블클릭으로 경기를 열고, 같은 화면에서 한국어·영어·중국어를 전환합니다.</p>
+      <div class="chips">
+        <span data-i18n="chip_click">클릭 · 선택</span>
+        <span data-i18n="chip_double">더블클릭 · 열기</span>
+        <span data-i18n="chip_wheel">휠 · 스크롤</span>
+        <span>KO · EN · 中文</span>
+      </div>
+    </div>
+  </div>
+</section>
 <section id="minimap">
   <div class="wrap">
     <div class="section-head">
       <h2 data-i18n="map_title">챔피언이 사라져도, 이유를 알려 줍니다</h2>
       <p data-i18n-html="map_desc">사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.</p>
     </div>
-    <img class="wide-img" src="assets/states.png" alt="Live, dead, lost and mixed minimap states" loading="lazy">
+    <img class="wide-img" src="assets/states.png" alt="Live, dead, lost and mixed minimap states">
     <div class="legend row">
       <div><span class="dot c-green"></span><span data-i18n="legend_live">라이브: 초상화 · 팀 링 · 라인 배지</span></div>
       <div><span class="dot c-red"></span><span data-i18n="legend_dead">사망: X + 아이콘에 붙은 부활 초</span></div>
@@ -236,7 +331,7 @@
 
 <section>
   <div class="wrap split img-first">
-    <img src="assets/channels-panel.png" alt="Recall R, Teleport T and red-team channel ? on the minimap" loading="lazy">
+    <img class="wide-img" src="assets/channels-panel.png" alt="Recall R, Teleport T and red-team channel ? on the minimap">
     <div>
       <h3 data-i18n="chan_title">귀환과 텔레포트를 색으로</h3>
       <p data-i18n="chan_desc">팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.</p>
@@ -247,6 +342,23 @@
       </div>
       <p style="margin-top:16px;font-size:13px;color:var(--dim)" data-i18n="chan_note">레드 팀은 귀환과 텔레포트가 같은 빨간 아우라라 둘을 구분하지 않습니다.</p>
     </div>
+  </div>
+</section>
+
+
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="how_eyebrow">Under the hood</div>
+      <h2 data-i18n="how_title">방송에서 미니맵까지</h2>
+      <p data-i18n="how_sub">점수판은 피드에서, 챔피언 위치는 방송 화면에서. 두 시계를 같은 게임 시각으로 맞춥니다.</p>
+    </div>
+    <ol class="steps">
+      <li class="step"><b>01</b><h3 data-i18n="how1_title">피드</h3><p data-i18n="how1_desc">공식 경기·세트·VOD를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.</p></li>
+      <li class="step"><b>02</b><h3 data-i18n="how2_title">방송</h3><p data-i18n="how2_desc">공식 1080p VOD를 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.</p></li>
+      <li class="step"><b>03</b><h3 data-i18n="how3_title">추적</h3><p data-i18n="how3_desc">미니맵 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이를 잇습니다.</p></li>
+      <li class="step"><b>04</b><h3 data-i18n="how4_title">정렬</h3><p data-i18n="how4_desc">방송 시계와 킬 이벤트를 대조해 오프셋을 보정하고, 모든 패널을 같은 게임 시각에 맞춥니다.</p></li>
+    </ol>
   </div>
 </section>
 
@@ -300,14 +412,47 @@
   </div>
 </section>
 
+
+<section id="docs">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow" data-i18n="docs_eyebrow">Documentation</div>
+      <h2 data-i18n="docs_title">문서</h2>
+      <p data-i18n="docs_sub">설치부터 미니맵 파이프라인, 기여 규칙까지 저장소 안에 정리해 두었습니다.</p>
+    </div>
+    <div class="docs-grid">
+      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md"><span class="k">01 · setup</span><h3 data-i18n="doc_install_title">설치</h3><p data-i18n="doc_install_desc">사전 점검, PATH, 미니맵 의존성, 검증 체크리스트</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md"><span class="k">02 · internals</span><h3 data-i18n="doc_internals_title">구현 상세</h3><p data-i18n="doc_internals_desc">미니맵 파이프라인, 동기화, 백테스트 전체 수치</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/CONTRIBUTING.md"><span class="k">03 · contribute</span><h3 data-i18n="doc_contrib_title">기여 가이드</h3><p data-i18n="doc_contrib_desc">개발 환경, 테스트, 커밋과 PR 규칙</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/.issueops/ARCHITECTURE.md"><span class="k">04 · design</span><h3 data-i18n="doc_arch_title">아키텍처</h3><p data-i18n="doc_arch_desc">구조와 설계 결정, 검증 기준</p></a>
+    </div>
+  </div>
+</section>
+
+<section class="contribute">
+  <div class="wrap">
+    <div>
+      <div class="eyebrow" data-i18n="contrib_eyebrow">Open source</div>
+      <h2 data-i18n="contrib_title">같이 만들어요</h2>
+      <p data-i18n="contrib_sub">버그 제보, 경기별 검증 결과, 문서 수정, 새 아이디어 모두 환영합니다. 재현 정보를 함께 적어 주시면 큰 도움이 됩니다.</p>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/m16khb-org/esterm/issues" data-i18n="contrib_issue">이슈 열기</a>
+      <a class="btn ghost" href="https://github.com/m16khb-org/esterm/blob/main/CONTRIBUTING.md" data-i18n="contrib_guide">기여 가이드</a>
+    </div>
+  </div>
+</section>
+
 <footer>
   <div class="wrap">
     <span data-i18n="footer_tag">esterm · League of Legends esports terminal CLI</span>
+    <span data-i18n="footer_version">v0.1.0 · GPL-3.0-or-later</span>
     <a href="https://github.com/m16khb-org/esterm">GitHub</a>
+    <a href="https://github.com/m16khb-org/esterm/releases" data-i18n="footer_releases">릴리스</a>
     <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md" data-i18n="nav_install">설치</a>
-    <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a>
     <span class="sp" data-i18n="footer_note">개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용</span>
   </div>
+  <div class="wrap fine" data-i18n="footer_disclaimer">Riot Games와 공식적인 관련이 없습니다.</div>
 </footer>
 
 <script>
@@ -315,9 +460,31 @@ const I18N = {
   ko: {
     page_title: "esterm — 리그 오브 레전드 e스포츠를 터미널에서",
     nav_features: "기능", nav_minimap: "미니맵", nav_install: "설치",
+    release_text: "첫 공개 릴리스", release_notes: "릴리스 노트 →", nav_how: "작동 방식",
+    native_eyebrow: "Terminal native", native_title: "키보드, 마우스, 세 가지 언어",
+    native_desc: "lazygit처럼 창을 누르고, 행을 고르고, 휠로 스크롤합니다. 더블클릭으로 경기를 열고, 같은 화면에서 한국어·영어·중국어를 전환합니다.",
+    chip_click: "클릭 · 선택", chip_double: "더블클릭 · 열기", chip_wheel: "휠 · 스크롤",
+    how_eyebrow: "Under the hood", how_title: "방송에서 미니맵까지",
+    how_sub: "점수판은 피드에서, 챔피언 위치는 방송 화면에서. 두 시계를 같은 게임 시각으로 맞춥니다.",
+    how1_title: "피드", how1_desc: "공식 경기·세트·VOD를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.",
+    how2_title: "방송", how2_desc: "공식 1080p VOD를 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.",
+    how3_title: "추적", how3_desc: "미니맵 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이를 잇습니다.",
+    how4_title: "정렬", how4_desc: "방송 시계와 킬 이벤트를 대조해 오프셋을 보정하고, 모든 패널을 같은 게임 시각에 맞춥니다.",
+    docs_eyebrow: "Documentation", docs_title: "문서",
+    docs_sub: "설치부터 미니맵 파이프라인, 기여 규칙까지 저장소 안에 정리해 두었습니다.",
+    doc_install_title: "설치", doc_install_desc: "사전 점검, PATH, 미니맵 의존성, 검증 체크리스트",
+    doc_internals_title: "구현 상세", doc_internals_desc: "미니맵 파이프라인, 동기화, 백테스트 전체 수치",
+    doc_contrib_title: "기여 가이드", doc_contrib_desc: "개발 환경, 테스트, 커밋과 PR 규칙",
+    doc_arch_title: "아키텍처", doc_arch_desc: "구조와 설계 결정, 검증 기준",
+    contrib_eyebrow: "Open source", contrib_title: "같이 만들어요",
+    contrib_sub: "버그 제보, 경기별 검증 결과, 문서 수정, 새 아이디어 모두 환영합니다. 재현 정보를 함께 적어 주시면 큰 도움이 됩니다.",
+    contrib_issue: "이슈 열기", contrib_guide: "기여 가이드",
+    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "릴리스",
+    footer_disclaimer: "Riot Games와 공식적인 관련이 없습니다.",
+
     hero_tagline: "리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.",
     hero_lede: "라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.",
-    copy: "복사", start: "시작하기", source: "소스 보기", video_link: "15초 실제 구동 영상 (MP4)",
+    copy: "복사", start: "시작하기", github_view: "GitHub에서 보기", video_link: "15초 실제 구동 영상 (MP4)",
     stat_detect: "생존 챔피언 검출 (16경기)", stat_dead: "죽은 챔피언 오검출",
     stat_flip: "킬 플립 동기 오차 ≤1초", stat_pass: "백테스트 기준 통과",
     features_title: "경기 전체를 한 화면에",
@@ -328,7 +495,6 @@ const I18N = {
     f4_title: "상태 구분", f4_desc: '사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.',
     f5_title: "채널링 색", f5_desc: '귀환은 청록 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>, 레드 팀 채널링은 빨강 <span class="mono">?</span>. 팀 링 바깥에 물결 아우라로 표시합니다.',
     f6_title: "오브젝트 타이머", f6_desc: "용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.",
-    f7_title: "마우스와 언어", f7_desc: "클릭으로 창 선택과 행 이동, 더블클릭으로 열기, 휠로 스크롤. 한국어·영어·중국어 UI.",
     map_title: "챔피언이 사라져도, 이유를 알려 줍니다",
     map_desc: '사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.',
     legend_live: "라이브: 초상화 · 팀 링 · 라인 배지",
@@ -352,9 +518,31 @@ const I18N = {
   en: {
     page_title: "esterm — League of Legends esports in your terminal",
     nav_features: "Features", nav_minimap: "Minimap", nav_install: "Install",
+    release_text: "First public release", release_notes: "Release notes →", nav_how: "How it works",
+    native_eyebrow: "Terminal native", native_title: "Keyboard, mouse, three languages",
+    native_desc: "Click a pane, pick a row, scroll with the wheel like lazygit. Double-click to open a match, and switch between Korean, English and Chinese on the same screen.",
+    chip_click: "Click · select", chip_double: "Double-click · open", chip_wheel: "Wheel · scroll",
+    how_eyebrow: "Under the hood", how_title: "From broadcast to minimap",
+    how_sub: "The scoreboard comes from the feed; champion positions come from the broadcast. Both clocks are aligned to the same game time.",
+    how1_title: "Feed", how1_desc: "Find the official match, games and VOD, then read the scoreboard, game clock and player stats from livestats.",
+    how2_title: "Broadcast", how2_desc: "Open the official 1080p VOD and identify the layout from the game-clock font at the top.",
+    how3_title: "Tracking", how3_desc: "Template-match minimap portraits, then link frames with Hungarian assignment and a Kalman filter.",
+    how4_title: "Alignment", how4_desc: "Compare the broadcast clock with kill events, correct the offset, and put every pane on the same game time.",
+    docs_eyebrow: "Documentation", docs_title: "Docs",
+    docs_sub: "Setup, the minimap pipeline and contribution rules live in the repository.",
+    doc_install_title: "Install", doc_install_desc: "Preflight, PATH, minimap dependencies and a verification checklist",
+    doc_internals_title: "Internals", doc_internals_desc: "Minimap pipeline, sync and full backtest numbers",
+    doc_contrib_title: "Contributing", doc_contrib_desc: "Development setup, tests, commit and PR rules",
+    doc_arch_title: "Architecture", doc_arch_desc: "Structure, design decisions and verification criteria",
+    contrib_eyebrow: "Open source", contrib_title: "Build it with us",
+    contrib_sub: "Bug reports, per-match verification results, documentation fixes and new ideas are all welcome. Reproduction details help a lot.",
+    contrib_issue: "Open an issue", contrib_guide: "Contributing guide",
+    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "Releases",
+    footer_disclaimer: "Not affiliated with Riot Games.",
+
     hero_tagline: "League of Legends esports,<br>in your terminal.",
     hero_lede: "Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.",
-    copy: "Copy", start: "Get started", source: "View source", video_link: "15-second actual run (MP4)",
+    copy: "Copy", start: "Get started", github_view: "View on GitHub", video_link: "15-second actual run (MP4)",
     stat_detect: "Alive champion detection (16 games)", stat_dead: "Dead champion false positives",
     stat_flip: "Kill-flip sync within 1s", stat_pass: "Backtest pass",
     features_title: "The whole match on one screen",
@@ -365,7 +553,6 @@ const I18N = {
     f4_title: "State clarity", f4_desc: 'A dead champion shows X and respawn seconds; a lost champion is a dim portrait with <span class="mono">?</span>.',
     f5_title: "Channel colours", f5_desc: 'Recall is cyan <span class="mono">R</span>, Teleport purple <span class="mono">T</span>, a red-team channel red <span class="mono">?</span>. The wavy aura sits outside the team ring.',
     f6_title: "Objective timers", f6_desc: "Next dragon, elder and baron spawn, plus soul point, on the game clock.",
-    f7_title: "Mouse and languages", f7_desc: "Click to focus and select, double-click to open, wheel to scroll. Korean, English and Chinese UI.",
     map_title: "Even when a champion is gone, the reason is visible",
     map_desc: 'Dead is an X with respawn seconds; a lost champion is a dim portrait and a grey <span class="mono">?</span>. When the broadcast cuts to a replay or desk, the panel hides the champions and says why.',
     legend_live: "Live: portrait · team ring · lane badge",
@@ -389,9 +576,31 @@ const I18N = {
   zh: {
     page_title: "esterm — 在终端里看英雄联盟电竞赛事",
     nav_features: "功能", nav_minimap: "小地图", nav_install: "安装",
+    release_text: "首个公开版本", release_notes: "发布说明 →", nav_how: "工作原理",
+    native_eyebrow: "Terminal native", native_title: "键盘、鼠标、三种语言",
+    native_desc: "像 lazygit 一样点击面板、选择行、用滚轮滚动。双击打开比赛，并在同一界面切换韩语、英语和中文。",
+    chip_click: "单击 · 选择", chip_double: "双击 · 打开", chip_wheel: "滚轮 · 滚动",
+    how_eyebrow: "Under the hood", how_title: "从直播到小地图",
+    how_sub: "记分板来自数据流，英雄位置来自直播画面。两个时钟对齐到同一游戏时间。",
+    how1_title: "数据流", how1_desc: "查找官方比赛、对局和 VOD，并从 livestats 读取记分板、游戏时钟和选手数据。",
+    how2_title: "直播", how2_desc: "打开官方 1080p VOD，通过顶部的游戏时钟字体识别直播布局。",
+    how3_title: "追踪", how3_desc: "对小地图头像做模板匹配，再用匈牙利匹配和卡尔曼滤波连接相邻帧。",
+    how4_title: "对齐", how4_desc: "用击杀事件校正直播时钟的偏移，让所有面板指向同一游戏时间。",
+    docs_eyebrow: "Documentation", docs_title: "文档",
+    docs_sub: "安装、小地图管线和贡献规则都整理在仓库里。",
+    doc_install_title: "安装", doc_install_desc: "预检、PATH、小地图依赖和验证清单",
+    doc_internals_title: "实现细节", doc_internals_desc: "小地图管线、同步和完整回测数据",
+    doc_contrib_title: "贡献指南", doc_contrib_desc: "开发环境、测试、提交和 PR 规则",
+    doc_arch_title: "架构", doc_arch_desc: "结构、设计决策和验证标准",
+    contrib_eyebrow: "Open source", contrib_title: "一起构建",
+    contrib_sub: "欢迎提交问题、逐场验证结果、文档修改和新想法。附上复现信息会很有帮助。",
+    contrib_issue: "提交问题", contrib_guide: "贡献指南",
+    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "发布",
+    footer_disclaimer: "与 Riot Games 无官方关联。",
+
     hero_tagline: "在终端里看<br>英雄联盟电竞赛事。",
     hero_lede: "直播看板、官方 VOD 回放，以及从直播小地图读取的英雄位置。一个 Go 二进制，覆盖 Worlds 到 LCK。",
-    copy: "复制", start: "开始使用", source: "查看源码", video_link: "15 秒实际运行视频（MP4）",
+    copy: "复制", start: "开始使用", github_view: "在 GitHub 查看", video_link: "15 秒实际运行视频（MP4）",
     stat_detect: "存活英雄检测（16 场）", stat_dead: "阵亡英雄误检",
     stat_flip: "击杀翻转同步误差 ≤1 秒", stat_pass: "回测达标",
     features_title: "一场比赛，一屏尽览",
@@ -402,7 +611,6 @@ const I18N = {
     f4_title: "状态区分", f4_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和 <span class="mono">?</span>。',
     f5_title: "引导颜色", f5_desc: '回城为青色 <span class="mono">R</span>，传送为紫色 <span class="mono">T</span>，红队引导为红色 <span class="mono">?</span>。以队伍光环外侧的波浪光环显示。',
     f6_title: "资源计时", f6_desc: "按游戏时钟计算下一条小龙、远古龙和大龙的刷新，以及龙魂点。",
-    f7_title: "鼠标与语言", f7_desc: "单击聚焦并选择，双击打开，滚轮滚动。支持韩语、英语和中文界面。",
     map_title: "英雄消失时，也告诉你原因",
     map_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和灰色 <span class="mono">?</span>。直播切到回放或解说台时，面板会隐藏英雄并说明原因。',
     legend_live: "存活：头像 · 队伍光环 · 分路徽标",
