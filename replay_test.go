@@ -632,3 +632,57 @@ func TestReplayReopenedGameCostsNoWindowRequest(t *testing.T) {
 		t.Errorf("getEventDetails requests = %d, want 31", feed.event)
 	}
 }
+
+// A game that finished less than 6 hours ago used to fail: the end probe was spawn+6h,
+// which is still ahead of the feed's broadcast and rejected as a future window.
+func TestReplayOpensRecentlyFinishedGame(t *testing.T) {
+	spawn := time.Now().UTC().Add(-2 * time.Hour).Truncate(feedProbeStep)
+	end := spawn.Add(200 * time.Second)
+	feed := &replayFeed{
+		sw:    &synthWindow{frames: synthFramesAt(spawn)},
+		spawn: spawn,
+		end:   end,
+		published: func(at time.Time) bool {
+			return !at.Add(feedProbeStep).After(time.Now().Add(-20 * time.Second))
+		},
+	}
+	old := httpClient.Transport
+	httpClient.Transport = feed
+	replayCache.mu.Lock()
+	replayCache.stores = nil
+	replayCache.mu.Unlock()
+	defer func() { httpClient.Transport = old }()
+
+	r, err := newReplay(context.Background(), replayOpts{MatchID: "m", Game: 1, Poll: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("a game that finished two hours ago must open: %v", err)
+	}
+	defer r.Close()
+	if !r.st.end.Equal(end) {
+		t.Errorf("end = %v, want %v", r.st.end, end)
+	}
+	feed.mu.Lock()
+	rejected := feed.rejected
+	feed.mu.Unlock()
+	if rejected != 0 {
+		t.Errorf("end probe asked for an unpublished window %d times", rejected)
+	}
+}
+
+func TestReplayRefusesGameWithoutPublishedEnd(t *testing.T) {
+	spawn := time.Now().UTC().Add(-2 * time.Hour).Truncate(feedProbeStep)
+	frames := synthFramesAt(spawn)
+	frames[len(frames)-1].GameState = "in_game"
+	feed := &replayFeed{sw: &synthWindow{frames: frames}, spawn: spawn}
+	old := httpClient.Transport
+	httpClient.Transport = feed
+	replayCache.mu.Lock()
+	replayCache.stores = nil
+	replayCache.mu.Unlock()
+	defer func() { httpClient.Transport = old }()
+
+	_, err := newReplay(context.Background(), replayOpts{MatchID: "m", Game: 1, Poll: 20 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "has no end in the feed yet") {
+		t.Fatalf("a game whose last frame is still in_game must not open: %v", err)
+	}
+}
