@@ -10,11 +10,12 @@
   <a href="https://github.com/m16khb-org/esterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/esterm?style=flat-square&label=release&color=4de1ff"></a>
   <a href="go.mod"><img alt="go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
-  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-333?style=flat-square">
   <a href="https://github.com/m16khb-org/esterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/esterm?style=flat-square&color=4de1ff"></a>
 </p>
 
 [한국어](README.md) · [English](https://m16khb-org.github.io/esterm/?lang=en) · [中文](https://m16khb-org.github.io/esterm/?lang=zh) · [웹 소개](https://m16khb-org.github.io/esterm/) · [설치](INSTALL.md)
+
+<sub>macOS · Linux · Go 1.21+</sub>
 
 <img src="docs/assets/hero.png" alt="esterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
 
@@ -217,7 +218,7 @@ go build -o ~/.local/bin/esterm .
 ```
 
 UI를 바꿨다면 스크린샷을 PR에 첨부합니다. 커밋은 Conventional Commits 형식을 따르고, 비밀값·로컬 캐시·생성물은 올리지 않습니다.
-자세한 내용은 **[CONTRIBUTING.md](CONTRIBUTING.md)** 를 참고하세요.
+자세한 내용은 **[CONTRIBUTING.md](CONTRIBUTING.md)** 를 참고하세요. 마음에 들었다면 GitHub에서 스타를 눌러 주세요.
 
 ## 라이선스
 
