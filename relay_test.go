@@ -60,11 +60,10 @@ var escSeq = regexp.MustCompile(`^\x1b\[([0-9;]*)([A-Za-z])`)
 
 // screen is a minimal terminal: cursor addressing, SGR accumulation, erase and printable runes.
 type screen struct {
-	cells    map[[2]int]cell
-	r, c     int
-	sty      string
-	w, h     int
-	clearAll bool
+	cells map[[2]int]cell
+	r, c  int
+	sty   string
+	w, h  int
 }
 
 func (s *screen) feed(out string) {

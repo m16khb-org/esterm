@@ -18,16 +18,6 @@ import (
 	"time"
 )
 
-// Data Dragon static-data resolver (item & rune names).
-// Loaded lazily on first need; graceful fallback to IDs if unreachable.
-
-var (
-	ddMu      sync.Mutex
-	ddItems   map[int]string
-	ddRunes   map[int]string // perk id -> name (includes keystones + tree ids)
-	ddVersion string
-)
-
 func majorMinor(patch string) string {
 	p := strings.SplitN(patch, ".", 3)
 	if len(p) < 2 {
@@ -70,25 +60,6 @@ func resolveDDVersion(ctx context.Context, patch string) string {
 		}
 	}
 	return base + ".1"
-}
-
-func ensureDDragon(patch string) {
-	v := resolveDDVersion(context.Background(), patch)
-	if v == "" {
-		return
-	}
-	ddMu.Lock()
-	defer ddMu.Unlock()
-	if ddVersion == v && ddItems != nil {
-		return
-	}
-	if it := loadItems(v); it != nil {
-		ddItems = it
-	}
-	if ru := loadRunes(v); ru != nil {
-		ddRunes = ru
-	}
-	ddVersion = v
 }
 
 var (
@@ -351,52 +322,6 @@ func loadCachedImage(ctx context.Context, cache, url string) (img image.Image, f
 // reused.
 func drainBody(r io.Reader) { io.Copy(io.Discard, io.LimitReader(r, 64<<10)) }
 
-func loadItems(version string) map[int]string {
-	var raw struct {
-		Data map[string]struct {
-			Name string `json:"name"`
-		} `json:"data"`
-	}
-	if !ddGet(context.Background(), "https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/item.json", &raw) {
-		return nil
-	}
-	m := map[int]string{}
-	for id, it := range raw.Data {
-		var n int
-		fmt.Sscanf(id, "%d", &n)
-		if n > 0 {
-			m[n] = it.Name
-		}
-	}
-	return m
-}
-
-func loadRunes(version string) map[int]string {
-	var trees []struct {
-		ID    int    `json:"id"`
-		Name  string `json:"name"`
-		Slots []struct {
-			Runes []struct {
-				ID   int    `json:"id"`
-				Name string `json:"name"`
-			} `json:"runes"`
-		} `json:"slots"`
-	}
-	if !ddGet(context.Background(), "https://ddragon.leagueoflegends.com/cdn/"+version+"/data/en_US/runesReforged.json", &trees) {
-		return nil
-	}
-	m := map[int]string{}
-	for _, t := range trees {
-		m[t.ID] = t.Name
-		for _, s := range t.Slots {
-			for _, r := range s.Runes {
-				m[r.ID] = r.Name
-			}
-		}
-	}
-	return m
-}
-
 func itemName(id int) string {
 	if n, ok := bundledItems[id]; ok && n != "" {
 		return n
@@ -408,16 +333,6 @@ func runeName(id int) string {
 		return n
 	}
 	return fmt.Sprintf("#%d", id)
-}
-
-// itemShort trims an item name to a compact form (drop trailing articles/suffixes).
-func itemShort(id int, max int) string {
-	n := itemName(id)
-	// use the last word (usually the distinctive noun: Cleaver, Greaves, Hourglass)
-	if f := strings.Fields(n); len(f) > 1 {
-		n = f[len(f)-1]
-	}
-	return trim(n, max)
 }
 
 // ddPeek returns an already memoized Data Dragon image, or nil. It never loads.

@@ -18,16 +18,6 @@ const (
 var currentLang = langEN
 var langNames = [3]string{"English", "한국어", "中文"}
 
-func (l langID) code() string {
-	switch l {
-	case langKO:
-		return "ko"
-	case langZH:
-		return "zh"
-	}
-	return "en"
-}
-
 func parseLang(s string) (langID, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "en", "en-us", "en-gb", "english":

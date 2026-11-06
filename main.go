@@ -648,11 +648,3 @@ func trunc(s string, n int) string {
 	}
 	return s[:n-1] + "…"
 }
-
-func fmtStr(m *match) string {
-	if m == nil {
-		return ""
-	}
-	// number of games as best-of hint
-	return fmt.Sprintf("Bo%d", max(1, len(m.Games)))
-}

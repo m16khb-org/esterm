@@ -63,20 +63,6 @@ func (l line) vis() int {
 	}
 	return w
 }
-func (l line) render(width int) string {
-	var b strings.Builder
-	for _, s := range l {
-		if s.color != "" {
-			b.WriteString(s.color)
-		}
-		b.WriteString(s.text)
-	}
-	b.WriteString(cReset)
-	if pad := width - l.vis(); pad > 0 {
-		b.WriteString(strings.Repeat(" ", pad))
-	}
-	return b.String()
-}
 
 func joinLR(l, r line, width int) line {
 	gap := width - l.vis() - r.vis()
