@@ -56,6 +56,7 @@ type mmSlot struct {
 	CellW, CellH         int // cell size in pixels
 	Icons                []mmIcon
 	Objs                 []mmObj // the dragon pit and baron pit markers, in that order; empty: none shown
+	TPs                  []mmTP  // Teleport destinations
 	Ver                  string  // Data Dragon version of the icons
 }
 
@@ -1052,6 +1053,91 @@ func drawChannelAura(img *image.RGBA, cx, cy, r0 float64, col color.RGBA) {
 	}
 }
 
+// tpSprite is a Teleport destination of team as a d px sprite: the team's ring over a faint
+// disc of its colour, so the map and the unit targeted show through, the caster's lane
+// letter as its badge (none while the caster is unknown), in a Teleport's aura.
+func tpSprite(team, d int, label string) *mmSprite {
+	rc := mmTeamBlue
+	if team == 200 {
+		rc = mmTeamRed
+	}
+	sp := &mmSprite{d: d, pix: make([]uint8, 4*d*d), channel: mmChanTeleport, aura: mmChannelColor(mmChanTeleport, team)}
+	r0 := float64(d) / 2
+	for y := 0; y < d; y++ {
+		for x := 0; x < d; x++ {
+			r := math.Hypot(float64(x)+0.5-r0, float64(y)+0.5-r0)
+			cov := math.Min(math.Max(r0-r+0.5, 0), 1)
+			ring := math.Min(math.Max(r-(r0-kittyRing)+0.5, 0), 1)
+			o := 4 * (y*d + x)
+			sp.pix[o], sp.pix[o+1], sp.pix[o+2] = rc.R, rc.G, rc.B
+			sp.pix[o+3] = uint8(cov*math.Max(ring, 0.3)*255 + 0.5)
+		}
+	}
+	drawBadge(sp, rc, label)
+	return sp
+}
+
+// kittyTPLook is what the transmitted image of a destination marker was built from.
+type kittyTPLook struct {
+	team   int
+	label  string
+	px, py int // phase variant
+}
+
+// kittyTP is the terminal-side state of one Teleport destination marker.
+type kittyTP struct {
+	look     kittyTPLook
+	sent     bool
+	placed   bool
+	row, col int
+}
+
+// tpFrame appends to *b the commands for the Teleport destinations of slot s (icon
+// diameter d of a champion circle), placed like a champion sprite. Its one image is sent
+// again only when its look changes; a marker that moves is dropped before it is placed
+// again, since Tern draws no image re-placed under the placement id it has (see
+// kittySpritePID).
+func (k *kittyOut) tpFrame(b *[]byte, s *mmSlot, w, h, d int, replace bool, goTo func(row, col int)) {
+	cols, rows := kittySpriteCells(d, s.CellW, s.CellH)
+	bc, br := cols+2, rows+2
+	for i := range k.tps {
+		o := &k.tps[i]
+		id, pid := k.id(kittyTPID+i), kittyTPPID+i
+		if i >= len(s.TPs) {
+			if o.placed {
+				*b = kittyUnplace(*b, id, pid)
+				o.placed = false
+			}
+			continue
+		}
+		tp := s.TPs[i]
+		p := mmPlace{X: min(max(int(math.Round(tp.X*float64(w)))-d/2, 0), w-d), Y: min(max(int(math.Round(tp.Y*float64(h)))-d/2, 0), h-d)}
+		pos := kittyPosOf(p, cols, rows, s)
+		row, col := pos.row-1, pos.col-1 // the image has one margin cell on every side
+		look := kittyTPLook{tp.Team, tp.Label, pos.px, pos.py}
+		if o.sent && o.look != look {
+			*b = kittyFree(*b, id)
+			o.sent, o.placed = false, false
+		}
+		switch {
+		case !o.sent:
+			goTo(row, col)
+			img := kittySpritePixels(tpSprite(tp.Team, d, tp.Label), cols, rows, s.CellW, s.CellH, pos.px, pos.py)
+			*b = kittyTransmitPlace(*b, id, pid, bc, br, kittyObjZ, k.png.encode(img, true))
+			o.sent, o.look = true, look
+		case !o.placed || replace || o.row != row || o.col != col:
+			if o.placed {
+				*b = kittyUnplace(*b, id, pid)
+			}
+			goTo(row, col)
+			*b = kittyPlacement(*b, id, pid, bc, br, kittyObjZ)
+		default:
+			continue
+		}
+		o.placed, o.row, o.col = true, row, col
+	}
+}
+
 // blendRGBA blends straight-alpha src over dst.
 func blendRGBA(dst []uint8, src color.RGBA, a float64) {
 	if a <= 0 {
@@ -1275,6 +1361,7 @@ type kittyOut struct {
 	mapPlaced bool
 	sprites   []kittySprite
 	objs      [kittyObjSlots]kittyObj
+	tps       [kittyTPSlots]kittyTP
 	glyphSent [kittyGlyphs]bool // countdown glyph images in the terminal
 	ids       map[kittyChamp]int
 	scratch   []mmPlace
@@ -1415,6 +1502,7 @@ func (k *kittyOut) frame(s *mmSlot, full bool, cup func(b []byte, row, col int) 
 		k.digitsFrame(&b, sp.digits[:], kittyDigitPID+i*kittyMaxDigits, text, style, row, col, s, replace, goTo)
 	}
 	k.objFrame(&b, s, w, h, d, replace, goTo)
+	k.tpFrame(&b, s, w, h, d, replace, goTo)
 	for i := range k.sprites { // hidden: drop the placements, keep the data
 		sp := &k.sprites[i]
 		if sp.live {
@@ -1520,6 +1608,12 @@ func (k *kittyOut) freeAll(b []byte) []byte {
 	for i := range k.objs {
 		b = k.freeObj(b, i)
 		k.objs[i] = kittyObj{}
+	}
+	for i := range k.tps {
+		if k.tps[i].sent {
+			b = kittyFree(b, k.id(kittyTPID+i))
+		}
+		k.tps[i] = kittyTP{}
 	}
 	for g, sent := range k.glyphSent {
 		if sent {

@@ -59,6 +59,7 @@ type mmView struct {
 	Mode         string // mmModeKitty, mmModeBlocks or mmModeText
 	Markers      []mmMarker
 	Icons        []mmIcon
+	TPs          []mmTP // Teleport destinations (kitty draws them; Markers carry them as mmTPLabel)
 	Ver          string // Data Dragon version of the icons
 	CellW, CellH int    // terminal cell size in pixels (kitty)
 	Status       string

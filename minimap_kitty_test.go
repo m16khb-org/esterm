@@ -1077,6 +1077,9 @@ func TestKittyImageIDsStayInTheBlockAndNeverCollide(t *testing.T) {
 	for i := 0; i < 2*kittyObjSlots; i++ {
 		add(kittyObjID+i, fmt.Sprintf("objective image %d", i))
 	}
+	for i := 0; i < kittyTPSlots; i++ {
+		add(kittyTPID+i, fmt.Sprintf("teleport image %d", i))
+	}
 	glyphs := map[int]bool{}
 	for style := 0; style < 2; style++ {
 		for _, ch := range []byte("0123456789.:?") {
@@ -1106,7 +1109,9 @@ func TestKittyFreeAllFreesEveryVariantAndGlyph(t *testing.T) {
 	dead.State, dead.Secs = mmIconDead, 12
 	stale := iconAt("C", 200, 0.7, 0.5)
 	stale.State, stale.Secs = mmIconStale, 7
-	collect(k.Frame(testSlot(iconAt("A", 100, 0.5, 0.5), dead, stale), true))
+	first := testSlot(iconAt("A", 100, 0.5, 0.5), dead, stale)
+	first.TPs = []mmTP{{Team: 200, X: 0.3, Y: 0.3}, {Team: 100, X: 0.6, Y: 0.7}}
+	collect(k.Frame(first, true))
 	for i := 1; i <= 6; i++ { // A visits several phases
 		collect(k.Frame(testSlot(iconAt("A", 100, (200+2.5*float64(i))/400, 0.5+0.01*float64(i)), dead, stale), false))
 	}
@@ -1124,7 +1129,44 @@ func TestKittyFreeAllFreesEveryVariantAndGlyph(t *testing.T) {
 		}
 	}
 	if len(freed) != len(sent) {
-		t.Errorf("%d images freed, want the %d sent (map tiles, backing, variants, glyphs)", len(freed), len(sent))
+		t.Errorf("%d images freed, want the %d sent (map tiles, backing, variants, glyphs, teleport destinations)", len(freed), len(sent))
+	}
+}
+
+func TestKittyTeleportDestinationIsPlacedAndDropped(t *testing.T) {
+	offlineMap(t)
+	hangNetwork(t)
+	var k kittyOut
+	s := testSlot(iconAt("A", 100, 0.5, 0.5))
+	s.TPs = []mmTP{{Team: 200, X: 0.3, Y: 0.3}}
+	tpImg := fmt.Sprint(tBase + kittyTPID) // slot 0
+	pid := fmt.Sprint(kittyTPPID)
+	cmds := parseKitty(t, k.Frame(s, true))
+	if kittyCount(cmds, "a", "t", "i", tpImg) != 1 || kittyCount(cmds, "a", "p", "i", tpImg, "p", pid) != 1 {
+		t.Fatalf("first frame: %+v, want the red destination transmitted and placed once", kittyFind(cmds, "i", tpImg))
+	}
+	if out := k.Frame(s, false); out != "" {
+		t.Fatalf("unchanged frame emitted %q", out)
+	}
+	// It moves: the old placement goes before the image is placed again (Tern draws no
+	// image re-placed under its placement id), without sending the image again.
+	s.TPs[0].X = 0.6
+	cmds = parseKitty(t, k.Frame(s, false))
+	if len(cmds) != 2 || cmds[0].ctl["a"] != "d" || cmds[0].ctl["i"] != tpImg || cmds[0].ctl["p"] != pid ||
+		cmds[1].ctl["a"] != "p" || cmds[1].ctl["i"] != tpImg || cmds[1].ctl["p"] != pid {
+		t.Fatalf("move: %+v, want the placement dropped, then placed again", cmds)
+	}
+	// The caster becomes known: the image is replaced by one with its lane letter.
+	s.TPs[0].Label = "M"
+	cmds = parseKitty(t, k.Frame(s, false))
+	if len(cmds) != 3 || cmds[0].ctl["a"] != "d" || cmds[0].ctl["d"] != "I" || cmds[0].ctl["i"] != tpImg ||
+		cmds[1].ctl["a"] != "t" || cmds[2].ctl["a"] != "p" || cmds[2].ctl["p"] != pid {
+		t.Fatalf("caster known: %+v, want the image freed, then sent and placed again", cmds)
+	}
+	s.TPs = nil
+	cmds = parseKitty(t, k.Frame(s, false))
+	if len(cmds) != 1 || cmds[0].ctl["a"] != "d" || cmds[0].ctl["d"] != "i" || cmds[0].ctl["p"] != pid {
+		t.Fatalf("gone: %+v, want only its placement dropped (the image kept)", cmds)
 	}
 }
 

@@ -88,7 +88,8 @@ type mmDet struct {
 // mmChannel is the kind of channel the minimap ring shows. The broadcast draws the blue team
 // with the player client's friendly assets and the red team with the enemy ones: a blue
 // Recall is cyan, a blue Teleport green (purple is read as Teleport too), and both red-team
-// channels share one red ring, told apart only by how long it lasts (see mmRecallSure).
+// channels share one red ring. A red ring becomes a Teleport when its destination swirl
+// appears (see mmTP), else a Recall once it lasts mmRecallSure.
 type mmChannel uint8
 
 const (
@@ -110,8 +111,8 @@ func (c mmChannel) String() string {
 	return ""
 }
 
-// letter is the badge shown while channeling; "?" for a red ring not yet old enough to be
-// a Recall, which may still be a Teleport.
+// letter is the badge shown while channeling; "?" for a red ring that is neither a Recall
+// yet nor tied to a Teleport destination.
 func (c mmChannel) letter() string {
 	switch c {
 	case mmChanRecall:
@@ -124,6 +125,15 @@ func (c mmChannel) letter() string {
 	return ""
 }
 
+// mmTP is a Teleport destination: the swirl the broadcast draws on the minimap where a
+// champion of Team is about to land, from the start of its channel until the dash. PID is
+// the caster (0: not seen channeling); Label its lane letter, filled in for display.
+type mmTP struct {
+	Team, PID int
+	X, Y      float64 // normalized 0..1, origin top-left
+	Label     string
+}
+
 // mmIconState is how a champion marker is drawn.
 type mmIconState int
 
@@ -133,7 +143,8 @@ const (
 	mmIconDead                     // dead: at its team's base, greyed, with the respawn countdown
 )
 
-// mmMarker is one champion marker to draw on the terminal minimap.
+// mmMarker is one champion marker to draw on the terminal minimap, or a Teleport
+// destination (Label mmTPLabel).
 type mmMarker struct {
 	Team  int
 	Label string  // 2 runes

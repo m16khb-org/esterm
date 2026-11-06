@@ -22,6 +22,12 @@ const (
 	kittyObjID  = 80
 	kittyObjPID = kittyDigitPID + kittyMaxIcons*kittyMaxDigits // slot s: icon placement kittyObjPID+s*(1+kittyObjDigits), digit j that +1+j
 	kittyObjZ   = 2
+
+	// Teleport destinations (tpFrame): image kittyTPID + slot, after the objective icons and
+	// below kittySpriteID; placement kittyTPPID + slot, on the objectives' layer.
+	kittyTPSlots = 4
+	kittyTPID    = kittyObjID + kittyObjSlots*2
+	kittyTPPID   = kittyObjPID + kittyObjSlots*(1+kittyObjDigits)
 )
 
 // kittyObjLook is what a slot's transmitted images were built from; a change re-creates them.

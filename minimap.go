@@ -71,6 +71,7 @@ type mmResult struct {
 	hud     mmHUD
 	visible bool // the minimap is on screen (not a replay, draft or desk shot)
 	dets    []mmDet
+	tps     []mmTP // Teleport destinations on the map
 }
 
 // minimap owns at most one running pipeline. All methods are safe for concurrent use;
@@ -510,12 +511,14 @@ func (p *mmPipeline) Process(f mmFrame) mmResult {
 			obs = p.mainObs(f.Idx, f.Main, lay, lives)
 		}
 		r.dets = p.trk.StepWith(f.Idx, p.crop, lives, obs)
+		r.tps = p.trk.teleports(f.Idx)
 		r.visible = true
 	case hudLive && p.cover < mmCoverMax:
 		// The HUD is up but the map is not: an objective banner or a one-frame glitch
 		// covers it. The tracks coast.
 		p.cover++
 		r.dets = p.trk.Coast(f.Idx, p.lives(f.Idx))
+		r.tps = p.trk.teleports(f.Idx)
 		r.visible = true
 	default:
 		// The broadcast shows no minimap (replay, desk or draft shot). The tracks are kept:
@@ -861,10 +864,11 @@ func mmBasePos(team, pid int) (x, y float64) {
 }
 
 // mmChamps are the champions drawn for one result, as terminal markers and as icons, with
-// the counts the status line reports.
+// the counts the status line reports, and the Teleport destinations.
 type mmChamps struct {
-	Markers []mmMarker
+	Markers []mmMarker // the champions, then a mmTPLabel marker per Teleport destination
 	Icons   []mmIcon
+	TPs     []mmTP
 	Live    int // drawn at a position the tracker found (or lost for a moment)
 	Stale   int // drawn at the last seen position of a champion the tracker lost
 	Dead    int // dead according to the feed: drawn at the base with the respawn countdown
@@ -925,6 +929,13 @@ func mmChampsOf(r mmResult, nx *mmResult, frac float64, lives mmLives, labels ma
 		c.Markers = append(c.Markers, mmMarker{Team: d.Team, Label: label, X: x, Y: y, State: state, Secs: secs})
 		c.Icons = append(c.Icons, mmIcon{Team: d.Team, Champ: d.Champ, Label: label, X: x, Y: y, State: state, Secs: secs, Chan: d.Chan})
 	}
+	for _, tp := range r.tps {
+		if tp.PID > 0 {
+			tp.Label = labels[tp.PID]
+		}
+		c.Markers = append(c.Markers, mmMarker{Team: tp.Team, Label: mmTPLabel, X: tp.X, Y: tp.Y})
+		c.TPs = append(c.TPs, tp)
+	}
 	c.Alive = len(r.dets) - c.Dead
 	return c
 }
@@ -955,7 +966,7 @@ func (m *minimap) viewLocked(r mmResult, nx *mmResult, frac float64, lives mmLiv
 		parts = append([]string{tr("no_live_minimap")}, parts...)
 	default:
 		c := mmChampsOf(r, nx, frac, lives, m.labels)
-		v.Markers, v.Icons = c.Markers, c.Icons
+		v.Markers, v.Icons, v.TPs = c.Markers, c.Icons, c.TPs
 		s := fmt.Sprintf("%s %d/%d", tr("tracking"), c.Live, c.Alive)
 		if c.Stale > 0 {
 			s += fmt.Sprintf(" (%d %s)", c.Stale, tr("estimated"))
@@ -1058,6 +1069,14 @@ type mmJSONChamp struct {
 	MV       bool    `json:"mv,omitempty"`
 }
 
+// mmJSONTP is a Teleport destination; PID is the caster, omitted while unknown.
+type mmJSONTP struct {
+	Team int     `json:"team"`
+	PID  int     `json:"pid,omitempty"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+}
+
 // mmJSONFrame is one -json line. Present: a broadcast layout is locked; Visible: its
 // minimap is on screen; Clock and Kills are the HUD readings, null when unreadable.
 type mmJSONFrame struct {
@@ -1068,6 +1087,7 @@ type mmJSONFrame struct {
 	Kills     *[2]int       `json:"kills"`
 	Visible   bool          `json:"visible"`
 	Champions []mmJSONChamp `json:"champions"`
+	Teleports []mmJSONTP    `json:"teleports,omitempty"`
 }
 
 // mmJSONLine encodes one processed frame; positions are in game units.
@@ -1086,6 +1106,10 @@ func mmJSONLine(r mmResult) []byte {
 			c.X, c.Y = &x, &y
 		}
 		f.Champions = append(f.Champions, c)
+	}
+	for _, tp := range r.tps {
+		x, y := mmGameXY(tp.X, tp.Y)
+		f.Teleports = append(f.Teleports, mmJSONTP{tp.Team, tp.PID, x, y})
 	}
 	b, _ := json.Marshal(f)
 	return b

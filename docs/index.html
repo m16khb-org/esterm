@@ -291,7 +291,7 @@
       <div class="card"><div class="ico">▶</div><h3 data-i18n="f2_title">다시 보기</h3><p data-i18n="f2_desc">공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.</p></div>
       <div class="card"><div class="ico">◎</div><h3 data-i18n="f3_title">방송 미니맵</h3><p data-i18n="f3_desc">공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.</p></div>
       <div class="card"><div class="ico">✕</div><h3 data-i18n="f4_title">상태 구분</h3><p data-i18n-html="f4_desc">사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.</p></div>
-      <div class="card"><div class="ico">R</div><h3 data-i18n="f5_title">채널링 색</h3><p data-i18n-html="f5_desc">귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>입니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.</p></div>
+      <div class="card"><div class="ico">R</div><h3 data-i18n="f5_title">채널링 색</h3><p data-i18n-html="f5_desc">귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>이고 도착 지점도 그립니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 도착 지점이 보이면 <span class="mono">T</span>, 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.</p></div>
       <div class="card"><div class="ico">⏱</div><h3 data-i18n="f6_title">오브젝트 타이머</h3><p data-i18n="f6_desc">용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
     </div>
   </div>
@@ -337,10 +337,10 @@
       <p data-i18n="chan_desc">팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.</p>
       <div class="legend">
         <div><span class="dot c-cyan"></span><b class="mono">R</b><span data-i18n="chan_recall">귀환 · 팀 색 아우라 (청록 또는 빨강)</span></div>
-        <div><span class="dot c-purple"></span><b class="mono">T</b><span data-i18n="chan_teleport">텔레포트 · 보라 아우라</span></div>
-        <div><span class="dot c-red"></span><b class="mono">?</b><span data-i18n="chan_red">레드 팀 채널링 · 빨강 아우라, 5초 미만</span></div>
+        <div><span class="dot c-purple"></span><b class="mono">T</b><span data-i18n="chan_teleport">텔레포트 · 보라 아우라, 도착 지점에 옅은 팀 색 원</span></div>
+        <div><span class="dot c-red"></span><b class="mono">?</b><span data-i18n="chan_red">레드 팀 채널링 · 빨강 아우라, 도착 지점 없이 5초 미만</span></div>
       </div>
-      <p style="margin-top:16px;font-size:13px;color:var(--dim)" data-i18n="chan_note">레드 팀은 귀환과 텔레포트가 같은 빨간 링이라 시간으로 구분합니다. 빨간 링이 5초를 넘기면 귀환입니다.</p>
+      <p style="margin-top:16px;font-size:13px;color:var(--dim)" data-i18n="chan_note">레드 팀은 귀환과 텔레포트가 같은 빨간 링입니다. 방송이 텔레포트 도착 지점에 그리는 빨간 소용돌이가 보이면 텔레포트, 없이 5초를 넘기면 귀환입니다.</p>
     </div>
   </div>
 </section>
@@ -493,7 +493,7 @@ const I18N = {
     f2_title: "다시 보기", f2_desc: "공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.",
     f3_title: "방송 미니맵", f3_desc: "공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.",
     f4_title: "상태 구분", f4_desc: '사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.',
-    f5_title: "채널링 색", f5_desc: '귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>입니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.',
+    f5_title: "채널링 색", f5_desc: '귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>이고 도착 지점도 그립니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 도착 지점이 보이면 <span class="mono">T</span>, 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.',
     f6_title: "오브젝트 타이머", f6_desc: "용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.",
     map_title: "챔피언이 사라져도, 이유를 알려 줍니다",
     map_desc: '사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.',
@@ -502,8 +502,8 @@ const I18N = {
     legend_lost: '놓침: 흐린 초상화 + <span class="mono">?</span>',
     chan_title: "귀환과 텔레포트를 색으로",
     chan_desc: "팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.",
-    chan_recall: "귀환 · 팀 색 아우라 (청록 또는 빨강)", chan_teleport: "텔레포트 · 보라 아우라", chan_red: "레드 팀 채널링 · 빨강 아우라, 5초 미만",
-    chan_note: "레드 팀은 귀환과 텔레포트가 같은 빨간 링이라 시간으로 구분합니다. 빨간 링이 5초를 넘기면 귀환입니다.",
+    chan_recall: "귀환 · 팀 색 아우라 (청록 또는 빨강)", chan_teleport: "텔레포트 · 보라 아우라, 도착 지점에 옅은 팀 색 원", chan_red: "레드 팀 채널링 · 빨강 아우라, 도착 지점 없이 5초 미만",
+    chan_note: "레드 팀은 귀환과 텔레포트가 같은 빨간 링입니다. 방송이 텔레포트 도착 지점에 그리는 빨간 소용돌이가 보이면 텔레포트, 없이 5초를 넘기면 귀환입니다.",
     install_title: "설치", install_sub: "Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.",
     install_code1: '<span class="c"># 바이너리 설치</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 대화형 앱</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 최근 Worlds 경기</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
     install_code2: '<span class="c"># 미니맵 의존성 (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
@@ -551,7 +551,7 @@ const I18N = {
     f2_title: "Replays", f2_desc: "Official VOD and feed aligned to the same game time. Pause, ±10s, 1×/2×/4× speed.",
     f3_title: "Broadcast minimap", f3_desc: "Reads the official 1080p minimap and tracks all ten champions at 5 fps.",
     f4_title: "State clarity", f4_desc: 'A dead champion shows X and respawn seconds; a lost champion is a dim portrait with <span class="mono">?</span>.',
-    f5_title: "Channel colours", f5_desc: 'Recall is <span class="mono">R</span> in the team colour, Teleport purple <span class="mono">T</span>. A red-team red ring starts as <span class="mono">?</span> and becomes <span class="mono">R</span> after 5 seconds. The wavy aura sits outside the team ring.',
+    f5_title: "Channel colours", f5_desc: 'Recall is <span class="mono">R</span> in the team colour, Teleport purple <span class="mono">T</span> with its destination drawn too. A red-team red ring starts as <span class="mono">?</span>, becomes <span class="mono">T</span> once its destination shows and <span class="mono">R</span> after 5 seconds. The wavy aura sits outside the team ring.',
     f6_title: "Objective timers", f6_desc: "Next dragon, elder and baron spawn, plus soul point, on the game clock.",
     map_title: "Even when a champion is gone, the reason is visible",
     map_desc: 'Dead is an X with respawn seconds; a lost champion is a dim portrait and a grey <span class="mono">?</span>. When the broadcast cuts to a replay or desk, the panel hides the champions and says why.',
@@ -560,8 +560,8 @@ const I18N = {
     legend_lost: 'Lost: dim portrait + <span class="mono">?</span>',
     chan_title: "Recall and Teleport by colour",
     chan_desc: "Reads the aura colour outside the team ring. A colour must persist for two frames; the badge replaces the lane letter.",
-    chan_recall: "Recall · team-colour aura (cyan or red)", chan_teleport: "Teleport · purple aura", chan_red: "Red-team channel · red aura, under 5 s",
-    chan_note: "On the red team, Recall and Teleport share the red ring, so time tells them apart: a red ring that lasts past 5 seconds is a Recall.",
+    chan_recall: "Recall · team-colour aura (cyan or red)", chan_teleport: "Teleport · purple aura, a faint team-colour disc at the destination", chan_red: "Red-team channel · red aura, no destination, under 5 s",
+    chan_note: "On the red team, Recall and Teleport share the red ring. The red swirl the broadcast draws at a Teleport's destination tells the Teleport apart; a red ring that lasts past 5 seconds without one is a Recall.",
     install_title: "Install", install_sub: "Go 1.21+. The minimap needs yt-dlp, ffmpeg and a JS runtime.",
     install_code1: '<span class="c"># install the binary</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># interactive app</span>\n<span class="p">$</span> esterm\n\n<span class="c"># recent Worlds matches</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
     install_code2: '<span class="c"># minimap dependencies (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
@@ -609,7 +609,7 @@ const I18N = {
     f2_title: "回放", f2_desc: "官方 VOD 与数据流对齐到同一游戏时间。暂停、±10 秒、1×/2×/4×。",
     f3_title: "直播小地图", f3_desc: "读取官方 1080p 小地图，以每秒 5 帧追踪十名英雄。",
     f4_title: "状态区分", f4_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和 <span class="mono">?</span>。',
-    f5_title: "引导颜色", f5_desc: '回城为队伍颜色 <span class="mono">R</span>，传送为紫色 <span class="mono">T</span>。红队的红色光环先显示 <span class="mono">?</span>，超过 5 秒变为 <span class="mono">R</span>。以队伍光环外侧的波浪光环显示。',
+    f5_title: "引导颜色", f5_desc: '回城为队伍颜色 <span class="mono">R</span>，传送为紫色 <span class="mono">T</span>，并标出落点。红队的红色光环先显示 <span class="mono">?</span>，出现落点后变为 <span class="mono">T</span>，超过 5 秒变为 <span class="mono">R</span>。以队伍光环外侧的波浪光环显示。',
     f6_title: "资源计时", f6_desc: "按游戏时钟计算下一条小龙、远古龙和大龙的刷新，以及龙魂点。",
     map_title: "英雄消失时，也告诉你原因",
     map_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和灰色 <span class="mono">?</span>。直播切到回放或解说台时，面板会隐藏英雄并说明原因。',
@@ -618,8 +618,8 @@ const I18N = {
     legend_lost: '跟丢：变暗的头像 + <span class="mono">?</span>',
     chan_title: "用颜色区分回城与传送",
     chan_desc: "读取队伍光环外侧光环的颜色。同一颜色需连续出现两帧；徽标会替代分路字母。",
-    chan_recall: "回城 · 队伍颜色光环（青色或红色）", chan_teleport: "传送 · 紫色光环", chan_red: "红队引导 · 红色光环，不足 5 秒",
-    chan_note: "红队的回城与传送共用红色光环，因此按时间区分：红色光环超过 5 秒即为回城。",
+    chan_recall: "回城 · 队伍颜色光环（青色或红色）", chan_teleport: "传送 · 紫色光环，落点为浅色队伍颜色圆", chan_red: "红队引导 · 红色光环，无落点且不足 5 秒",
+    chan_note: "红队的回城与传送共用红色光环。直播在传送落点画出的红色漩涡可区分传送；没有落点且红色光环超过 5 秒即为回城。",
     install_title: "安装", install_sub: "需要 Go 1.21+。小地图还需要 yt-dlp、ffmpeg 和 JS 运行时。",
     install_code1: '<span class="c"># 安装二进制</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 交互式应用</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 最近的 Worlds 比赛</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
     install_code2: '<span class="c"># 小地图依赖（macOS）</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',

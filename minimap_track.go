@@ -89,6 +89,12 @@ type mmTrk struct {
 	chanSeen  int       // last frame its ring was read
 	chanX     float64   // where it started; a channel roots the champion
 	chanY     float64
+	// tpRing is the last frame the Teleport destination search found a teleport-coloured
+	// ring to be this champion's own (minimap_teleport.go), tpRingFirst the first of that run;
+	// tpCast the last frame it was the caster of a destination shown.
+	tpRing      int
+	tpRingFirst int
+	tpCast      int
 }
 
 // mmTracker follows every champion of a game across the frames of one stream.
@@ -99,6 +105,8 @@ type mmTracker struct {
 	rgb  []byte
 	mask []bool // pixels covered by found icons (peel)
 	line mmLineScratch
+	tp   mmTPScratch
+	tps  []mmTPDest // Teleport destinations on the map (minimap_teleport.go)
 }
 
 func newMMTracker(tpls []champTpl) *mmTracker {
@@ -110,8 +118,9 @@ func newMMTracker(tpls []champTpl) *mmTracker {
 // Reset forgets every position (the stream jumped).
 func (t *mmTracker) Reset() {
 	for i := range t.trk {
-		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1, lastHost: -1, chanSeen: -mmArriveQuiet - 1}
+		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1, lastHost: -1, chanSeen: -mmArriveQuiet - 1, tpRing: -mmTPRingAge - 1, tpCast: -mmTPRecast - 1}
 	}
+	t.tps = t.tps[:0]
 }
 
 func (t *mmTracker) d() int {
@@ -194,6 +203,7 @@ func (t *mmTracker) StepWith(idx int, rgb []byte, lives mmLives, obs []mvObs) []
 	t.fuse(idx, obs)
 	t.markCovered(idx)
 	t.detectChannels(idx)
+	t.detectTeleports(idx)
 	return t.dets(idx)
 }
 
@@ -606,14 +616,18 @@ func (t *mmTracker) dets(idx int) []mmDet {
 			d.Y = math.Min(math.Max(tr.kf.y.p/mmFrameSize, 0), 1)
 			d.Age, d.Covered, d.MV, d.Attached = age, tr.covered, tr.viaMV, tr.carrying
 			d.Chan = tr.chanState
+			if t.tpCasting(k) {
+				d.Chan = mmChanTeleport // until its destination goes, through the dash
+			}
 		}
 		out[k] = d
 	}
 	return out
 }
 
-// Channel timing. A Recall channels for 8 s and a Teleport for 4 s; the ring fades while the
-// channel runs, so a ring that has lasted mmRecallSure is a Recall whatever its colour.
+// Channel timing. A Recall channels for 8 s and a Teleport for 3 s before its dash; the ring
+// fades while the channel runs, so a ring that has lasted mmRecallSure is a Recall whatever
+// its colour, unless its destination showed it to be a Teleport (detectTeleports).
 const (
 	mmRecallSure  = 5 * mmFPS // frames: a red ring this old is a red-team Recall, not a Teleport
 	mmChanMissMax = 3         // frames a channel survives without the icon being found
@@ -753,13 +767,14 @@ func (r mmRing) channel() mmChannel {
 }
 
 // holds reports whether the ring still shows channel c, faded as it may be. A Recall is
-// cyan or red, whichever the team's colour is (mmReadRing counts only that one).
+// cyan or red, whichever the team's colour is (mmReadRing counts only that one); so is the
+// ring of a red-team Teleport, told apart by its destination (detectTeleports).
 func (r mmRing) holds(c mmChannel) bool {
 	switch c {
 	case mmChanRecall:
 		return r.lit[mmRingCyan]+r.lit[mmRingRed] >= mmRingHold
 	case mmChanTeleport:
-		return r.lit[mmRingGreen] >= mmRingHold || r.lit[mmRingPurple] >= mmRingHold
+		return r.lit[mmRingGreen] >= mmRingHold || r.lit[mmRingPurple] >= mmRingHold || r.lit[mmRingRed] >= mmRingHold
 	case mmChanRed:
 		return r.lit[mmRingRed] >= mmRingHold
 	}

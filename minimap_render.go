@@ -16,6 +16,10 @@ import (
 // mmMinRows is the fewest rows (title included) worth giving the minimap panel.
 const mmMinRows = 6
 
+// mmTPLabel is the letter of a Teleport destination in the block and text modes, in its
+// team's colour: a swirl, unlike every lane letter and countdown digit.
+const mmTPLabel = "@"
+
 // mmRoleLabel is the lane letter of a champion: top T, jungle J, mid M, bottom/adc B,
 // support S. An unknown role falls back to the first letter of the champion id.
 func mmRoleLabel(role, champ string) string {
@@ -390,7 +394,7 @@ func mmPanelView(v mmView, t, h int) ([]line, *mmSlot) {
 		for i := 0; i < rows; i++ {
 			out = append(out, borderedL(line{S(strings.Repeat(" ", W))}, t))
 		}
-		return out, &mmSlot{Row: 1, Col: 2 + pad, Cols: cols, Rows: rows, CellW: v.CellW, CellH: v.CellH, Icons: v.Icons, Objs: objMarkers(v.Obj), Ver: v.Ver}
+		return out, &mmSlot{Row: 1, Col: 2 + pad, Cols: cols, Rows: rows, CellW: v.CellW, CellH: v.CellH, Icons: v.Icons, Objs: objMarkers(v.Obj), TPs: v.TPs, Ver: v.Ver}
 	case mmModeBlocks:
 		return renderMinimapBlocks(v.Markers, objMarkers(v.Obj), v.Status, t, h), nil
 	}
