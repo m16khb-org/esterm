@@ -7,7 +7,7 @@
 라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치
 
 <p>
-  <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.2.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/lolterm?style=flat-square&label=release&color=4de1ff"></a>
+  <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/lolterm?style=flat-square&label=release&color=4de1ff"></a>
   <a href="go.mod"><img alt="go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
   <a href="https://github.com/m16khb-org/lolterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/lolterm?style=flat-square&color=4de1ff"></a>
@@ -21,7 +21,7 @@
 
 </div>
 
-> **v0.2.0** — 이름이 esterm에서 lolterm으로 바뀌었습니다. 텔레포트 도착 지점 표시와 Windows 네이티브 지원을 더했습니다. [릴리스 노트](https://github.com/m16khb-org/lolterm/releases/tag/v0.2.0)에서 변경 사항과 설치 방법을 확인하세요.
+> **v0.1.0** — 첫 공개 릴리스입니다. 이름이 esterm에서 lolterm으로 바뀌었고, 텔레포트 도착 지점 표시와 Windows 네이티브 지원이 들어 있습니다. [릴리스 노트](https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0)에서 변경 사항과 설치 방법을 확인하세요.
 
 [왜 lolterm](#왜-lolterm인가) · [한눈에](#한눈에) · [설치](#설치) · [빠른 시작](#빠른-시작) ·
 [대화형 앱](#대화형-앱) · [미니맵](#미니맵) · [작동 방식](#작동-방식) · [검증](#검증) ·
