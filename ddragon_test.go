@@ -17,12 +17,20 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// isolateCache points os.UserCacheDir at a temporary directory on every OS: HOME (macOS),
+// XDG_CACHE_HOME (Linux) and LocalAppData (Windows).
+func isolateCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+}
+
 // hangNetwork replaces the HTTP client by one whose requests block until the test ends and
 // isolates the Data Dragon caches, so nothing touches the real network or disk cache.
 func hangNetwork(t *testing.T) *atomic.Int32 {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	isolateCache(t)
 	var calls atomic.Int32
 	release := make(chan struct{})
 	old := httpClient

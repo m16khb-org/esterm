@@ -15,7 +15,7 @@ Canonical index: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 - `main.go` `main` → `runLoL`이 `bench`, `demo`, `relay`, `minimap`, `live`, `streams`, `standings`, `schedule`, `leagues` 하위 명령으로 분기한다. HTTP 호출은 `getJSON`/`getJSONCtx`를 거친다.
 - `relay.go` `cmdRelay`: 전체 화면 보드 루프(0.5초 렌더 틱). `buildCanvas`가 캔버스를 만들고 `renderDiff`가 이전 캔버스와의 차이만 ANSI로 출력한다. `relayPlayout.Tick`이 틱마다 보드가 보여 줄 게임 시각을 정한다.
-- `commands.go`: `streams`, `standings` 등 조회 명령과 `streamURL`, `eventDetailsResp`. `panels.go`: `b`/`s`/`o` 토글 패널. `ddragon.go`: Data Dragon 이름·이미지(디스크 캐시). `staticdata.go`: 번들된 아이템·룬 이름. `tui.go`: darwin raw 모드.
+- `commands.go`: `streams`, `standings` 등 조회 명령과 `streamURL`, `eventDetailsResp`. `panels.go`: `b`/`s`/`o` 토글 패널. `ddragon.go`: Data Dragon 이름·이미지(디스크 캐시). `staticdata.go`: 번들된 아이템·룬 이름. 터미널 크기·raw 모드는 `term_unix.go`·`term_darwin.go`·`term_linux.go`·`term_windows.go`, 자식 프로세스 실행과 메인 뷰 파이프는 `proc_unix.go`·`proc_windows.go`.
 
 ## 데이터 흐름
 
@@ -28,7 +28,7 @@ Canonical index: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## 경계와 규칙
 
-- 외부 프로세스는 `minimap_video.go`만 실행한다. 도구 경로는 `ESTERM_FFMPEG`, `ESTERM_YTDLP`로 바꾼다.
+- 외부 프로세스는 `minimap_video.go`만 실행하고, 실행·종료 방식은 `proc_unix.go`(프로세스 그룹과 감시자, fd 4 파이프)와 `proc_windows.go`(잡 객체, 명명된 파이프)가 정한다. 도구 경로는 `ESTERM_FFMPEG`, `ESTERM_YTDLP`로 바꾼다.
 - 인증이 필요한 API는 없다. lolesports 공용 키를 쓴다(README.md).
 - 영상 보정(지도 위치, 레이아웃, 시계 잠금, 오프셋)은 모두 Go에서 처리한다. 근거는 [ADR.md](../ADR.md)의 관련 기록을 본다.
 - 리그별 HUD 지원 범위는 `mmLayouts`가 정한다. 그 밖의 방송 화면은 Unknown / not confirmed이며 `esterm lol minimap -src ... -n N -json`의 `layout` 필드로 확인한다.

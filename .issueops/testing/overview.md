@@ -22,6 +22,7 @@ This is the reference document agents should read before writing or modifying te
 
 - `go build ./... && go vet ./... && go test -race ./...` (go.mod, 모든 `*_test.go`). 변경 후 이 세 가지를 통과해야 한다.
 - 테스트 파일은 기능별로 있다: `feed_test.go`, `relay_test.go`, `sync_test.go`, `minimap_*_test.go`, `objectives*_test.go`.
+- 셸 스크립트 대역이나 프로세스 그룹을 쓰는 테스트는 `*_unix_test.go`(`!windows`)에 둔다. 디스크 캐시를 쓰는 테스트는 `isolateCache`로 macOS·Linux·Windows 캐시 경로를 모두 임시 디렉터리로 돌린다. Windows 에서도 `go vet ./... && go test ./...`가 통과해야 한다.
 
 ## 이 저장소의 테스트 규칙
 

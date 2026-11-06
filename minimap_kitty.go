@@ -20,9 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 )
 
 // Pixel minimap. One compositor (Data Dragon map + circle-cropped champion icons with team
@@ -80,42 +78,6 @@ func kittyEnvSupported() bool {
 	return os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("TERM") == "xterm-kitty"
 }
 
-func isTTY(f *os.File) bool {
-	var ws winsize
-	_, _, e := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
-	return e == 0
-}
-
-// ttyQuery writes query to the terminal and returns what comes back in raw mode: it reads
-// until a DA1 reply (CSI ? ... c, which the query must end with) or until `reads` reads of
-// 100 ms found none. Nil when stdin cannot be put in raw mode.
-func ttyQuery(query string, reads int) []byte {
-	fd := int(os.Stdin.Fd())
-	var old syscall.Termios
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlGetTermios), uintptr(unsafe.Pointer(&old))); e != 0 {
-		return nil
-	}
-	raw := old
-	raw.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG
-	raw.Cc[syscall.VMIN] = 0
-	raw.Cc[syscall.VTIME] = 1 // 100 ms per read
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlSetTermios), uintptr(unsafe.Pointer(&raw))); e != 0 {
-		return nil
-	}
-	defer syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlSetTermios), uintptr(unsafe.Pointer(&old)))
-	fmt.Print(query)
-	var got []byte
-	buf := make([]byte, 256)
-	for i := 0; i < reads; i++ {
-		n, _ := syscall.Read(fd, buf)
-		got = append(got, buf[:max(n, 0)]...)
-		if bytes.Contains(got, []byte("\x1b[?")) && bytes.HasSuffix(got, []byte("c")) {
-			break
-		}
-	}
-	return got
-}
-
 // kittyProbe asks the terminal whether it speaks the graphics protocol: a 1x1 query
 // followed by a DA1 request, which every terminal answers, so unsupported terminals end
 // the wait immediately. Gives up after ~200 ms.
@@ -167,16 +129,6 @@ func mmResolveMode(flag string) (string, error) {
 var termCell struct {
 	sync.Mutex
 	w, h int
-}
-
-// winsizeCellPx returns the cell size from the tty's pixel size, or 0, 0 when it reports none.
-func winsizeCellPx() (cellW, cellH int) {
-	var ws winsize
-	_, _, e := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
-	if e != 0 || ws.Col == 0 || ws.Row == 0 || ws.Xpixel == 0 || ws.Ypixel == 0 {
-		return 0, 0
-	}
-	return max(int(ws.Xpixel)/int(ws.Col), 1), max(int(ws.Ypixel)/int(ws.Row), 1)
 }
 
 // termCellPx returns the cell size in pixels: the tty's pixel size, else what the terminal

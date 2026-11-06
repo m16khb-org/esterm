@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -134,13 +133,13 @@ func mmRegionFilter(fps int) string {
 
 // The main view: the game picture above the HUD, which the health bars of the champions
 // are read from (mainview*.go). It is cut at 1080p, full width, rows 0..mmMainH, and sent
-// as rgba, mmMainFPS frames per second, over a second pipe (file descriptor mmMainFD).
+// as rgba, mmMainFPS frames per second, over a second pipe (mmMainPipe: an inherited file
+// descriptor, a named pipe on Windows).
 const (
 	mmMainFPS   = 2
 	mmMainW     = 1920
 	mmMainH     = 816
 	mmMainBytes = mmMainW * mmMainH * 4
-	mmMainFD    = 4 // ExtraFiles[1] of the child: [0] is the watchdog's (fd 3)
 )
 
 // mmRegionFilterMain is mmRegionFilter that also yields the main view: the stacked
@@ -157,13 +156,16 @@ func mmRegionFilterMain(fps int) string {
 
 // mmFFmpegArgs builds the ffmpeg command line reading media and writing raw rgb24 to stdout.
 func mmFFmpegArgs(media string, ss float64, live, hw bool, vf string, oneFrame bool) []string {
-	return mmFFmpegArgsMain(media, ss, live, hw, vf, oneFrame, false)
+	return mmFFmpegArgsMain(media, ss, live, hw, vf, oneFrame, "")
 }
 
-// mmFFmpegArgsMain is mmFFmpegArgs; with main, vf is a filter graph with the outputs [mm]
-// and [mv] (mmRegionFilterMain), the second written to pipe:mmMainFD.
-func mmFFmpegArgsMain(media string, ss float64, live, hw bool, vf string, oneFrame, main bool) []string {
+// mmFFmpegArgsMain is mmFFmpegArgs; with a mainOut, vf is a filter graph with the outputs
+// [mm] and [mv] (mmRegionFilterMain), the second written to mainOut (see mmMainPipe).
+func mmFFmpegArgsMain(media string, ss float64, live, hw bool, vf string, oneFrame bool, mainOut string) []string {
 	args := []string{"-hide_banner", "-loglevel", "error"}
+	if mainOut != "" {
+		args = append(args, "-y") // a named pipe exists already: no question about overwriting it
+	}
 	if live {
 		args = append(args, "-fflags", "nobuffer", "-flags", "low_delay")
 	}
@@ -176,13 +178,13 @@ func mmFFmpegArgsMain(media string, ss float64, live, hw bool, vf string, oneFra
 	if mmIsHTTP(media) {
 		args = append(args, "-rw_timeout", mmNetTimeoutUs)
 	}
-	if main {
+	if mainOut != "" {
 		args = append(args, "-i", media, "-an", "-filter_complex", vf, "-map", "[mm]")
 		if oneFrame {
 			args = append(args, "-frames:v", "1")
 		}
 		args = append(args, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1")
-		return append(args, "-map", "[mv]", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:"+strconv.Itoa(mmMainFD))
+		return append(args, "-map", "[mv]", "-f", "rawvideo", "-pix_fmt", "rgba", mainOut)
 	}
 	args = append(args, "-i", media, "-an", "-vf", vf)
 	if oneFrame {
@@ -235,46 +237,6 @@ func pickStreamURLs(ctx context.Context, matchID string) ([]string, error) {
 		return nil, err
 	}
 	return mmRankStreams(ed.Data.Event.Streams)
-}
-
-// mmStart starts cmd in its own process group and kills the whole group when ctx ends.
-// The returned stop func optionally kills the group, then reaps the process.
-func mmStart(ctx context.Context, cmd *exec.Cmd) (stop func(kill bool) error, err error) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// Parent-death watchdog: the child's group gets a background reader on a pipe whose write
-	// end only esterm holds. When esterm dies for any reason (even SIGKILL) the kernel closes
-	// it, the reader sees EOF and kills the whole group. Watcher stdio is /dev/null so it
-	// never holds the child's stdout/stderr pipes open.
-	pr, pw, perr := os.Pipe()
-	if perr != nil {
-		return nil, perr
-	}
-	cmd.Args = append([]string{"/bin/sh", "-c", `( read _ ; kill -KILL 0 ) <&3 >/dev/null 2>&1 & exec "$@" 3<&-`, "sh", cmd.Path}, cmd.Args[1:]...)
-	cmd.Path = "/bin/sh"
-	cmd.ExtraFiles = append([]*os.File{pr}, cmd.ExtraFiles...)
-	if err := cmd.Start(); err != nil {
-		pr.Close()
-		pw.Close()
-		return nil, err
-	}
-	pr.Close()
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		case <-done:
-		}
-	}()
-	return func(kill bool) error {
-		if kill {
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		err := cmd.Wait()
-		pw.Close()
-		close(done)
-		return err
-	}, nil
 }
 
 // mmResolve returns the media URL of a page, whether yt-dlp reports it as a live stream
@@ -444,8 +406,15 @@ func mmReadMain(r io.Reader) <-chan mmMainFrame {
 // restart is set. It returns the number of frames sent and the reason the process ended.
 func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart bool, base int, out chan<- mmFrame) (int, error) {
 	var args []string
+	var mainOut *mmMainPipe
 	if o.Main {
-		args = mmFFmpegArgsMain(media, o.SS, live, hw, mmRegionFilterMain(o.FPS), false, true)
+		mo, err := newMMMainPipe()
+		if err != nil {
+			return 0, err
+		}
+		mainOut = mo
+		defer mainOut.Close()
+		args = mmFFmpegArgsMain(media, o.SS, live, hw, mmRegionFilterMain(o.FPS), false, mainOut.target)
 	} else {
 		args = mmFFmpegArgs(media, o.SS, live, hw, mmRegionFilter(o.FPS), false)
 	}
@@ -457,20 +426,13 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 		return 0, err
 	}
 	var mainCh <-chan mmMainFrame
-	var mainW *os.File
-	if o.Main {
-		mr, mw, perr := os.Pipe()
-		if perr != nil {
-			return 0, perr
-		}
-		cmd.ExtraFiles = []*os.File{mw}
-		mainW = mw
-		defer mr.Close()
-		mainCh = mmReadMain(mr)
+	if mainOut != nil {
+		mainOut.attach(cmd)
+		mainCh = mmReadMain(mainOut)
 	}
 	stop, err := mmStart(ctx, cmd)
-	if mainW != nil {
-		mainW.Close() // the child holds the write end; closing ours lets the reader see its end
+	if mainOut != nil {
+		mainOut.started()
 	}
 	if err != nil {
 		return 0, err

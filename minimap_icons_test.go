@@ -20,8 +20,7 @@ import (
 // down is set. It counts the CommunityDragon requests.
 func iconStub(t *testing.T, circles map[string]int, down bool, plain ...map[string]int) *atomic.Int32 {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	isolateCache(t)
 	var cd atomic.Int32
 	flat := func(n int) []byte {
 		im := image.NewRGBA(image.Rect(0, 0, n, n))
@@ -98,8 +97,7 @@ func TestChampIconFallsBackToTheSquareForAnUnknownCircle(t *testing.T) {
 }
 
 func TestIconImgFallsBackToTheCircleWhenDDragonIsDown(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	isolateCache(t)
 	flat := func(n int) []byte {
 		im := image.NewRGBA(image.Rect(0, 0, n, n))
 		for i := range im.Pix {

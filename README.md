@@ -62,6 +62,7 @@ go install github.com/m16khb-org/esterm@latest
 ```
 
 미니맵 의존성은 macOS에서 `brew install yt-dlp ffmpeg deno`, Linux에서 `apt install ffmpeg`와 `pipx install yt-dlp`로 설치합니다.
+Windows 10 1809 이상에서도 네이티브로 빌드하고 실행합니다. 저장소에서 `go install .` 한 뒤 `esterm`을 실행하고, 도구는 `winget`으로 설치합니다.
 자세한 사전 점검·PATH·검증 절차는 **[INSTALL.md](INSTALL.md)** 에 있습니다.
 
 <details>

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 )
 
 // ---------------- ANSI ----------------
@@ -28,20 +27,6 @@ const (
 	cCyan   = "\033[36m"
 	cGray   = "\033[90m"
 )
-
-// ---------------- terminal size ----------------
-
-type winsize struct{ Row, Col, Xpixel, Ypixel uint16 }
-
-func termSize() (cols, rows int) {
-	ws := &winsize{}
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(),
-		uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(ws)))
-	if errno != 0 || ws.Col == 0 || ws.Row == 0 {
-		return 80, 24 // not a terminal (pipe, file): a sane default
-	}
-	return int(ws.Col), int(ws.Row)
-}
 
 // The smallest screen the app and the boards draw on; below it they show a notice at the
 // real size instead of a squeezed or wrapped layout.

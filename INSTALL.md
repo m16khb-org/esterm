@@ -43,11 +43,11 @@ command -v deno >/dev/null || command -v bun >/dev/null || command -v node >/dev
 | OS | 상태 |
 |---|---|
 | macOS arm64 / amd64 | 기본 지원. ffmpeg 하드웨어 디코드(VideoToolbox) 자동 사용 |
-| Linux | 빌드와 실행 가능(`GOOS=linux go build` 확인). 보드와 미니맵 영상 처리는 ffmpeg/yt-dlp 가 있으면 동작 |
-| Windows | 확인하지 않음 |
+| Linux | 빌드와 실행 가능. WSL2 Ubuntu 에서 미니맵 CLI 와 `go test -race` 를 실행해 확인 |
+| Windows 10 1809+ / 11 | 네이티브 빌드와 실행 가능. 의사 콘솔(ConPTY)에서 대화형 앱의 키 입력과 종료, `go test`, 미니맵 CLI(메인 뷰 포함)를 확인 |
 
-raw 모드(키 입력)는 darwin 과 linux 모두 지원한다 (`term_darwin.go` 는 `TIOCGETA/TIOCSETA`, `term_linux.go` 는 `TCGETS/TCSETS`).
-대화형 앱, `relay`, `replay` 의 키 입력(`b` `s` `o` `m` `v` `q`)은 두 OS 에서 모두 즉시 반응한다. `GOOS=linux go build` 로 빌드되는 것만 확인했고, Linux 터미널에서 직접 실행해 보지는 않았다.
+raw 모드(키 입력)는 darwin, linux, windows 를 모두 지원한다 (`term_darwin.go` 는 `TIOCGETA/TIOCSETA`, `term_linux.go` 는 `TCGETS/TCSETS`, `term_windows.go` 는 콘솔 모드).
+대화형 앱, `relay`, `replay` 의 키 입력(`b` `s` `o` `m` `v` `q`)은 세 OS 에서 모두 즉시 반응한다. Linux 는 빌드와 미니맵 CLI 만 확인했고, Linux 터미널에서 대화형 앱을 직접 실행해 보지는 않았다.
 
 ## 2. 사전 점검
 
@@ -103,6 +103,19 @@ esac
 ```
 
 `~/.zshrc` 에 이미 같은 줄이 있는데 현재 셸에만 반영되지 않았다면 `source ~/.zshrc` 를 쓴다(중복 추가 방지: `grep -q "$BIN" ~/.zshrc || ...`).
+
+### Windows (PowerShell)
+
+```powershell
+go install .                       # 저장소 안에서. %USERPROFILE%\go\bin\esterm.exe, Go 설치 프로그램이 PATH 에 넣어 둔 경로
+esterm
+# 또는: go build . 후 .\esterm.exe   (PowerShell 은 현재 폴더의 실행 파일을 .\ 없이 찾지 않는다)
+```
+
+미니맵 도구는 `winget install Gyan.FFmpeg`, `winget install yt-dlp.yt-dlp`, `winget install DenoLand.Deno` 로 설치한다(`node` 가 있으면 `deno` 는 없어도 된다).
+콘솔은 가상 터미널 입출력(ANSI)을 켜서 쓴다. kitty 그래픽은 `TERM_PROGRAM=WezTerm` 일 때만 고르고, 셀 크기를 묻지 않아 8x16 으로 가정한다. `-icons blocks` 는 `COLORTERM=truecolor` 일 때 자동으로 고른다.
+자식 프로세스(ffmpeg, yt-dlp)는 잡 객체에 묶여 esterm 이 어떻게 끝나든 함께 종료된다.
+WSL 안에서 Linux 빌드를 쓸 때는 ffmpeg 도 Linux 바이너리를 써야 한다. Windows `ffmpeg.exe` 에는 메인 뷰용 fd 4 파이프가 전달되지 않아 레이아웃이 잠기지 않는다.
 
 ### macOS quarantine
 
