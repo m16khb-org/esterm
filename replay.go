@@ -571,6 +571,7 @@ func cmdReplay(args []string) {
 	defer cancel()
 	rp, err := newReplay(ctx, replayOpts{MatchID: *matchID, Game: *gameNo, Src: *src})
 	if err != nil {
+		cancel() // os.Exit skips the deferred cancel
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
