@@ -37,6 +37,11 @@
   nav .links a { color: var(--muted); font-size: 13px; }
   nav .links a:hover { color: var(--text); text-decoration: none; }
   nav .gh { border: 1px solid var(--line); padding: 7px 12px; border-radius: 8px; color: var(--text); }
+  .langs { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #0d1311; }
+  .langs button { border: 0; background: transparent; color: var(--dim); font: 600 11px/1 ui-monospace, monospace;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  .langs button:hover { color: var(--text); }
+  .langs button.on { background: #1a2721; color: var(--cyan); }
 
   .hero { padding: 76px 0 58px; position: relative; overflow: hidden; }
   .hero::before { content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -95,15 +100,14 @@
   .split { display: grid; grid-template-columns: 1.02fr 1fr; gap: 44px; align-items: center; }
   .split.img-first { grid-template-columns: 1.25fr .85fr; }
   .wide-img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #0a0d0c; }
-  .legend.row { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 16px; }
-  .split img { width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #0a0d0c; }
-  .split h3 { margin: 0 0 12px; font-size: 26px; letter-spacing: -.7px; }
-  .split p { color: var(--muted); margin: 0 0 18px; }
   .legend { display: grid; gap: 9px; }
+  .legend.row { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 16px; }
   .legend div { display: flex; align-items: center; gap: 10px; color: #c3d0c7; font-size: 14px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
   .c-cyan { background: var(--cyan); } .c-purple { background: var(--purple); } .c-red { background: var(--red); }
   .c-green { background: var(--green); } .c-grey { background: #9aa39c; }
+  .split h3 { margin: 0 0 12px; font-size: 26px; letter-spacing: -.7px; }
+  .split p { color: var(--muted); margin: 0 0 18px; }
 
   .install { background: #0b100e; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); }
   .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
@@ -147,9 +151,14 @@
   <div class="wrap">
     <a class="brand" href="#top">es<span>term</span></a>
     <div class="links">
-      <a href="#features">기능</a>
-      <a href="#minimap">미니맵</a>
-      <a href="#install">설치</a>
+      <a href="#features" data-i18n="nav_features">기능</a>
+      <a href="#minimap" data-i18n="nav_minimap">미니맵</a>
+      <a href="#install" data-i18n="nav_install">설치</a>
+      <div class="langs" role="group" aria-label="Language">
+        <button type="button" data-lang="ko" class="on">KO</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="zh">中文</button>
+      </div>
       <a class="gh" href="https://github.com/m16khb-org/esterm">GitHub</a>
     </div>
   </div>
@@ -160,51 +169,52 @@
     <div>
       <div class="eyebrow">Esports terminal cli</div>
       <h1>es<span>term</span></h1>
-      <p class="tagline">리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.</p>
-      <p class="lede">라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
+      <p class="tagline" data-i18n-html="hero_tagline">리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.</p>
+      <p class="lede" data-i18n="hero_lede">라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
       <div class="cmd"><b>$</b> go install github.com/m16khb-org/esterm@latest
-        <button type="button" id="copy" aria-label="설치 명령 복사">복사</button>
+        <button type="button" id="copy" data-i18n="copy" aria-label="Copy install command">복사</button>
       </div>
       <div class="cta">
-        <a class="btn primary" href="#install">시작하기</a>
-        <a class="btn ghost" href="https://github.com/m16khb-org/esterm">소스 보기</a>
+        <a class="btn primary" href="#install" data-i18n="start">시작하기</a>
+        <a class="btn ghost" href="https://github.com/m16khb-org/esterm" data-i18n="source">소스 보기</a>
       </div>
     </div>
     <div class="demo-col">
       <div class="term">
         <div class="bar"><i></i><i></i><i></i><span>esterm lol replay · GEN vs LYON</span></div>
-        <video autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.png" aria-label="esterm 실제 구동 화면">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.png" aria-label="esterm actual run">
           <source src="assets/demo.mp4" type="video/mp4">
-          <img src="assets/demo-poster.png" alt="esterm 실제 구동 화면">
+          <img src="assets/demo-poster.png" alt="esterm actual run">
         </video>
       </div>
-      <p class="demo-note"><a href="assets/demo.mp4">15초 실제 구동 영상 (MP4)</a></p>
+      <p class="demo-note"><a href="assets/demo.mp4" data-i18n="video_link">15초 실제 구동 영상 (MP4)</a></p>
     </div>
   </div>
 </header>
 
 <div class="stats">
   <div class="wrap">
-    <div class="stat"><b>94.0%</b><span>생존 챔피언 검출 (16경기)</span></div>
-    <div class="stat"><b>0.00%</b><span>죽은 챔피언 오검출</span></div>
-    <div class="stat"><b>97.2%</b><span>킬 플립 동기 오차 ≤1초</span></div>
-    <div class="stat"><b>13 / 16</b><span>백테스트 기준 통과</span></div>
+    <div class="stat"><b>94.0%</b><span data-i18n="stat_detect">생존 챔피언 검출 (16경기)</span></div>
+    <div class="stat"><b>0.00%</b><span data-i18n="stat_dead">죽은 챔피언 오검출</span></div>
+    <div class="stat"><b>97.2%</b><span data-i18n="stat_flip">킬 플립 동기 오차 ≤1초</span></div>
+    <div class="stat"><b>13 / 16</b><span data-i18n="stat_pass">백테스트 기준 통과</span></div>
   </div>
 </div>
 
 <section id="features">
   <div class="wrap">
     <div class="section-head">
-      <h2>경기 전체를 한 화면에</h2>
-      <p>점수판, 선수 스탯, 오브젝트, 미니맵을 같은 게임 시각에 맞춰 재생합니다.</p>
+      <h2 data-i18n="features_title">경기 전체를 한 화면에</h2>
+      <p data-i18n="features_sub">점수판, 선수 스탯, 오브젝트, 미니맵을 같은 게임 시각에 맞춰 재생합니다.</p>
     </div>
     <div class="cards">
-      <div class="card"><div class="ico">◉</div><h3>라이브 보드</h3><p>킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신합니다.</p></div>
-      <div class="card"><div class="ico">▶</div><h3>다시 보기</h3><p>공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.</p></div>
-      <div class="card"><div class="ico">◎</div><h3>방송 미니맵</h3><p>공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.</p></div>
-      <div class="card"><div class="ico">✕</div><h3>상태 구분</h3><p>사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.</p></div>
-      <div class="card"><div class="ico">R</div><h3>채널링 색</h3><p>귀환은 청록 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>, 레드 팀 채널링은 빨강 <span class="mono">?</span>.</p></div>
-      <div class="card"><div class="ico">⏱</div><h3>오브젝트 타이머</h3><p>용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
+      <div class="card"><div class="ico">◉</div><h3 data-i18n="f1_title">라이브 보드</h3><p data-i18n="f1_desc">킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신합니다.</p></div>
+      <div class="card"><div class="ico">▶</div><h3 data-i18n="f2_title">다시 보기</h3><p data-i18n="f2_desc">공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.</p></div>
+      <div class="card"><div class="ico">◎</div><h3 data-i18n="f3_title">방송 미니맵</h3><p data-i18n="f3_desc">공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.</p></div>
+      <div class="card"><div class="ico">✕</div><h3 data-i18n="f4_title">상태 구분</h3><p data-i18n-html="f4_desc">사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.</p></div>
+      <div class="card"><div class="ico">R</div><h3 data-i18n="f5_title">채널링 색</h3><p data-i18n-html="f5_desc">귀환은 청록 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>, 레드 팀 채널링은 빨강 <span class="mono">?</span>. 팀 링 바깥에 물결 아우라로 표시합니다.</p></div>
+      <div class="card"><div class="ico">⏱</div><h3 data-i18n="f6_title">오브젝트 타이머</h3><p data-i18n="f6_desc">용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
+      <div class="card"><div class="ico">↖</div><h3 data-i18n="f7_title">마우스와 언어</h3><p data-i18n="f7_desc">클릭으로 창 선택과 행 이동, 더블클릭으로 열기, 휠로 스크롤. 한국어·영어·중국어 UI.</p></div>
     </div>
   </div>
 </section>
@@ -212,32 +222,30 @@
 <section id="minimap">
   <div class="wrap">
     <div class="section-head">
-      <h2>챔피언이 사라져도, 이유를 알려 줍니다</h2>
-      <p>사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다.
-        방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.</p>
+      <h2 data-i18n="map_title">챔피언이 사라져도, 이유를 알려 줍니다</h2>
+      <p data-i18n-html="map_desc">사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.</p>
     </div>
-    <img class="wide-img" src="assets/states.png" alt="라이브, 사망, 놓침, 혼합 상태의 미니맵" loading="lazy">
+    <img class="wide-img" src="assets/states.png" alt="Live, dead, lost and mixed minimap states" loading="lazy">
     <div class="legend row">
-      <div><span class="dot c-green"></span>라이브: 초상화 · 팀 링 · 라인 배지</div>
-      <div><span class="dot c-red"></span>사망: X + 아이콘에 붙은 부활 초</div>
-      <div><span class="dot c-grey"></span>놓침: 흐린 초상화 + <span class="mono">?</span></div>
+      <div><span class="dot c-green"></span><span data-i18n="legend_live">라이브: 초상화 · 팀 링 · 라인 배지</span></div>
+      <div><span class="dot c-red"></span><span data-i18n="legend_dead">사망: X + 아이콘에 붙은 부활 초</span></div>
+      <div><span class="dot c-grey"></span><span data-i18n-html="legend_lost">놓침: 흐린 초상화 + <span class="mono">?</span></span></div>
     </div>
   </div>
 </section>
 
 <section>
   <div class="wrap split img-first">
-    <img src="assets/channels-panel.png" alt="귀환 R, 텔레포트 T, 레드 팀 채널링 ?가 표시된 미니맵" loading="lazy">
+    <img src="assets/channels-panel.png" alt="Recall R, Teleport T and red-team channel ? on the minimap" loading="lazy">
     <div>
-      <h3>귀환과 텔레포트를 색으로</h3>
-      <p>아이콘 바깥 고리의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고,
-        라인 배지 대신 상태 문자를 붙입니다.</p>
+      <h3 data-i18n="chan_title">귀환과 텔레포트를 색으로</h3>
+      <p data-i18n="chan_desc">팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.</p>
       <div class="legend">
-        <div><span class="dot c-cyan"></span><b class="mono">R</b> 블루 팀 귀환 · 청록 링</div>
-        <div><span class="dot c-purple"></span><b class="mono">T</b> 텔레포트 · 보라 링</div>
-        <div><span class="dot c-red"></span><b class="mono">?</b> 레드 팀 채널링 · 빨강 링</div>
+        <div><span class="dot c-cyan"></span><b class="mono">R</b><span data-i18n="chan_recall">블루 팀 귀환 · 청록 아우라</span></div>
+        <div><span class="dot c-purple"></span><b class="mono">T</b><span data-i18n="chan_teleport">텔레포트 · 보라 아우라</span></div>
+        <div><span class="dot c-red"></span><b class="mono">?</b><span data-i18n="chan_red">레드 팀 채널링 · 빨강 아우라</span></div>
       </div>
-      <p style="margin-top:16px;font-size:13px;color:var(--dim)">레드 팀은 귀환과 텔레포트가 같은 빨간 링이라 둘을 구분하지 않습니다.</p>
+      <p style="margin-top:16px;font-size:13px;color:var(--dim)" data-i18n="chan_note">레드 팀은 귀환과 텔레포트가 같은 빨간 아우라라 둘을 구분하지 않습니다.</p>
     </div>
   </div>
 </section>
@@ -245,11 +253,11 @@
 <section class="install" id="install">
   <div class="wrap">
     <div class="section-head">
-      <h2>설치</h2>
-      <p>Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.</p>
+      <h2 data-i18n="install_title">설치</h2>
+      <p data-i18n="install_sub">Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.</p>
     </div>
     <div class="install-grid">
-      <pre><span class="c"># 바이너리 설치</span>
+      <pre data-i18n-html="install_code1"><span class="c"># 바이너리 설치</span>
 <span class="p">$</span> go install github.com/m16khb-org/esterm@latest
 
 <span class="c"># 대화형 앱</span>
@@ -258,13 +266,13 @@
 <span class="c"># 최근 Worlds 경기</span>
 <span class="p">$</span> esterm lol schedule -l worlds -a -n 8</pre>
       <div>
-        <pre><span class="c"># 미니맵 의존성 (macOS)</span>
+        <pre data-i18n-html="install_code2"><span class="c"># 미니맵 의존성 (macOS)</span>
 <span class="p">$</span> brew install yt-dlp ffmpeg deno
 
 <span class="c"># 소스 빌드</span>
 <span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git
 <span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .</pre>
-        <p class="req" style="margin-top:16px">자세한 사전 점검과 PATH 설정은 <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md">INSTALL.md</a>를 참고하세요.</p>
+        <p class="req" style="margin-top:16px"><span data-i18n="install_req">자세한 사전 점검과 PATH 설정은</span> <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md">INSTALL.md</a><span data-i18n="install_req2">를 참고하세요.</span></p>
       </div>
     </div>
   </div>
@@ -273,50 +281,194 @@
 <section>
   <div class="wrap">
     <div class="section-head">
-      <h2>숫자로 확인한 미니맵</h2>
-      <p>공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.</p>
+      <h2 data-i18n="verify_title">숫자로 확인한 미니맵</h2>
+      <p data-i18n="verify_sub">공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.</p>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>리그</th><th>경기</th><th>생존 검출</th><th>죽은 챔피언 오검출</th><th>킬 플립 ≤1초</th></tr></thead>
+        <thead><tr><th data-i18n="th_league">리그</th><th data-i18n="th_games">경기</th><th data-i18n="th_detect">생존 검출</th><th data-i18n="th_dead">죽은 챔피언 오검출</th><th data-i18n="th_flip">킬 플립 ≤1초</th></tr></thead>
         <tbody>
-          <tr><td>Worlds</td><td>7</td><td>약 94.4%</td><td>0.00%</td><td>98.0%</td></tr>
+          <tr><td>Worlds</td><td>7</td><td>94.4%</td><td>0.00%</td><td>98.0%</td></tr>
           <tr><td>LCK</td><td>3</td><td>94.2%</td><td>0.00%</td><td>97.5%</td></tr>
           <tr><td>LPL</td><td>3</td><td>91.2%</td><td>0.00%</td><td>91.7%</td></tr>
           <tr><td>LEC</td><td>3</td><td>95.8%</td><td>0.00%</td><td>100%</td></tr>
-          <tr><td><b>전체</b></td><td><b>16</b></td><td><b>약 94.0%</b></td><td><b>0.00%</b></td><td><b>97.2%</b></td></tr>
+          <tr><td><b data-i18n="all">전체</b></td><td><b>16</b></td><td><b>94.0%</b></td><td><b>0.00%</b></td><td><b>97.2%</b></td></tr>
         </tbody>
       </table>
     </div>
-    <p style="color:var(--dim);font-size:13px;margin-top:14px">13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은 <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md">구현 상세</a>에 있습니다.</p>
+    <p style="color:var(--dim);font-size:13px;margin-top:14px"><span data-i18n="verify_note">13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은</span> <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a><span data-i18n="verify_note2">에 있습니다.</span></p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span>esterm · League of Legends esports terminal CLI</span>
+    <span data-i18n="footer_tag">esterm · League of Legends esports terminal CLI</span>
     <a href="https://github.com/m16khb-org/esterm">GitHub</a>
-    <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md">설치 가이드</a>
-    <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md">구현 상세</a>
-    <span class="sp">개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용</span>
+    <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md" data-i18n="nav_install">설치</a>
+    <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a>
+    <span class="sp" data-i18n="footer_note">개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용</span>
   </div>
 </footer>
 
 <script>
-  const copy = document.getElementById('copy');
-  if (copy) {
-    copy.addEventListener('click', async () => {
-      const text = 'go install github.com/m16khb-org/esterm@latest';
-      try { await navigator.clipboard.writeText(text); copy.textContent = '복사됨'; }
-      catch { copy.textContent = '복사 실패'; }
-      setTimeout(() => copy.textContent = '복사', 1600);
-    });
+const I18N = {
+  ko: {
+    page_title: "esterm — 리그 오브 레전드 e스포츠를 터미널에서",
+    nav_features: "기능", nav_minimap: "미니맵", nav_install: "설치",
+    hero_tagline: "리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.",
+    hero_lede: "라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.",
+    copy: "복사", start: "시작하기", source: "소스 보기", video_link: "15초 실제 구동 영상 (MP4)",
+    stat_detect: "생존 챔피언 검출 (16경기)", stat_dead: "죽은 챔피언 오검출",
+    stat_flip: "킬 플립 동기 오차 ≤1초", stat_pass: "백테스트 기준 통과",
+    features_title: "경기 전체를 한 화면에",
+    features_sub: "점수판, 선수 스탯, 오브젝트, 미니맵을 같은 게임 시각에 맞춰 재생합니다.",
+    f1_title: "라이브 보드", f1_desc: "킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신합니다.",
+    f2_title: "다시 보기", f2_desc: "공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.",
+    f3_title: "방송 미니맵", f3_desc: "공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.",
+    f4_title: "상태 구분", f4_desc: '사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.',
+    f5_title: "채널링 색", f5_desc: '귀환은 청록 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>, 레드 팀 채널링은 빨강 <span class="mono">?</span>. 팀 링 바깥에 물결 아우라로 표시합니다.',
+    f6_title: "오브젝트 타이머", f6_desc: "용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.",
+    f7_title: "마우스와 언어", f7_desc: "클릭으로 창 선택과 행 이동, 더블클릭으로 열기, 휠로 스크롤. 한국어·영어·중국어 UI.",
+    map_title: "챔피언이 사라져도, 이유를 알려 줍니다",
+    map_desc: '사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.',
+    legend_live: "라이브: 초상화 · 팀 링 · 라인 배지",
+    legend_dead: "사망: X + 아이콘에 붙은 부활 초",
+    legend_lost: '놓침: 흐린 초상화 + <span class="mono">?</span>',
+    chan_title: "귀환과 텔레포트를 색으로",
+    chan_desc: "팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.",
+    chan_recall: "블루 팀 귀환 · 청록 아우라", chan_teleport: "텔레포트 · 보라 아우라", chan_red: "레드 팀 채널링 · 빨강 아우라",
+    chan_note: "레드 팀은 귀환과 텔레포트가 같은 빨간 아우라라 둘을 구분하지 않습니다.",
+    install_title: "설치", install_sub: "Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.",
+    install_code1: '<span class="c"># 바이너리 설치</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 대화형 앱</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 최근 Worlds 경기</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># 미니맵 의존성 (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_req: "자세한 사전 점검과 PATH 설정은", install_req2: "를 참고하세요.",
+    verify_title: "숫자로 확인한 미니맵",
+    verify_sub: "공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.",
+    th_league: "리그", th_games: "경기", th_detect: "생존 검출", th_dead: "죽은 챔피언 오검출", th_flip: "킬 플립 ≤1초",
+    all: "전체", verify_note: "13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은", verify_note2: "에 있습니다.",
+    internals_link: "구현 상세", footer_tag: "esterm · League of Legends esports terminal CLI",
+    footer_note: "개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용"
+  },
+  en: {
+    page_title: "esterm — League of Legends esports in your terminal",
+    nav_features: "Features", nav_minimap: "Minimap", nav_install: "Install",
+    hero_tagline: "League of Legends esports,<br>in your terminal.",
+    hero_lede: "Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.",
+    copy: "Copy", start: "Get started", source: "View source", video_link: "15-second actual run (MP4)",
+    stat_detect: "Alive champion detection (16 games)", stat_dead: "Dead champion false positives",
+    stat_flip: "Kill-flip sync within 1s", stat_pass: "Backtest pass",
+    features_title: "The whole match on one screen",
+    features_sub: "Scoreboard, player stats, objectives and the minimap play on the same game clock.",
+    f1_title: "Live board", f1_desc: "Kill and gold bars, objective counts and per-player KDA, CS, gold and HP, refreshed every 0.5s.",
+    f2_title: "Replays", f2_desc: "Official VOD and feed aligned to the same game time. Pause, ±10s, 1×/2×/4× speed.",
+    f3_title: "Broadcast minimap", f3_desc: "Reads the official 1080p minimap and tracks all ten champions at 5 fps.",
+    f4_title: "State clarity", f4_desc: 'A dead champion shows X and respawn seconds; a lost champion is a dim portrait with <span class="mono">?</span>.',
+    f5_title: "Channel colours", f5_desc: 'Recall is cyan <span class="mono">R</span>, Teleport purple <span class="mono">T</span>, a red-team channel red <span class="mono">?</span>. The wavy aura sits outside the team ring.',
+    f6_title: "Objective timers", f6_desc: "Next dragon, elder and baron spawn, plus soul point, on the game clock.",
+    f7_title: "Mouse and languages", f7_desc: "Click to focus and select, double-click to open, wheel to scroll. Korean, English and Chinese UI.",
+    map_title: "Even when a champion is gone, the reason is visible",
+    map_desc: 'Dead is an X with respawn seconds; a lost champion is a dim portrait and a grey <span class="mono">?</span>. When the broadcast cuts to a replay or desk, the panel hides the champions and says why.',
+    legend_live: "Live: portrait · team ring · lane badge",
+    legend_dead: "Dead: X and respawn seconds attached to the icon",
+    legend_lost: 'Lost: dim portrait + <span class="mono">?</span>',
+    chan_title: "Recall and Teleport by colour",
+    chan_desc: "Reads the aura colour outside the team ring. A colour must persist for two frames; the badge replaces the lane letter.",
+    chan_recall: "Blue-team Recall · cyan aura", chan_teleport: "Teleport · purple aura", chan_red: "Red-team channel · red aura",
+    chan_note: "On the red team, Recall and Teleport share the red aura, so they are not distinguished.",
+    install_title: "Install", install_sub: "Go 1.21+. The minimap needs yt-dlp, ffmpeg and a JS runtime.",
+    install_code1: '<span class="c"># install the binary</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># interactive app</span>\n<span class="p">$</span> esterm\n\n<span class="c"># recent Worlds matches</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># minimap dependencies (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_req: "See", install_req2: "for the full preflight and PATH setup.",
+    verify_title: "A minimap measured, not guessed",
+    verify_sub: "A backtest over 16 official games (7 Worlds, 3 LCK, 3 LPL, 3 LEC), run over the full broadcast video.",
+    th_league: "League", th_games: "Games", th_detect: "Alive detection", th_dead: "Dead false positives", th_flip: "Kill flips ≤1s",
+    all: "All", verify_note: "13 of 16 games passed. Full numbers and criteria are in", verify_note2: ".",
+    internals_link: "the implementation notes", footer_tag: "esterm · League of Legends esports terminal CLI",
+    footer_note: "Personal viewing only · uses the unofficial lolesports.com endpoints"
+  },
+  zh: {
+    page_title: "esterm — 在终端里看英雄联盟电竞赛事",
+    nav_features: "功能", nav_minimap: "小地图", nav_install: "安装",
+    hero_tagline: "在终端里看<br>英雄联盟电竞赛事。",
+    hero_lede: "直播看板、官方 VOD 回放，以及从直播小地图读取的英雄位置。一个 Go 二进制，覆盖 Worlds 到 LCK。",
+    copy: "复制", start: "开始使用", source: "查看源码", video_link: "15 秒实际运行视频（MP4）",
+    stat_detect: "存活英雄检测（16 场）", stat_dead: "阵亡英雄误检",
+    stat_flip: "击杀翻转同步误差 ≤1 秒", stat_pass: "回测达标",
+    features_title: "一场比赛，一屏尽览",
+    features_sub: "记分板、选手数据、资源和 小地图按同一游戏时钟回放。",
+    f1_title: "直播看板", f1_desc: "击杀/金币比例条、资源计数，以及每位选手的 KDA、补刀、金币和生命值，每 0.5 秒刷新。",
+    f2_title: "回放", f2_desc: "官方 VOD 与数据流对齐到同一游戏时间。暂停、±10 秒、1×/2×/4×。",
+    f3_title: "直播小地图", f3_desc: "读取官方 1080p 小地图，以每秒 5 帧追踪十名英雄。",
+    f4_title: "状态区分", f4_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和 <span class="mono">?</span>。',
+    f5_title: "引导颜色", f5_desc: '回城为青色 <span class="mono">R</span>，传送为紫色 <span class="mono">T</span>，红队引导为红色 <span class="mono">?</span>。以队伍光环外侧的波浪光环显示。',
+    f6_title: "资源计时", f6_desc: "按游戏时钟计算下一条小龙、远古龙和大龙的刷新，以及龙魂点。",
+    f7_title: "鼠标与语言", f7_desc: "单击聚焦并选择，双击打开，滚轮滚动。支持韩语、英语和中文界面。",
+    map_title: "英雄消失时，也告诉你原因",
+    map_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和灰色 <span class="mono">?</span>。直播切到回放或解说台时，面板会隐藏英雄并说明原因。',
+    legend_live: "存活：头像 · 队伍光环 · 分路徽标",
+    legend_dead: "阵亡：X 和图标上的复活秒数",
+    legend_lost: '跟丢：变暗的头像 + <span class="mono">?</span>',
+    chan_title: "用颜色区分回城与传送",
+    chan_desc: "读取队伍光环外侧光环的颜色。同一颜色需连续出现两帧；徽标会替代分路字母。",
+    chan_recall: "蓝队回城 · 青色光环", chan_teleport: "传送 · 紫色光环", chan_red: "红队引导 · 红色光环",
+    chan_note: "红队的回城与传送共用红色光环，因此不做区分。",
+    install_title: "安装", install_sub: "需要 Go 1.21+。小地图还需要 yt-dlp、ffmpeg 和 JS 运行时。",
+    install_code1: '<span class="c"># 安装二进制</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 交互式应用</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 最近的 Worlds 比赛</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># 小地图依赖（macOS）</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_req: "完整的预检和 PATH 设置请参阅", install_req2: "。",
+    verify_title: "用数字验证的小地图",
+    verify_sub: "对 16 场官方比赛（Worlds 7、LCK 3、LPL 3、LEC 3）的完整直播视频进行回测。",
+    th_league: "联赛", th_games: "场次", th_detect: "存活检测", th_dead: "阵亡误检", th_flip: "击杀翻转 ≤1 秒",
+    all: "全部", verify_note: "16 场中有 13 场达标。完整数字和标准见", verify_note2: "。",
+    internals_link: "实现细节", footer_tag: "esterm · League of Legends esports terminal CLI",
+    footer_note: "仅供个人观看 · 使用 lolesports.com 非官方接口"
   }
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    document.querySelectorAll('video').forEach(v => { v.removeAttribute('autoplay'); v.pause(); });
-  } else {
-    document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
+};
+
+const params = new URLSearchParams(location.search);
+let lang = params.get("lang") || localStorage.getItem("esterm-lang") || "ko";
+if (!I18N[lang]) lang = "ko";
+
+function applyLang(l) {
+  lang = I18N[l] ? l : "ko";
+  const d = I18N[lang];
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+  document.title = d.page_title;
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    const v = d[el.dataset.i18n];
+    if (v !== undefined) el.textContent = v;
   }
+  for (const el of document.querySelectorAll("[data-i18n-html]")) {
+    const v = d[el.dataset.i18nHtml];
+    if (v !== undefined) el.innerHTML = v;
+  }
+  for (const b of document.querySelectorAll(".langs button")) {
+    b.classList.toggle("on", b.dataset.lang === lang);
+    b.setAttribute("aria-pressed", b.dataset.lang === lang ? "true" : "false");
+  }
+  localStorage.setItem("esterm-lang", lang);
+  const copy = document.getElementById("copy");
+  if (copy) copy.textContent = d.copy;
+}
+for (const b of document.querySelectorAll(".langs button")) {
+  b.addEventListener("click", () => applyLang(b.dataset.lang));
+}
+applyLang(lang);
+
+const copy = document.getElementById("copy");
+if (copy) {
+  copy.addEventListener("click", async () => {
+    const text = "go install github.com/m16khb-org/esterm@latest";
+    try { await navigator.clipboard.writeText(text); copy.textContent = "✓"; }
+    catch { copy.textContent = "!"; }
+    setTimeout(() => { copy.textContent = I18N[lang].copy; }, 1600);
+  });
+}
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.querySelectorAll("video").forEach(v => { v.removeAttribute("autoplay"); v.pause(); });
+} else {
+  document.querySelectorAll("video").forEach(v => v.play().catch(() => {}));
+}
 </script>
 </body>
 </html>

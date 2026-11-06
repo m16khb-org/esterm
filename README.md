@@ -6,6 +6,10 @@
 </p>
 
 <p align="center">
+  한국어 · English · 中文
+</p>
+
+<p align="center">
   <a href="README.md"><strong>한국어</strong></a>
   ·
   <a href="INSTALL.md">설치 가이드</a>
@@ -14,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/hero.png" alt="esterm 미니맵: 귀환 R, 텔레포트 T, 레드 팀 채널링 ?" width="100%" />
+  <img src="docs/assets/hero.png" alt="esterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
 </p>
 
 <p align="center">
@@ -44,6 +48,8 @@ esterm은 공식 방송 VOD에서 미니맵 영역을 잘라 내고, 챔피언 �
 | **방송 미니맵** | 공식 1080p 방송 4종(Worlds·LCK·LPL·LEC) 레이아웃 자동 인식, 초당 5프레임 추적 |
 | **상태 표시** | 사망 `✕`+부활 초, 놓침은 흐린 초상화+`?`, 귀환 `R`·텔레포트 `T` |
 | **오브젝트 타이머** | 용·엘더·바론의 다음 등장 시각과 소울 포인트 |
+| **마우스 조작** | 클릭으로 창 선택과 항목 이동, 더블클릭으로 열기, 휠로 목록 스크롤 |
+| **3개 언어** | 한국어·영어·중국어 UI. `-lang ko\|en\|zh` 또는 `ESTERM_LANG`, 옵션 메뉴에서 전환 |
 | **반응형 TUI** | lazygit 스타일 창, 50~200컬럼까지 자동 재배치 |
 | **단일 바이너리** | Go 표준 라이브러리만 사용. 외부 의존성은 미니맵용 `yt-dlp`·`ffmpeg`·JS 런타임뿐 |
 
@@ -56,6 +62,7 @@ go install github.com/m16khb-org/esterm@latest
 # $(go env GOPATH)/bin 이 PATH 에 있어야 합니다
 
 esterm                              # 대화형 앱
+esterm -lang ko                     # 한국어 UI (en, zh)
 esterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
 esterm lol replay -match 115660588583040710 -g 1
 esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
@@ -75,19 +82,25 @@ go build -o ~/.local/bin/esterm .
 
 ## 대화형 앱
 
-인자 없이 `esterm`을 실행하면 키보드만으로 쓰는 앱이 열립니다. 왼쪽에 `[1] Leagues`, `[2] Matches`, `[3] Games` 목록이 쌓이고,
+인자 없이 `esterm`을 실행하면 키보드와 마우스로 쓰는 앱이 열립니다. 왼쪽에 `[1] Leagues`, `[2] Matches`, `[3] Games` 목록이 쌓이고,
 오른쪽 `[0]` 창은 선택한 경기의 미리보기나 실행 중인 보드를 보여 줍니다.
 
-| 키 | 동작 |
+| 입력 | 동작 |
 |---|---|
 | `j` `k` / `↑` `↓` | 목록 이동 |
 | `h` `l` / `←` `→` | 이전·다음 창 |
 | `Tab` / `1` `2` `3` `0` | 창 포커스 이동 |
 | `[` `]` | Matches 탭 전환 (Live / Upcoming / Recent) |
 | `Enter` | 열기 (리그 → 경기 → 세트 → 보드) |
-| `,` | 옵션 메뉴 (미니맵 그리기, 영상 동기화, 폴링 간격) |
+| 클릭 | 창 포커스와 행 선택 |
+| 더블클릭 | 경기·세트 열기, 보드 확대 전환 |
+| 휠 | 포인터 아래 목록 스크롤 |
+| `,` | 옵션 메뉴 (미니맵 그리기, 영상 동기화, 폴링 간격, 언어) |
 | `?` | 현재 문맥의 키 도움말 |
 | `q` / `Ctrl+C` | 종료 |
+
+언어는 `esterm -lang ko`, `esterm -lang zh`처럼 실행하거나 `ESTERM_LANG=ko`를 설정합니다.
+기본값은 영어이고, 옵션 메뉴의 `Language` 항목에서도 바꿀 수 있습니다.
 
 보드에 포커스가 있을 때는 `Space` 일시정지, `←` `→` ±10초, `+` `-` 배속, `b` stats→items→runes,
 `s` 골드 스파크라인, `o` 오브젝트 맵, `m` 미니맵 패널, `v` 방송 영상 동기화, `f` 확대를 씁니다.
@@ -106,16 +119,16 @@ go build -o ~/.local/bin/esterm .
 | 라이브 | 초상화 + 팀 색 링 + 라인 배지 `T` `J` `M` `B` `S` |
 | 사망 | 회색 X 아이콘 + 아이콘에 붙은 부활 초. 피드의 사망 수로 판단합니다 |
 | 놓침 | 흐린 초상화 + 회색 `?`. 마지막 측정 위치를 추정해 유지합니다 |
-| 귀환 | 청록 링 + `R` (블루 팀), 빨강 링 (레드 팀) |
-| 텔레포트 | 보라 링 + `T` |
-| 레드 팀 채널링 | 빨강 링 + `?` |
+| 귀환 | 팀 링 바깥 청록 아우라 + `R` (블루 팀), 빨강 아우라 (레드 팀) |
+| 텔레포트 | 팀 링 바깥 보라 아우라 + `T` |
+| 레드 팀 채널링 | 팀 링 바깥 빨강 아우라 + `?` |
 
 <p align="center">
-  <img src="docs/assets/channels.png" alt="귀환 R, 텔레포트 T, 레드 팀 채널링 ?가 표시된 미니맵" width="100%" />
+  <img src="docs/assets/channels.png" alt="팀 링 바깥 아우라로 귀환 R, 텔레포트 T, 레드 팀 채널링 ?를 표시한 미니맵" width="100%" />
 </p>
 
-채널링은 아이콘 바깥 고리의 **색**을 읽어 판정합니다. 같은 색이 2프레임 연속 잡혀야 인정합니다.
-레드 팀은 귀환과 텔레포트가 같은 빨간 링이라 둘을 구분하지 않습니다.
+채널링은 아이콘 바깥 아우라의 **색**을 읽어 판정합니다. 팀 색 링은 그대로 두고 그 바깥에 물결 모양 아우라를 그립니다.
+같은 색이 2프레임 연속 잡혀야 인정합니다. 레드 팀은 귀환과 텔레포트가 같은 빨간 아우라라 둘을 구분하지 않습니다.
 
 ```bash
 esterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk \
