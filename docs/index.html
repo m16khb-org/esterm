@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>esterm — 리그 오브 레전드 e스포츠를 터미널에서</title>
-<meta name="description" content="라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. 리그 오브 레전드 e스포츠를 위한 터미널 CLI.">
-<meta property="og:title" content="esterm — LoL e스포츠 터미널 CLI">
-<meta property="og:description" content="라이브 보드, 리플레이, 방송 미니맵 챔피언 추적. 단일 Go 바이너리.">
+<title>esterm — League of Legends esports in your terminal</title>
+<meta name="description" content="Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.">
+<meta property="og:title" content="esterm — LoL esports terminal CLI">
+<meta property="og:description" content="Live boards, replays, broadcast minimap tracking. One Go binary.">
 <meta property="og:image" content="assets/hero.png">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23090d0c'/%3E%3Ctext x='32' y='44' font-family='monospace' font-size='34' font-weight='700' fill='%234de1ff' text-anchor='middle'%3Ee%3C/text%3E%3C/svg%3E">
@@ -228,8 +228,8 @@
       <a href="#how" data-i18n="nav_how">작동 방식</a>
       <a href="#install" data-i18n="nav_install">설치</a>
       <div class="langs" role="group" aria-label="Language">
-        <button type="button" data-lang="ko" class="on">KO</button>
-        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ko">KO</button>
+        <button type="button" data-lang="en" class="on">EN</button>
         <button type="button" data-lang="zh">中文</button>
       </div>
       <a class="gh" href="https://github.com/m16khb-org/esterm">GitHub</a>
@@ -634,11 +634,11 @@ const I18N = {
 };
 
 const params = new URLSearchParams(location.search);
-let lang = params.get("lang") || localStorage.getItem("esterm-lang") || "ko";
-if (!I18N[lang]) lang = "ko";
+let lang = params.get("lang") || localStorage.getItem("esterm-lang") || "en";
+if (!I18N[lang]) lang = "en";
 
 function applyLang(l) {
-  lang = I18N[l] ? l : "ko";
+  lang = I18N[l] ? l : "en";
   const d = I18N[lang];
   document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
   document.title = d.page_title;
