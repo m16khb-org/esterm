@@ -18,8 +18,11 @@ type mmBox struct{ X, Y, W, H int }
 // inside it) and the scoreboard strip with the game clock and both kill counters.
 var (
 	mmRegionMM  = mmBox{1488, 648, 432, 432}
-	mmRegionHUD = mmBox{840, 0, 240, 112}
+	mmRegionHUD = mmBox{840, 0, mmHUDW, mmHUDH}
 )
+
+// mmHUDW and mmHUDH are mmRegionHUD's size, constant so pooled frame buffers can be arrays.
+const mmHUDW, mmHUDH = 240, 112
 
 // mmFrame is one decoded video frame. Idx is the frame index on the stream timeline
 // (Idx/fps seconds since the pipeline started); it increases monotonically, gaps allowed.

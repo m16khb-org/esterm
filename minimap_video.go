@@ -343,7 +343,7 @@ func mmMainDue(ch <-chan mmMainFrame, pending *mmMainFrame, n int) ([]byte, *mmM
 			return due, pending
 		}
 		if due != nil {
-			mmMainBufs.Put(due)
+			mmPutMainBuf(due)
 		}
 		due, pending = pending.buf, nil
 	}
@@ -367,37 +367,39 @@ func mmSplitFrame(idx int, buf []byte) mmFrame {
 }
 
 // mmHUDBytes is the size of one frame's HUD region.
-var mmHUDBytes = mmRegionHUD.W * mmRegionHUD.H * 3
+const mmHUDBytes = mmHUDW * mmHUDH * 3
 
-// mmFrameBufs recycles frame buffers: ffmpeg's stacked frame followed by room for the HUD
-// copy, which is what mmSplitFrame fills when handed such a buffer.
-var mmFrameBufs = sync.Pool{}
+// mmFrameBuf is one pooled frame buffer: ffmpeg's stacked frame followed by room for the
+// HUD copy, which is what mmSplitFrame fills when handed such a buffer. The pools hold
+// array pointers, so a Put stores a pointer and does not allocate an interface box.
+type mmFrameBuf [mmStackBytes + mmHUDBytes]byte
 
-func mmGetFrameBuf() []byte {
-	if b, ok := mmFrameBufs.Get().([]byte); ok {
-		return b
-	}
-	return make([]byte, mmStackBytes+mmHUDBytes)
-}
+// mmMainBuf is one pooled main-view buffer.
+type mmMainBuf [mmMainBytes]byte
 
-// mmMainBufs recycles main-view buffers.
-var mmMainBufs sync.Pool
+var (
+	mmFrameBufs = sync.Pool{New: func() any { return new(mmFrameBuf) }}
+	mmMainBufs  = sync.Pool{New: func() any { return new(mmMainBuf) }}
+)
 
-func mmGetMainBuf() []byte {
-	if b, ok := mmMainBufs.Get().([]byte); ok {
-		return b
-	}
-	return make([]byte, mmMainBytes)
-}
+func mmGetFrameBuf() []byte { return mmFrameBufs.Get().(*mmFrameBuf)[:] }
+
+// mmPutFrameBuf recycles b, which must be a whole buffer from mmGetFrameBuf.
+func mmPutFrameBuf(b []byte) { mmFrameBufs.Put((*mmFrameBuf)(b)) }
+
+func mmGetMainBuf() []byte { return mmMainBufs.Get().(*mmMainBuf)[:] }
+
+// mmPutMainBuf recycles b, which must be a whole buffer from mmGetMainBuf.
+func mmPutMainBuf(b []byte) { mmMainBufs.Put((*mmMainBuf)(b)) }
 
 // mmReleaseFrame hands a frame's buffers back once its consumer is done with it; the frame
 // must not be used afterwards. Frames not cut from a pooled buffer are left to the GC.
 func mmReleaseFrame(f mmFrame) {
 	if cap(f.MM) == mmStackBytes+mmHUDBytes {
-		mmFrameBufs.Put(f.MM[:cap(f.MM)])
+		mmPutFrameBuf(f.MM[:cap(f.MM)])
 	}
 	if cap(f.Main) == mmMainBytes {
-		mmMainBufs.Put(f.Main[:cap(f.Main)])
+		mmPutMainBuf(f.Main[:cap(f.Main)])
 	}
 }
 
@@ -417,7 +419,7 @@ func mmReadMain(r io.Reader) <-chan mmMainFrame {
 		for k := 0; ; k++ {
 			buf := mmGetMainBuf()
 			if _, err := io.ReadFull(r, buf); err != nil {
-				mmMainBufs.Put(buf)
+				mmPutMainBuf(buf)
 				return
 			}
 			for {
@@ -426,7 +428,7 @@ func mmReadMain(r io.Reader) <-chan mmMainFrame {
 				default:
 					select {
 					case old := <-ch: // full: the oldest is dropped
-						mmMainBufs.Put(old.buf)
+						mmPutMainBuf(old.buf)
 					default:
 					}
 					continue
@@ -479,7 +481,7 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 	for {
 		buf := mmGetFrameBuf()
 		if _, rerr = io.ReadFull(pipe, buf[:mmStackBytes]); rerr != nil {
-			mmFrameBufs.Put(buf)
+			mmPutFrameBuf(buf)
 			break
 		}
 		f := mmSplitFrame(base+n, buf)
@@ -491,19 +493,19 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 		case out <- f:
 			n++
 		case <-ctx.Done():
-			mmFrameBufs.Put(buf)
+			mmPutFrameBuf(buf)
 			if f.Main != nil {
-				mmMainBufs.Put(f.Main)
+				mmPutMainBuf(f.Main)
 			}
 			if pending != nil {
-				mmMainBufs.Put(pending.buf)
+				mmPutMainBuf(pending.buf)
 			}
 			stop(true)
 			return n, ctx.Err()
 		}
 	}
 	if pending != nil {
-		mmMainBufs.Put(pending.buf)
+		mmPutMainBuf(pending.buf)
 	}
 	stop(true)
 	if rerr == io.EOF && errb.Len() == 0 {
