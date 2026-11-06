@@ -22,7 +22,7 @@ const (
 	replayLead        = 2.0                    // a new segment starts this far before the target
 	replayJump        = 20.0                   // a target this far ahead of the decoded frames is read through, not sought
 	replayDebounce    = 400 * time.Millisecond // a seek settles this long before the video restarts
-	replayProbeGiveUp = 3 * replayProbeSpan    // seconds scanned without finding the clock before the next VOD is tried
+	replayProbeGiveUp = 8 * replayProbeSpan    // seconds scanned without finding the clock before the next VOD is tried; Worlds uploads often carry 4-5 min of pre-game desk
 	replayRetryMax    = 30 * time.Second
 
 	// Before the sync has locked once, the video position is only an estimate of a few
@@ -149,6 +149,9 @@ func (v *replayVideo) view(vt float64, known bool, lives mmLives) mmView {
 	mm := v.r.mm
 	lo, hi, ok := mm.span()
 	if !ok || vt < lo-0.5 || vt > hi+1.5 {
+		if !known {
+			return mm.statusView(tr("finding_game") + " · " + mm.Status())
+		}
 		return mm.statusView(tr("buffering_video") + " · " + mm.Status())
 	}
 	view := mm.SnapshotAt(vt, lives)

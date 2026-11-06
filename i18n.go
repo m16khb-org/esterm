@@ -162,6 +162,7 @@ var messages = map[string][3]string{
 	"loading_icons":     {"loading champion icons", "챔피언 아이콘 불러오는 중", "正在加载英雄图标"},
 	"buffering":         {"buffering", "버퍼링", "缓冲中"},
 	"buffering_video":   {"buffering video", "영상 버퍼링", "视频缓冲"},
+	"finding_game":      {"finding the game start in the broadcast", "방송에서 경기 시작 지점을 찾는 중", "正在直播中查找比赛开始位置"},
 	"loading_game_data": {"loading game data %d%%", "게임 데이터 %d%% 불러오는 중", "正在加载对局数据 %d%%"},
 	"buffering_n":       {"buffering %ds", "%d초 버퍼링", "缓冲 %d 秒"},
 	"move":              {"move", "이동", "移动"},

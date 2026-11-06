@@ -686,3 +686,12 @@ func TestReplayRefusesGameWithoutPublishedEnd(t *testing.T) {
 		t.Fatalf("a game whose last frame is still in_game must not open: %v", err)
 	}
 }
+
+// Worlds YouTube uploads often carry four to five minutes of pre-game desk before the
+// game clock appears. The initial probe must scan past that lead-in instead of giving up
+// after three spans and leaving the minimap on "finding the game start" forever.
+func TestProbeWindowCoversPregameLeadIn(t *testing.T) {
+	if replayProbeGiveUp < 6*replayProbeSpan {
+		t.Fatalf("probe gives up after %.0fs, less than the pre-game lead-in", replayProbeGiveUp)
+	}
+}
