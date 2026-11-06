@@ -83,8 +83,12 @@ type mmTrk struct {
 	pendY     float64
 	pendIdx   int       // frame of that sighting
 	lastHost  int       // template index of the ally it was last attached to or carried by, -1 for none
-	chanLast  mmChannel // ring colour read on the previous frame
-	chanState mmChannel // ring colour seen on two frames in a row
+	chanLast  mmChannel // channel a bright ring started on the previous frame
+	chanState mmChannel // channel shown: started on two frames in a row, kept while its ring fades
+	chanIdx   int       // frame the shown channel started
+	chanSeen  int       // last frame its ring was read
+	chanX     float64   // where it started; a channel roots the champion
+	chanY     float64
 }
 
 // mmTracker follows every champion of a game across the frames of one stream.
@@ -106,7 +110,7 @@ func newMMTracker(tpls []champTpl) *mmTracker {
 // Reset forgets every position (the stream jumped).
 func (t *mmTracker) Reset() {
 	for i := range t.trk {
-		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1, lastHost: -1}
+		t.trk[i] = mmTrk{coverIdx: -1, carrier: -1, lastHost: -1, chanSeen: -mmArriveQuiet - 1}
 	}
 }
 
@@ -189,7 +193,7 @@ func (t *mmTracker) StepWith(idx int, rgb []byte, lives mmLives, obs []mvObs) []
 	t.match(idx)
 	t.fuse(idx, obs)
 	t.markCovered(idx)
-	t.detectChannels()
+	t.detectChannels(idx)
 	return t.dets(idx)
 }
 
@@ -608,33 +612,88 @@ func (t *mmTracker) dets(idx int) []mmDet {
 	return out
 }
 
+// Channel timing. A Recall channels for 8 s and a Teleport for 4 s; the ring fades while the
+// channel runs, so a ring that has lasted mmRecallSure is a Recall whatever its colour.
+const (
+	mmRecallSure  = 5 * mmFPS // frames: a red ring this old is a red-team Recall, not a Teleport
+	mmChanMissMax = 3         // frames a channel survives without the icon being found
+	mmArriveQuiet = 3 * mmFPS // frames after a channel during which arriving elsewhere starts none
+	mmFountainR   = 0.07      // normalized radius around the fountain where no Recall starts
+	mmRingStart   = 0.15      // share of bright ring pixels that starts a cyan, green or purple channel
+	mmRingStartR  = 0.20      // ... and a red one (red-team structures sit close to the icons)
+	mmRingHold    = 0.10      // share of bright-or-dim ring pixels that keeps a started channel going
+)
+
 // detectChannels reads the swirling Recall/Teleport ring around each champion measured on
-// this frame. A colour has to appear on two consecutive frames: the ring is bright and
-// steady, while a single frame can catch a spell effect or a coloured piece of terrain.
-func (t *mmTracker) detectChannels() {
+// this frame. A colour has to appear bright on two consecutive frames to start a channel:
+// the ring is steady, while a single frame can catch a spell effect or a coloured piece of
+// terrain. The ring then fades over the channel, so a started channel is kept while its
+// colour stays at the dimmer mmRingHold share and the champion stands where it started
+// (channels root; walking off cancels them, a Recall ends in the fountain). No channel
+// starts on the arrival: around a just-recalled icon the fountain reads as the team colour.
+func (t *mmTracker) detectChannels(idx int) {
+	near := float64(t.d()) / 2
 	for k := range t.trk {
 		tr := &t.trk[k]
-		cs := mmChanNone
-		if tr.measured && !tr.dead && !tr.spawn {
-			cs = mmRingChannel(t.rgb, tr.lastMX, tr.lastMY, t.tpls[k].ref.Team)
+		if tr.dead || tr.spawn {
+			tr.chanState, tr.chanLast = mmChanNone, mmChanNone
+			continue
 		}
-		if cs == tr.chanLast {
-			tr.chanState = cs
-		} else {
+		if !tr.measured {
+			if tr.chanState != mmChanNone && idx-tr.chanSeen > mmChanMissMax {
+				tr.chanState = mmChanNone
+			}
+			tr.chanLast = mmChanNone
+			continue
+		}
+		team := t.tpls[k].ref.Team
+		ring := mmReadRing(t.rgb, tr.lastMX, tr.lastMY, team)
+		cs := ring.channel()
+		if fx, fy := spawnPrior(team); cs == mmChanRecall &&
+			math.Hypot(tr.lastMX/mmFrameSize-fx, tr.lastMY/mmFrameSize-fy) < mmFountainR {
+			cs = mmChanNone // nobody recalls in the fountain; its platform reads as the team colour
+		}
+		switch {
+		case tr.chanState != mmChanNone && ring.holds(tr.chanState) &&
+			math.Hypot(tr.lastMX-tr.chanX, tr.lastMY-tr.chanY) <= near:
+			tr.chanSeen = idx
+			if tr.chanState == mmChanRed && idx-tr.chanIdx >= mmRecallSure {
+				tr.chanState = mmChanRecall
+			}
+		case cs != mmChanNone && cs == tr.chanLast &&
+			(idx-tr.chanSeen > mmArriveQuiet || math.Hypot(tr.lastMX-tr.chanX, tr.lastMY-tr.chanY) <= near):
+			tr.chanState, tr.chanIdx, tr.chanSeen = cs, idx-1, idx
+			tr.chanX, tr.chanY = tr.lastMX, tr.lastMY
+		default:
 			tr.chanState = mmChanNone
 		}
 		tr.chanLast = cs
 	}
 }
 
-// mmRingChannel classifies the ring just outside a champion icon at (cx, cy) in the
-// mmFrameSize frame. A blue-team Recall is cyan, a Teleport purple (green in the client
-// asset), and a red-team Recall red; a red-team Teleport may share that red ring.
-func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
+// Ring colours, by hue.
+const (
+	mmRingCyan = iota
+	mmRingGreen
+	mmRingPurple
+	mmRingRed
+	mmRingColours
+)
+
+// mmRing is the share of the ring just outside a champion icon in each channel colour:
+// bright pixels, which start a channel, and bright or dim ones, which keep it going.
+type mmRing struct{ bright, lit [mmRingColours]float64 }
+
+// mmReadRing reads the ring around a champion icon at (cx, cy) in the mmFrameSize frame.
+// A blue-team Recall is cyan, a blue-team Teleport green (purple is read as Teleport for
+// either team), and every red-team channel red: the enemy Recall and Teleport assets share
+// it. Cyan is only counted for the blue team and red only for the red team.
+func mmReadRing(rgb []byte, cx, cy float64, team int) mmRing {
+	var r mmRing
 	if rgb == nil {
-		return mmChanNone
+		return r
 	}
-	var n, cyan, green, purple, red int
+	n := 0
 	for dy := -20; dy <= 20; dy++ {
 		for dx := -20; dx <= 20; dx++ {
 			r2 := dx*dx + dy*dy
@@ -648,34 +707,63 @@ func mmRingChannel(rgb []byte, cx, cy float64, team int) mmChannel {
 			o := 3 * (y*mmFrameSize + x)
 			h, s, v := rgbHSV(rgb[o], rgb[o+1], rgb[o+2])
 			n++
-			if v < 0.72 || s < 0.22 {
+			if v < 0.45 || s < 0.22 {
 				continue
 			}
+			c := -1
 			switch {
 			case team == 100 && h >= 170 && h <= 245:
-				cyan++
+				c = mmRingCyan
 			case h >= 80 && h <= 165:
-				green++
+				c = mmRingGreen
 			case h >= 265 && h <= 335:
-				purple++
+				c = mmRingPurple
 			case team == 200 && (h < 20 || h >= 335):
-				red++
+				c = mmRingRed
+			}
+			if c < 0 {
+				continue
+			}
+			r.lit[c]++
+			if v >= 0.72 {
+				r.bright[c]++
 			}
 		}
 	}
-	if n == 0 {
-		return mmChanNone
+	for c := range r.lit {
+		if n > 0 {
+			r.lit[c] /= float64(n)
+			r.bright[c] /= float64(n)
+		}
 	}
-	f := float64(n)
+	return r
+}
+
+// channel is the channel a bright ring starts, mmChanNone when there is none.
+func (r mmRing) channel() mmChannel {
 	switch {
-	case float64(cyan)/f > 0.15 && team == 100:
+	case r.bright[mmRingCyan] > mmRingStart:
 		return mmChanRecall
-	case float64(green)/f > 0.15 || float64(purple)/f > 0.15:
+	case r.bright[mmRingGreen] > mmRingStart || r.bright[mmRingPurple] > mmRingStart:
 		return mmChanTeleport
-	case float64(red)/f > 0.20:
+	case r.bright[mmRingRed] > mmRingStartR:
 		return mmChanRed
 	}
 	return mmChanNone
+}
+
+// holds reports whether the ring still shows channel c, faded as it may be. A Recall is
+// cyan or red, whichever the team's colour is (mmReadRing counts only that one).
+func (r mmRing) holds(c mmChannel) bool {
+	switch c {
+	case mmChanRecall:
+		return r.lit[mmRingCyan]+r.lit[mmRingRed] >= mmRingHold
+	case mmChanTeleport:
+		return r.lit[mmRingGreen] >= mmRingHold || r.lit[mmRingPurple] >= mmRingHold
+	case mmChanRed:
+		return r.lit[mmRingRed] >= mmRingHold
+	}
+	return false
 }
 
 // rgbHSV converts a colour to hue (degrees), saturation and value (0..1).

@@ -85,9 +85,10 @@ type mmDet struct {
 	Chan mmChannel
 }
 
-// mmChannel is the kind of channel the minimap ring shows: a blue-team Recall is cyan,
-// a Teleport purple (blue-team Teleport is green in the client asset), and a red-team
-// Recall red (a red-team Teleport may share it, so only the team is certain there).
+// mmChannel is the kind of channel the minimap ring shows. The broadcast draws the blue team
+// with the player client's friendly assets and the red team with the enemy ones: a blue
+// Recall is cyan, a blue Teleport green (purple is read as Teleport too), and both red-team
+// channels share one red ring, told apart only by how long it lasts (see mmRecallSure).
 type mmChannel uint8
 
 const (
@@ -109,8 +110,8 @@ func (c mmChannel) String() string {
 	return ""
 }
 
-// letter is the badge shown while channeling; "?" when a red ring does not say whether it
-// is a Recall or a Teleport.
+// letter is the badge shown while channeling; "?" for a red ring not yet old enough to be
+// a Recall, which may still be a Teleport.
 func (c mmChannel) letter() string {
 	switch c {
 	case mmChanRecall:

@@ -339,6 +339,7 @@ type mmSprite struct {
 	d       int
 	pix     []uint8
 	channel mmChannel
+	aura    color.RGBA // channel aura colour
 }
 
 type mmSpriteKey struct {
@@ -354,16 +355,20 @@ var mmSprites struct {
 	m map[mmSpriteKey]*mmSprite
 }
 
-// mmChannelColor is the ring and badge colour of a channel: cyan Recall, purple Teleport,
-// red for a red-team channel.
-func mmChannelColor(c mmChannel) color.RGBA {
+// mmChannelColor is the aura and badge colour of a channel: a Recall in its team's colour
+// (cyan or red), purple Teleport, red for a red-team channel not yet told apart.
+func mmChannelColor(c mmChannel, team int) color.RGBA {
+	red := color.RGBA{0xff, 0x5a, 0x7a, 0xff}
 	switch c {
 	case mmChanRecall:
+		if team == 200 {
+			return red
+		}
 		return color.RGBA{0x4d, 0xe1, 0xff, 0xff}
 	case mmChanTeleport:
 		return color.RGBA{0xb4, 0x6b, 0xff, 0xff} // purple, the summoner spell's colour
 	case mmChanRed:
-		return color.RGBA{0xff, 0x5a, 0x7a, 0xff}
+		return red
 	}
 	return color.RGBA{}
 }
@@ -390,7 +395,7 @@ func mmSpriteFor(icon image.Image, team, d, ring int, label string, state mmIcon
 		rc = mmRingGrey
 	}
 	sp := renderSprite(d, ring, rc, icon, label)
-	sp.channel = channel
+	sp.channel, sp.aura = channel, mmChannelColor(channel, team)
 	switch state {
 	case mmIconStale:
 		shadeSprite(sp, false, 0.55)
@@ -1015,15 +1020,14 @@ func kittySpritePixels(sp *mmSprite, cols, rows, cellW, cellH, phx, phy int) *im
 		copy(img.Pix[o:o+4*sp.d], sp.pix[4*y*sp.d:4*(y+1)*sp.d])
 	}
 	if sp.channel != mmChanNone {
-		drawChannelAura(img, float64(ox)+float64(sp.d)/2, float64(oy)+float64(sp.d)/2, float64(sp.d)/2, sp.channel)
+		drawChannelAura(img, float64(ox)+float64(sp.d)/2, float64(oy)+float64(sp.d)/2, float64(sp.d)/2, sp.aura)
 	}
 	return img
 }
 
 // drawChannelAura paints a wavy ring just outside the team ring. The wave is a sum of two
 // sines so the ring reads as a swirling channel effect rather than a second team colour.
-func drawChannelAura(img *image.RGBA, cx, cy, r0 float64, c mmChannel) {
-	col := mmChannelColor(c)
+func drawChannelAura(img *image.RGBA, cx, cy, r0 float64, col color.RGBA) {
 	for y := 0; y < img.Bounds().Dy(); y++ {
 		for x := 0; x < img.Bounds().Dx(); x++ {
 			dx, dy := float64(x)+0.5-cx, float64(y)+0.5-cy
