@@ -15,7 +15,7 @@ import (
 func mmStart(ctx context.Context, cmd *exec.Cmd) (stop func(kill bool) error, err error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Parent-death watchdog: the child's group gets a background reader on a pipe whose write
-	// end only esterm holds. When esterm dies for any reason (even SIGKILL) the kernel closes
+	// end only lolterm holds. When lolterm dies for any reason (even SIGKILL) the kernel closes
 	// it, the reader sees EOF and kills the whole group. Watcher stdio is /dev/null so it
 	// never holds the child's stdout/stderr pipes open.
 	pr, pw, perr := os.Pipe()

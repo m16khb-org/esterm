@@ -616,7 +616,7 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 		rows = append(rows, borderedL(joinLR(line{}, line{C("○  NO LIVE GAMES RIGHT NOW", cBold+cYel)}, W), t))
 		bl()
 		rows = append(rows, borderedL(joinLR(line{}, line{C("polling for a match to start…", cDim)}, W), t))
-		rows = append(rows, borderedL(joinLR(line{}, line{C("try: esterm lol schedule", cDim)}, W), t))
+		rows = append(rows, borderedL(joinLR(line{}, line{C("try: lolterm lol schedule", cDim)}, W), t))
 		rows = append(rows, blankL(t))
 		return finishCanvas(rows, t, h, now, compact, interval, tg)
 	}

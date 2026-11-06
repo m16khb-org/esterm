@@ -690,7 +690,7 @@ func mmBlockObjLabel(img *image.RGBA, c objCell) string {
 // Text cells would not do: the map tiles are opaque images above all text.
 //
 // Image ids are offsets into a block of kittyIDSpan ids that each process picks at random:
-// the terminal keeps images after esterm exits (the one-shot demo leaves its picture on the
+// the terminal keeps images after lolterm exits (the one-shot demo leaves its picture on the
 // screen), and a later run that reused an id would replace that picture's image and steal
 // its placements.
 //
@@ -1139,7 +1139,7 @@ func kittyAxis(px, cell, box, slot int) (c, ph int) {
 // kittySpritePID is the placement id of champion slot i: i+1, or its alternate. A sprite is
 // never moved by re-placing the placement it has: Tern's Windows client (relayed from the
 // macOS daemon) drew no champion while every tick re-placed them, yet drew the same sprites
-// when they never moved (`esterm lol demo`) and when each move went to the other id. Each
+// when they never moved (`lolterm lol demo`) and when each move went to the other id. Each
 // move places the image under the other id and then drops the old placement.
 func kittySpritePID(i int, alt bool) int {
 	if alt {

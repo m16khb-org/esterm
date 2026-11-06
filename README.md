@@ -1,42 +1,42 @@
 <div align="center">
 
-# esterm
+# lolterm
 
 **리그 오브 레전드 e스포츠를 터미널에서 보는 CLI**
 
 라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치
 
 <p>
-  <a href="https://github.com/m16khb-org/esterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/esterm?style=flat-square&label=release&color=4de1ff"></a>
+  <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/lolterm?style=flat-square&label=release&color=4de1ff"></a>
   <a href="go.mod"><img alt="go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
-  <a href="https://github.com/m16khb-org/esterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/esterm?style=flat-square&color=4de1ff"></a>
+  <a href="https://github.com/m16khb-org/lolterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/lolterm?style=flat-square&color=4de1ff"></a>
 </p>
 
-[한국어](README.md) · [English](https://m16khb-org.github.io/esterm/?lang=en) · [中文](https://m16khb-org.github.io/esterm/?lang=zh) · [웹 소개](https://m16khb-org.github.io/esterm/) · [설치](INSTALL.md)
+[한국어](README.md) · [English](https://m16khb-org.github.io/lolterm/?lang=en) · [中文](https://m16khb-org.github.io/lolterm/?lang=zh) · [웹 소개](https://m16khb-org.github.io/lolterm/) · [설치](INSTALL.md)
 
 <sub>macOS · Linux · Go 1.21+</sub>
 
-<img src="docs/assets/hero.png" alt="esterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
+<img src="docs/assets/hero.png" alt="lolterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
 
 </div>
 
-> **v0.1.0** — 첫 공개 릴리스입니다. [릴리스 노트](https://github.com/m16khb-org/esterm/releases/tag/v0.1.0)에서 변경 사항과 설치 방법을 확인하세요.
+> **v0.1.0** — 첫 공개 릴리스입니다. [릴리스 노트](https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0)에서 변경 사항과 설치 방법을 확인하세요.
 
-[왜 esterm](#왜-esterm인가) · [한눈에](#한눈에) · [설치](#설치) · [빠른 시작](#빠른-시작) ·
+[왜 lolterm](#왜-lolterm인가) · [한눈에](#한눈에) · [설치](#설치) · [빠른 시작](#빠른-시작) ·
 [대화형 앱](#대화형-앱) · [미니맵](#미니맵) · [작동 방식](#작동-방식) · [검증](#검증) ·
 [터미널 설정](#터미널-설정) · [문서](#문서) · [기여](#기여) · [라이선스](#라이선스)
 
-## 왜 esterm인가
+## 왜 lolterm인가
 
-Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언 좌표는 주지 않습니다. esterm은 공식 방송 화면에서 미니맵을 직접 읽어 이 빈칸을 채웁니다.
+Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언 좌표는 주지 않습니다. lolterm은 공식 방송 화면에서 미니맵을 직접 읽어 이 빈칸을 채웁니다.
 
 - **방송을 읽습니다.** 공식 1080p 방송의 미니맵과 게임 시계를 인식하고, 초상화 템플릿 매칭·칼만 필터·메인 뷰 체력바를 함께 사용해 10명의 위치를 추정합니다.
 - **터미널에서 끝납니다.** 라이브 보드와 다시 보기를 한 화면에서 보고, 클릭·더블클릭·휠로 조작합니다. UI는 한국어·영어·중국어를 지원합니다.
 - **숫자로 확인합니다.** Worlds·LCK·LPL·LEC 16경기 백테스트에서 생존 챔피언 검출 94.0%, 죽은 챔피언 오검출 0.00%를 기록했습니다.
 
 <p align="center">
-  <a href="docs/assets/demo.mp4"><img src="docs/assets/demo.gif" alt="esterm 실제 구동 화면: Worlds 리플레이 보드와 실시간 미니맵" width="100%" /></a>
+  <a href="docs/assets/demo.mp4"><img src="docs/assets/demo.gif" alt="lolterm 실제 구동 화면: Worlds 리플레이 보드와 실시간 미니맵" width="100%" /></a>
 </p>
 <p align="center"><sub>Worlds 리플레이 보드 · 15초 실제 구동 영상 · <a href="docs/assets/demo.mp4">MP4</a></sub></p>
 
@@ -49,7 +49,7 @@ Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언
 | **방송 미니맵** | 공식 1080p 방송 4종(Worlds·LCK·LPL·LEC) 레이아웃 자동 인식, 초당 5프레임 추적 |
 | **상태 표시** | 사망 `✕`+부활 초, 놓침은 흐린 초상화+`?`, 귀환 `R`·텔레포트 `T`와 도착 지점 |
 | **마우스 조작** | 클릭으로 창 선택과 항목 이동, 더블클릭으로 열기, 휠로 목록 스크롤 |
-| **3개 언어** | 한국어·영어·중국어 UI. `-lang ko\|en\|zh` 또는 `ESTERM_LANG`, 옵션 메뉴에서 전환 |
+| **3개 언어** | 한국어·영어·중국어 UI. `-lang ko\|en\|zh` 또는 `LOLTERM_LANG`, 옵션 메뉴에서 전환 |
 | **단일 바이너리** | Go 표준 라이브러리만 사용. 외부 의존성은 미니맵용 `yt-dlp`·`ffmpeg`·JS 런타임뿐 |
 
 ## 설치
@@ -57,22 +57,22 @@ Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언
 Go 1.21 이상이 필요합니다. 미니맵을 쓰려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno` 권장, 없으면 `bun` 또는 `node`)이 필요합니다.
 
 ```bash
-go install github.com/m16khb-org/esterm@latest
+go install github.com/m16khb-org/lolterm@latest
 # $(go env GOPATH)/bin 이 PATH 에 있어야 합니다
 ```
 
 미니맵 의존성은 macOS에서 `brew install yt-dlp ffmpeg deno`, Linux에서 `apt install ffmpeg`와 `pipx install yt-dlp`로 설치합니다.
-Windows 10 1809 이상에서도 네이티브로 빌드하고 실행합니다. 저장소에서 `go install .` 한 뒤 `esterm`을 실행하고, 도구는 `winget`으로 설치합니다.
+Windows 10 1809 이상에서도 네이티브로 빌드하고 실행합니다. 저장소에서 `go install .` 한 뒤 `lolterm`을 실행하고, 도구는 `winget`으로 설치합니다.
 자세한 사전 점검·PATH·검증 절차는 **[INSTALL.md](INSTALL.md)** 에 있습니다.
 
 <details>
 <summary>소스에서 빌드하기</summary>
 
 ```bash
-git clone https://github.com/m16khb-org/esterm.git
-cd esterm
+git clone https://github.com/m16khb-org/lolterm.git
+cd lolterm
 mkdir -p ~/.local/bin
-go build -o ~/.local/bin/esterm .
+go build -o ~/.local/bin/lolterm .
 ```
 
 </details>
@@ -80,11 +80,11 @@ go build -o ~/.local/bin/esterm .
 ## 빠른 시작
 
 ```bash
-esterm                              # 대화형 앱
-esterm -lang ko                     # 한국어 UI (en, zh)
-esterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
-esterm lol replay -match 115660588583040710 -g 1
-esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
+lolterm                              # 대화형 앱
+lolterm -lang ko                     # 한국어 UI (en, zh)
+lolterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
+lolterm lol replay -match 115660588583040710 -g 1
+lolterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 ```
 
 대화형 앱에서 리그를 고르고 `Enter`로 경기를 열면 라이브 보드나 다시 보기가 시작됩니다.
@@ -92,7 +92,7 @@ esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 
 ## 대화형 앱
 
-인자 없이 `esterm`을 실행하면 키보드와 마우스로 쓰는 앱이 열립니다. 왼쪽에 `[1] Leagues`, `[2] Matches`, `[3] Games` 목록이 쌓이고,
+인자 없이 `lolterm`을 실행하면 키보드와 마우스로 쓰는 앱이 열립니다. 왼쪽에 `[1] Leagues`, `[2] Matches`, `[3] Games` 목록이 쌓이고,
 오른쪽 `[0]` 창은 선택한 경기의 미리보기나 실행 중인 보드를 보여 줍니다.
 
 | 입력 | 동작 |
@@ -109,7 +109,7 @@ esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 | `?` | 현재 문맥의 키 도움말 |
 | `q` / `Ctrl+C` | 종료 |
 
-언어는 `esterm -lang ko`, `esterm -lang zh`처럼 실행하거나 `ESTERM_LANG=ko`를 설정합니다.
+언어는 `lolterm -lang ko`, `lolterm -lang zh`처럼 실행하거나 `LOLTERM_LANG=ko`를 설정합니다.
 기본값은 영어이고, 옵션 메뉴의 `Language` 항목에서도 바꿀 수 있습니다.
 
 보드에 포커스가 있을 때는 `Space` 일시정지, `←` `→` ±10초, `+` `-` 배속, `b` stats→items→runes,
@@ -117,7 +117,7 @@ esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 
 ## 미니맵
 
-`m` 토글 또는 `esterm lol minimap`은 방송 영상의 미니맵에서 챔피언 위치를 직접 검출합니다.
+`m` 토글 또는 `lolterm lol minimap`은 방송 영상의 미니맵에서 챔피언 위치를 직접 검출합니다.
 검출은 순수 Go로 합니다: Data Dragon/CommunityDragon 초상화 템플릿, 헝가리안 배정, 칼만 필터, 메인 뷰 체력바 융합.
 
 <p align="center">
@@ -151,7 +151,7 @@ esterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 한타 중 여러 아이콘에 덮인 도착 지점은 찾지 못합니다.
 
 ```bash
-esterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk \
+lolterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk \
   -ss 1500 -game 115660588583040711 -n 20 -json
 ```
 
@@ -217,7 +217,7 @@ go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=/tmp/bac
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 개발 환경, 테스트, 커밋·PR 규칙 |
 | [.issueops/ARCHITECTURE.md](.issueops/ARCHITECTURE.md) | 구조와 설계 결정 |
 | [.issueops/TESTING.md](.issueops/TESTING.md) | 검증 기준 |
-| [웹 소개](https://m16khb-org.github.io/esterm/) | 스크린샷과 설치 안내 (한국어·영어·중국어) |
+| [웹 소개](https://m16khb-org.github.io/lolterm/) | 스크린샷과 설치 안내 (한국어·영어·중국어) |
 
 ## 기여
 
@@ -225,7 +225,7 @@ go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=/tmp/bac
 
 ```bash
 go test -count=1 ./...          # 전체 테스트
-go build -o ~/.local/bin/esterm .
+go build -o ~/.local/bin/lolterm .
 ```
 
 UI를 바꿨다면 스크린샷을 PR에 첨부합니다. 커밋은 Conventional Commits 형식을 따르고, 비밀값·로컬 캐시·생성물은 올리지 않습니다.

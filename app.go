@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The interactive app (`esterm` / `esterm lol`): lazygit-style panes for leagues, matches
+// The interactive app (`lolterm` / `lolterm lol`): lazygit-style panes for leagues, matches
 // and games, a main pane that previews the selection or plays a live/replay board, a
 // hint bar and popups. app holds the whole UI state; everything it reads from the network
 // or starts goes through appDeps so the state machine runs hermetically in tests.
@@ -1186,7 +1186,7 @@ func (a *app) previewLines() []line {
 	if ev == nil || ev.Match == nil {
 		l := a.selLeague()
 		if l == nil {
-			return []line{{C("esterm · League of Legends esports", cBold)}, nil, {C(tr("pick_league"), cDim)}}
+			return []line{{C("lolterm · League of Legends esports", cBold)}, nil, {C(tr("pick_league"), cDim)}}
 		}
 		return []line{{C(l.Name, cBold)}, {C(fmt.Sprintf(tr("league_label"), l.Slug), cDim)}, nil, {C(tr("pick_match"), cDim)}}
 	}

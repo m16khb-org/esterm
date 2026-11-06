@@ -63,11 +63,11 @@ type btFrame struct {
 	terr   bool    // the fitted box shows terrain
 	plateS float64 // share of the plate's edge pixels still on screen
 
-	// ESTERM_BACKTEST_MISS=1: for every champion not found on this frame, its best portrait
+	// LOLTERM_BACKTEST_MISS=1: for every champion not found on this frame, its best portrait
 	// match over the whole map (nil on other frames).
 	miss []btMiss
 
-	// ESTERM_BACKTEST_FITALL=1: the map fit of this very frame, whatever the pipeline did
+	// LOLTERM_BACKTEST_FITALL=1: the map fit of this very frame, whatever the pipeline did
 	// (the pipeline refits every mmFitEvery frames only).
 	boxNow mmBox
 	fitNow float32
@@ -89,7 +89,7 @@ type btRun struct {
 	rangeEnd  float64 // video second after which frames are not processed (0: whole clip)
 	peaks     []btPeak
 
-	// ESTERM_BACKTEST_MISS=1: mean team-colour lean by distance from the centre (half px
+	// LOLTERM_BACKTEST_MISS=1: mean team-colour lean by distance from the centre (half px
 	// bins) around isolated, well matched icons, per team (100, 200): where the ring is.
 	ring    [2][40]float64
 	ringCnt [2][40]int
@@ -195,11 +195,11 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	wall0, cpu0 := time.Now(), btCPU()
-	// ESTERM_BACKTEST_RANGE=a-b processes only game seconds a..b (feed time since spawn):
+	// LOLTERM_BACKTEST_RANGE=a-b processes only game seconds a..b (feed time since spawn):
 	// quick iteration on the tracker; the sync lock and the HUD read need no earlier video.
-	vo := mmVideoOpts{Src: p.clip, FPS: mmFPS, VOD: true, Main: os.Getenv("ESTERM_BACKTEST_NOMV") == ""}
+	vo := mmVideoOpts{Src: p.clip, FPS: mmFPS, VOD: true, Main: os.Getenv("LOLTERM_BACKTEST_NOMV") == ""}
 	var ra, rb float64
-	if n, _ := fmt.Sscanf(os.Getenv("ESTERM_BACKTEST_RANGE"), "%f-%f", &ra, &rb); n == 2 {
+	if n, _ := fmt.Sscanf(os.Getenv("LOLTERM_BACKTEST_RANGE"), "%f-%f", &ra, &rb); n == 2 {
 		vo.SS = math.Max(0, p.atClip+ra-10)
 		vo.IdxBase = int(math.Round(vo.SS * mmFPS))
 		vo.SS = float64(vo.IdxBase) / mmFPS
@@ -229,14 +229,14 @@ func btProcess(ctx context.Context, p *btPrep) (*btRun, error) {
 		t0 := time.Now()
 		bf.res = pipe.Process(f)
 		run.procWall += time.Since(t0)
-		if bf.res.layout != "" && os.Getenv("ESTERM_BACKTEST_FITALL") != "" {
+		if bf.res.layout != "" && os.Getenv("LOLTERM_BACKTEST_FITALL") != "" {
 			for _, l := range mmLayouts {
 				if l.Name == bf.res.layout {
 					bf.boxNow, bf.fitNow, _ = mmFitMap(f.MM, l.Map)
 				}
 			}
 		}
-		if os.Getenv("ESTERM_BACKTEST_MISS") != "" && bf.res.visible && pipe.cover == 0 && pipe.trk != nil && len(bf.res.dets) == len(pipe.trk.tpls) {
+		if os.Getenv("LOLTERM_BACKTEST_MISS") != "" && bf.res.visible && pipe.cover == 0 && pipe.trk != nil && len(bf.res.dets) == len(pipe.trk.tpls) {
 			// where each champion the tracker does not have fresh would score best over the whole map
 			trk := pipe.trk
 			bf.miss = make([]btMiss, len(bf.res.dets))
@@ -313,12 +313,12 @@ func btLeftover() []string {
 }
 
 func TestBacktest(t *testing.T) {
-	for _, tool := range []string{mmTool("ESTERM_FFMPEG", "ffmpeg"), mmTool("ESTERM_YTDLP", "yt-dlp")} {
+	for _, tool := range []string{mmTool("LOLTERM_FFMPEG", "ffmpeg"), mmTool("LOLTERM_YTDLP", "yt-dlp")} {
 		if !mmHasTool(tool) {
 			t.Skipf("%s is not installed", tool)
 		}
 	}
-	sel := regexp.MustCompile(os.Getenv("ESTERM_BACKTEST_GAMES"))
+	sel := regexp.MustCompile(os.Getenv("LOLTERM_BACKTEST_GAMES"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -340,7 +340,7 @@ func TestBacktest(t *testing.T) {
 			preps[i] <- btPrepare(ctx, g, dl)
 		}(i, g)
 	}
-	if os.Getenv("ESTERM_BACKTEST_DOWNLOAD_ONLY") != "" { // fill the cache and stop
+	if os.Getenv("LOLTERM_BACKTEST_DOWNLOAD_ONLY") != "" { // fill the cache and stop
 		for i := range games {
 			if p := <-preps[i]; p.err != nil {
 				t.Errorf("%s: prepare: %v", p.label, p.err)

@@ -98,7 +98,7 @@ func ddLatestVersion(ctx context.Context) (string, error) {
 }
 
 // ddImage returns a Data Dragon PNG (e.g. "img/map/map11.png"), served from the
-// in-memory memo, then the disk cache under UserCacheDir/esterm/ddragon, then the network.
+// in-memory memo, then the disk cache under UserCacheDir/lolterm/ddragon, then the network.
 // Concurrent calls for one key share a single load; no lock is held during I/O.
 func ddImage(ctx context.Context, version, path string) (image.Image, error) {
 	key := version + "/" + path
@@ -182,7 +182,7 @@ func ddCacheRoot() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "esterm", "ddragon")
+	return filepath.Join(dir, "lolterm", "ddragon")
 }
 
 // ddNewestCached returns the newest version directory under the disk cache, or "". The

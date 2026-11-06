@@ -1,6 +1,6 @@
 # 기여 가이드
 
-esterm에 관심을 가져 주셔서 고맙습니다. 버그 제보, 문서 수정, 기능 제안, 코드 기여 모두 환영합니다.
+lolterm에 관심을 가져 주셔서 고맙습니다. 버그 제보, 문서 수정, 기능 제안, 코드 기여 모두 환영합니다.
 
 ## 시작하기
 
@@ -9,10 +9,10 @@ esterm에 관심을 가져 주셔서 고맙습니다. 버그 제보, 문서 수�
 3. 변경 사항을 작은 커밋으로 나눠 PR을 엽니다.
 
 ```bash
-git clone https://github.com/<your-name>/esterm.git
-cd esterm
+git clone https://github.com/<your-name>/lolterm.git
+cd lolterm
 go test -count=1 ./...
-go build -o ~/.local/bin/esterm .
+go build -o ~/.local/bin/lolterm .
 ```
 
 미니맵 관련 작업을 하려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno`, `bun`, `node` 중 하나)이 필요합니다.

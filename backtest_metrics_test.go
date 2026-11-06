@@ -1018,7 +1018,7 @@ func btReport(all []*btStats) string {
 		for _, f := range s.Fails {
 			fmt.Fprintf(&b, "FAIL %s: %s\n", s.Label, f)
 		}
-		if os.Getenv("ESTERM_BACKTEST_V") != "" {
+		if os.Getenv("LOLTERM_BACKTEST_V") != "" {
 			for _, v := range s.Verbose {
 				fmt.Fprintf(&b, "  %s: %s\n", s.Label, v)
 			}
@@ -1074,7 +1074,7 @@ func btSaveGaps(p *btPrep, run *btRun, s *btStats, out string) {
 // champion).
 func btDrawFrame(p *btPrep, f btFrame, mark int, header, name string) {
 	args := mmFFmpegArgs(p.clip, math.Max(0, f.t-0.2), false, true, mmRegionFilter(1), true)
-	b, err := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...).Output()
+	b, err := exec.Command(mmTool("LOLTERM_FFMPEG", "ffmpeg"), args...).Output()
 	if err != nil || len(b) < mmStackBytes {
 		return
 	}
@@ -1153,7 +1153,7 @@ func btSaveHides(p *btPrep, run *btRun, s *btStats, dir string) {
 		n++
 		f := run.frames[h.mid]
 		args := mmFFmpegArgs(p.clip, math.Max(0, f.t-0.2), false, true, mmRegionFilter(1), true)
-		b, err := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...).Output()
+		b, err := exec.Command(mmTool("LOLTERM_FFMPEG", "ffmpeg"), args...).Output()
 		if err != nil || len(b) < mmStackBytes {
 			continue
 		}

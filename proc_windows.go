@@ -16,7 +16,7 @@ import (
 
 // Child processes on Windows: each runs in a job object that kills everything in it when
 // its last handle closes, so ffmpeg and yt-dlp (whose pip launcher starts python) go with
-// esterm however it ends. The main view comes over a named pipe: Windows children inherit
+// lolterm however it ends. The main view comes over a named pipe: Windows children inherit
 // no descriptors beyond the standard three.
 
 var (
@@ -111,7 +111,7 @@ func mmStart(ctx context.Context, cmd *exec.Cmd) (stop func(kill bool) error, er
 var mmPipeSeq atomic.Int64
 
 // mmMainPipe is the second output of ffmpeg, the main view: a named pipe that ffmpeg opens
-// as its output file and esterm reads.
+// as its output file and lolterm reads.
 type mmMainPipe struct {
 	target    string // the pipe's name, which ffmpeg writes to
 	h         syscall.Handle
@@ -121,7 +121,7 @@ type mmMainPipe struct {
 }
 
 func newMMMainPipe() (*mmMainPipe, error) {
-	name := fmt.Sprintf(`\\.\pipe\esterm-main-%d-%d`, os.Getpid(), mmPipeSeq.Add(1))
+	name := fmt.Sprintf(`\\.\pipe\lolterm-main-%d-%d`, os.Getpid(), mmPipeSeq.Add(1))
 	n, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
 		return nil, err

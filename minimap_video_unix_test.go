@@ -22,7 +22,7 @@ func TestMMLoopRetriesPageSourceWhenResolveFails(t *testing.T) {
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho boom >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ESTERM_YTDLP", fake)
+	t.Setenv("LOLTERM_YTDLP", fake)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	attempts := 0
@@ -57,7 +57,7 @@ func TestMMResolveRejectsALiveArchiveVOD(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ESTERM_YTDLP", fake)
+	t.Setenv("LOLTERM_YTDLP", fake)
 	_, live, _, err := mmResolve(context.Background(), "https://www.youtube.com/watch?v=x")
 	if err == nil || live {
 		t.Fatalf("got live=%v err=%v, want a seekability error", live, err)
@@ -70,7 +70,7 @@ func TestMMLoopStopsOnALiveArchive(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ESTERM_YTDLP", fake)
+	t.Setenv("LOLTERM_YTDLP", fake)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	done := make(chan struct{})
@@ -88,7 +88,7 @@ func TestMMLoopStopsOnALiveArchive(t *testing.T) {
 // TestMmStartParentDeath re-execs the test binary as a parent that spawns a long sleeper via
 // mmStart; after SIGKILLing that parent the sleeper's group must disappear.
 func TestMmStartParentDeath(t *testing.T) {
-	if os.Getenv("ESTERM_TEST_PARENT") == "1" {
+	if os.Getenv("LOLTERM_TEST_PARENT") == "1" {
 		cmd := exec.Command("/bin/sleep", "120")
 		if _, err := mmStart(context.Background(), cmd); err != nil {
 			os.Exit(2)
@@ -98,7 +98,7 @@ func TestMmStartParentDeath(t *testing.T) {
 		os.Exit(0)
 	}
 	p := exec.Command(os.Args[0], "-test.run=TestMmStartParentDeath")
-	p.Env = append(os.Environ(), "ESTERM_TEST_PARENT=1")
+	p.Env = append(os.Environ(), "LOLTERM_TEST_PARENT=1")
 	out, err := p.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

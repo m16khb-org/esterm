@@ -48,10 +48,10 @@ func setLanguage(l langID) {
 	refreshAppTabs()
 }
 
-// initLanguage applies ESTERM_LANG, then -lang/--lang from the command line, and returns
+// initLanguage applies LOLTERM_LANG, then -lang/--lang from the command line, and returns
 // the arguments with the language flag removed.
 func initLanguage(args []string) []string {
-	if v := os.Getenv("ESTERM_LANG"); v != "" {
+	if v := os.Getenv("LOLTERM_LANG"); v != "" {
 		if l, ok := parseLang(v); ok {
 			setLanguage(l)
 		}
@@ -201,41 +201,41 @@ var messages = map[string][3]string{
 	"help_seek":         {"seek ±10 s", "±10초 이동", "跳转 ±10 秒"},
 	"help_speed":        {"speed 1× 2× 4×", "배속 1× 2× 4×", "速度 1× 2× 4×"},
 	"usage": {
-		`esterm — esports terminal client
+		`lolterm — esports terminal client
 
 Usage:
-  esterm                       interactive app (leagues, matches, live boards, replays)
-  esterm <game> <command> [flags]
+  lolterm                       interactive app (leagues, matches, live boards, replays)
+  lolterm <game> <command> [flags]
 
 Games:
   lol    League of Legends (https://lolesports.com endpoints)
 
-  -lang en|ko|zh               UI language (also ESTERM_LANG)
+  -lang en|ko|zh               UI language (also LOLTERM_LANG)
 
-Run 'esterm <game> help' for game commands.`,
-		`esterm — e스포츠 터미널 클라이언트
+Run 'lolterm <game> help' for game commands.`,
+		`lolterm — e스포츠 터미널 클라이언트
 
 사용법:
-  esterm                       대화형 앱 (리그, 경기, 라이브 보드, 다시 보기)
-  esterm <game> <command> [flags]
+  lolterm                       대화형 앱 (리그, 경기, 라이브 보드, 다시 보기)
+  lolterm <game> <command> [flags]
 
 게임:
   lol    League of Legends (https://lolesports.com 엔드포인트)
 
-  -lang en|ko|zh               UI 언어 (ESTERM_LANG 환경변수도 가능)
+  -lang en|ko|zh               UI 언어 (LOLTERM_LANG 환경변수도 가능)
 
-게임별 명령은 'esterm <game> help'를 실행하세요.`,
-		`esterm — 电竞赛事终端客户端
+게임별 명령은 'lolterm <game> help'를 실행하세요.`,
+		`lolterm — 电竞赛事终端客户端
 
 用法:
-  esterm                       交互式应用（联赛、比赛、直播看板、回放）
-  esterm <game> <command> [flags]
+  lolterm                       交互式应用（联赛、比赛、直播看板、回放）
+  lolterm <game> <command> [flags]
 
 游戏:
   lol    League of Legends (https://lolesports.com 接口)
 
-  -lang en|ko|zh               UI 语言（也可用 ESTERM_LANG）
+  -lang en|ko|zh               UI 语言（也可用 LOLTERM_LANG）
 
-运行 'esterm <game> help' 查看游戏命令。`,
+运行 'lolterm <game> help' 查看游戏命令。`,
 	},
 }

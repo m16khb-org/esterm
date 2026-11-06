@@ -1,4 +1,4 @@
-// Esterm is a tiny terminal client for esports, organized as `esterm <game> <command>`.
+// Lolterm is a tiny terminal client for esports, organized as `lolterm <game> <command>`.
 // The lol game uses the same unofficial lolesports endpoints that lolesports.com renders.
 // All times are shown in KST (Asia/Seoul).
 package main
@@ -302,23 +302,23 @@ func runLoL(args []string) {
 }
 
 func lolUsage() {
-	fmt.Println(`esterm lol — League of Legends esports (https://lolesports.com endpoints)
+	fmt.Println(`lolterm lol — League of Legends esports (https://lolesports.com endpoints)
 
 Usage:
-  esterm lol                                          interactive app (same as plain 'esterm')
-  esterm lol relay      [-l <league>] [-i Dur] [-src S] [-icons M] [-1]
+  lolterm lol                                          interactive app (same as plain 'lolterm')
+  lolterm lol relay      [-l <league>] [-i Dur] [-src S] [-icons M] [-1]
                                                       ASCII live broadcast (plays frames every 0.5s, polls every -i, default 2s);
                                                       keys: b views · s spark · o objectives · m minimap panel · v broadcast video sync · q quit
-  esterm lol replay     [-match ID [-g N] [-src S] [-icons M]] [-l <league>]
+  lolterm lol replay     [-match ID [-g N] [-src S] [-icons M]] [-l <league>]
                                                       replay a finished game with the official VOD's minimap (no -match: list recent matches);
                                                       keys: space pause · ←/→ ±10s · +/- speed 1×/2×/4× · b s o m v as relay · q quit
-  esterm lol minimap    [-src URL|FILE] [-ss SEC] [-game ID] [-icons M] [-n N] [-json]
+  lolterm lol minimap    [-src URL|FILE] [-ss SEC] [-game ID] [-icons M] [-n N] [-json]
                                                       champion positions detected on the broadcast minimap
-  esterm lol live       [-l <league>] [-w]            live games + real-time board
-  esterm lol streams    [-l <league>]                 broadcast stream links (where to watch)
-  esterm lol standings  [-l <league>]                 tournament bracket / standings
-  esterm lol schedule   [-l <league>] [-n N] [-a]     upcoming matches (-a = recent)
-  esterm lol leagues                                  list leagues & slugs
+  lolterm lol live       [-l <league>] [-w]            live games + real-time board
+  lolterm lol streams    [-l <league>]                 broadcast stream links (where to watch)
+  lolterm lol standings  [-l <league>]                 tournament bracket / standings
+  lolterm lol schedule   [-l <league>] [-n N] [-a]     upcoming matches (-a = recent)
+  lolterm lol leagues                                  list leagues & slugs
 
 Flags:
   -l <league>   filter by slug (msi, worlds, lck, lpl, lec, lcs, ...)
@@ -334,10 +334,10 @@ Minimap needs yt-dlp, ffmpeg and a JS runtime (deno, bun or node): brew install 
 The minimap shows broadcast time, which differs from the stats feed. Personal use only; do not record or redistribute.
 
 Examples:
-  esterm lol live -l msi -w
-  esterm lol schedule -l lck -n 10
-  esterm lol leagues
-  esterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk -ss 1500 -game 115660588583040711 -n 10 -json`)
+  lolterm lol live -l msi -w
+  lolterm lol schedule -l lck -n 10
+  lolterm lol leagues
+  lolterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk -ss 1500 -game 115660588583040711 -n 10 -json`)
 }
 
 func cmdLeagues(args []string) {
@@ -394,7 +394,7 @@ func renderLive(leagueSlug string) {
 	events := lr.Data.Schedule.Events
 	if len(events) == 0 {
 		fmt.Println("  ⌛ No live games right now.")
-		fmt.Println("    try: esterm lol schedule")
+		fmt.Println("    try: lolterm lol schedule")
 		return
 	}
 	for i, ev := range events {
@@ -558,7 +558,7 @@ func cmdSchedule(args []string) {
 		}
 	}
 	if len(shown) == 0 {
-		fmt.Println("  (no matches found — try a different league: esterm lol leagues)")
+		fmt.Println("  (no matches found — try a different league: lolterm lol leagues)")
 		return
 	}
 	sort.SliceStable(shown, func(i, j int) bool {

@@ -12,10 +12,10 @@ package main
 // logic of deaths.go and the drawing decision mmChampsOf. No labels are involved: the
 // livestats feed is the ground truth for who is alive or dead and when a kill happened.
 //
-// Videos and feed windows are cached under os.UserCacheDir()/esterm/backtest (the video
+// Videos and feed windows are cached under os.UserCacheDir()/lolterm/backtest (the video
 // clips are about 1 GB per game, ~15 GB for the list below): delete that directory to
-// clean up (ESTERM_BACKTEST_CACHE moves it). ESTERM_BACKTEST_GAMES is a regexp selecting
-// games by their label ("worlds MVK-FUR g1"); ESTERM_BACKTEST_V=1 lists every flip and
+// clean up (LOLTERM_BACKTEST_CACHE moves it). LOLTERM_BACKTEST_GAMES is a regexp selecting
+// games by their label ("worlds MVK-FUR g1"); LOLTERM_BACKTEST_V=1 lists every flip and
 // flicker.
 
 import (
@@ -99,13 +99,13 @@ const (
 // ---- cache ------------------------------------------------------------------------
 
 func btCacheDir(sub string) string {
-	root := os.Getenv("ESTERM_BACKTEST_CACHE")
+	root := os.Getenv("LOLTERM_BACKTEST_CACHE")
 	if root == "" {
 		base, err := os.UserCacheDir()
 		if err != nil {
 			base = os.TempDir()
 		}
-		root = filepath.Join(base, "esterm", "backtest")
+		root = filepath.Join(base, "lolterm", "backtest")
 	}
 	dir := filepath.Join(root, sub)
 	os.MkdirAll(dir, 0o755)
@@ -287,7 +287,7 @@ func btPrepare(ctx context.Context, g btGame, dl chan struct{}) *btPrep {
 	dur := math.Ceil(at + p.endSec + post - from)
 	name := regexp.MustCompile(`[^A-Za-z0-9]+`).ReplaceAllString(p.vodURL[strings.LastIndexAny(p.vodURL, "=/")+1:], "_")
 	p.clip = filepath.Join(btCacheDir("vod"), fmt.Sprintf("%s_%d_%d.mkv", name, int(from), int(dur)))
-	if ov := os.Getenv("ESTERM_BACKTEST_CLIP"); ov != "" { // path@from: an existing clip of this game's VOD that starts at video second from
+	if ov := os.Getenv("LOLTERM_BACKTEST_CLIP"); ov != "" { // path@from: an existing clip of this game's VOD that starts at video second from
 		var f float64
 		if i := strings.LastIndex(ov, "@"); i > 0 {
 			f, _ = strconv.ParseFloat(ov[i+1:], 64)
@@ -331,7 +331,7 @@ func btDownload(ctx context.Context, page string, from, dur float64, clip string
 			"-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "30",
 			"-ss", fmt.Sprint(from), "-rw_timeout", mmNetTimeoutUs,
 			"-i", media, "-t", fmt.Sprint(dur), "-an", "-c:v", "copy", "-f", "matroska", part}
-		cmd := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...)
+		cmd := exec.Command(mmTool("LOLTERM_FFMPEG", "ffmpeg"), args...)
 		var errb strings.Builder
 		cmd.Stderr = &errb
 		stop, err := mmStart(ctx, cmd)
@@ -356,7 +356,7 @@ func btDownload(ctx context.Context, page string, from, dur float64, clip string
 
 // btClipDur returns the duration of a media file in seconds, 0 when it cannot be read.
 func btClipDur(path string) float64 {
-	out, err := exec.Command(mmTool("ESTERM_FFPROBE", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path).Output()
+	out, err := exec.Command(mmTool("LOLTERM_FFPROBE", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path).Output()
 	if err != nil {
 		return 0
 	}

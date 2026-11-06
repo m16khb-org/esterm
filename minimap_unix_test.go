@@ -18,7 +18,7 @@ func TestRunSourceGivesUpOnUnreadableStream(t *testing.T) {
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ESTERM_FFMPEG", fake)
+	t.Setenv("LOLTERM_FFMPEG", fake)
 	m := newMinimap(minimapCfg{})
 	m.lockTimeout = 100 * time.Millisecond
 	m.gen = 1

@@ -129,7 +129,7 @@ func cmdStreams(args []string) {
 	}
 	eid := findEventID(lid)
 	if eid == "" {
-		fmt.Println("  no event found — try: esterm lol schedule")
+		fmt.Println("  no event found — try: lolterm lol schedule")
 		return
 	}
 	var ed eventDetailsResp

@@ -89,11 +89,11 @@ func mmHasTool(path string) bool {
 // mmToolsMissing lists the required executables that are not available for src.
 func mmToolsMissing(src string) []string {
 	var missing []string
-	if f := mmTool("ESTERM_FFMPEG", "ffmpeg"); !mmHasTool(f) {
+	if f := mmTool("LOLTERM_FFMPEG", "ffmpeg"); !mmHasTool(f) {
 		missing = append(missing, f)
 	}
 	if mmIsPage(src) {
-		if y := mmTool("ESTERM_YTDLP", "yt-dlp"); !mmHasTool(y) {
+		if y := mmTool("LOLTERM_YTDLP", "yt-dlp"); !mmHasTool(y) {
 			missing = append(missing, y)
 		}
 		if mmIsYouTube(src) && len(mmJSRuntimeArgs(mmHasTool)) == 0 && !mmHasTool("deno") {
@@ -243,7 +243,7 @@ func pickStreamURLs(ctx context.Context, matchID string) ([]string, error) {
 // and the pixel height of the chosen format (0 when unknown).
 func mmResolve(ctx context.Context, page string) (media string, live bool, height int, err error) {
 	args := append(mmJSRuntimeArgs(mmHasTool), "--socket-timeout", mmNetTimeoutSec, "--print", "is_live", "--print", "height", "--print", "urls", "-f", mmYTFormat, "--no-playlist", page)
-	cmd := exec.Command(mmTool("ESTERM_YTDLP", "yt-dlp"), args...)
+	cmd := exec.Command(mmTool("LOLTERM_YTDLP", "yt-dlp"), args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	stop, err := mmStart(ctx, cmd)
@@ -418,7 +418,7 @@ func mmRun(ctx context.Context, media string, o mmVideoOpts, live, hw, restart b
 	} else {
 		args = mmFFmpegArgs(media, o.SS, live, hw, mmRegionFilter(o.FPS), false)
 	}
-	cmd := exec.Command(mmTool("ESTERM_FFMPEG", "ffmpeg"), args...)
+	cmd := exec.Command(mmTool("LOLTERM_FFMPEG", "ffmpeg"), args...)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	pipe, err := cmd.StdoutPipe()

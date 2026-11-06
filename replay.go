@@ -615,7 +615,7 @@ func listRecentMatches(slug string) {
 		fmt.Printf("  %-20s %-5s %-6s %s\n", ev.Match.ID, parseTime(ev.StartTime).In(kst).Format("01-02"),
 			strings.ToUpper(ev.League.Slug), l+" vs "+rt)
 	}
-	fmt.Println("\n  esterm lol replay -match <MATCH ID> [-g N]")
+	fmt.Println("\n  lolterm lol replay -match <MATCH ID> [-g N]")
 }
 
 // runReplayScreen shows the replay fullscreen until q or ctrl+c.

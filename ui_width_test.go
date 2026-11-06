@@ -7,11 +7,11 @@ import (
 
 func TestRuneLenCountsWideCells(t *testing.T) {
 	for in, want := range map[string]int{
-		"esterm": 6,
-		"리그":     4,
-		"中文":     4,
-		"T1":     2,
-		"리그 T1":  7,
+		"lolterm": 7,
+		"리그":      4,
+		"中文":      4,
+		"T1":      2,
+		"리그 T1":   7,
 	} {
 		if got := runeLen(in); got != want {
 			t.Errorf("runeLen(%q) = %d, want %d", in, got, want)

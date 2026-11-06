@@ -28,7 +28,7 @@ Canonical index: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## 경계와 규칙
 
-- 외부 프로세스는 `minimap_video.go`만 실행하고, 실행·종료 방식은 `proc_unix.go`(프로세스 그룹과 감시자, fd 4 파이프)와 `proc_windows.go`(잡 객체, 명명된 파이프)가 정한다. 도구 경로는 `ESTERM_FFMPEG`, `ESTERM_YTDLP`로 바꾼다.
+- 외부 프로세스는 `minimap_video.go`만 실행하고, 실행·종료 방식은 `proc_unix.go`(프로세스 그룹과 감시자, fd 4 파이프)와 `proc_windows.go`(잡 객체, 명명된 파이프)가 정한다. 도구 경로는 `LOLTERM_FFMPEG`, `LOLTERM_YTDLP`로 바꾼다.
 - 인증이 필요한 API는 없다. lolesports 공용 키를 쓴다(README.md).
 - 영상 보정(지도 위치, 레이아웃, 시계 잠금, 오프셋)은 모두 Go에서 처리한다. 근거는 [ADR.md](../ADR.md)의 관련 기록을 본다.
-- 리그별 HUD 지원 범위는 `mmLayouts`가 정한다. 그 밖의 방송 화면은 Unknown / not confirmed이며 `esterm lol minimap -src ... -n N -json`의 `layout` 필드로 확인한다.
+- 리그별 HUD 지원 범위는 `mmLayouts`가 정한다. 그 밖의 방송 화면은 Unknown / not confirmed이며 `lolterm lol minimap -src ... -n N -json`의 `layout` 필드로 확인한다.

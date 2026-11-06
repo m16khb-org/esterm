@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>esterm — League of Legends esports in your terminal</title>
+<title>lolterm — League of Legends esports in your terminal</title>
 <meta name="description" content="Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.">
-<meta property="og:title" content="esterm — LoL esports terminal CLI">
+<meta property="og:title" content="lolterm — LoL esports terminal CLI">
 <meta property="og:description" content="Live boards, replays, broadcast minimap tracking. One Go binary.">
 <meta property="og:image" content="assets/hero.png">
 <meta property="og:type" content="website">
@@ -216,7 +216,7 @@
   <div class="wrap">
     <span class="tag">v0.1.0</span>
     <span data-i18n="release_text">첫 공개 릴리스</span>
-    <a href="https://github.com/m16khb-org/esterm/releases/tag/v0.1.0" data-i18n="release_notes">릴리스 노트 →</a>
+    <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0" data-i18n="release_notes">릴리스 노트 →</a>
   </div>
 </div>
 <nav>
@@ -232,7 +232,7 @@
         <button type="button" data-lang="en" class="on">EN</button>
         <button type="button" data-lang="zh">中文</button>
       </div>
-      <a class="gh" href="https://github.com/m16khb-org/esterm">GitHub</a>
+      <a class="gh" href="https://github.com/m16khb-org/lolterm">GitHub</a>
     </div>
   </div>
 </nav>
@@ -250,20 +250,20 @@
       </div>
       <p class="tagline" data-i18n-html="hero_tagline">리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.</p>
       <p class="lede" data-i18n="hero_lede">라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
-      <div class="cmd"><b>$</b> go install github.com/m16khb-org/esterm@latest
+      <div class="cmd"><b>$</b> go install github.com/m16khb-org/lolterm@latest
         <button type="button" id="copy" data-i18n="copy" aria-label="Copy install command">복사</button>
       </div>
       <div class="cta">
         <a class="btn primary" href="#install" data-i18n="start">시작하기</a>
-        <a class="btn ghost" href="https://github.com/m16khb-org/esterm" data-i18n="github_view">GitHub에서 보기</a>
+        <a class="btn ghost" href="https://github.com/m16khb-org/lolterm" data-i18n="github_view">GitHub에서 보기</a>
       </div>
     </div>
     <div class="demo-col">
       <div class="term">
-        <div class="bar"><i></i><i></i><i></i><span>esterm lol replay · GEN vs LYON</span></div>
-        <video autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.png" aria-label="esterm actual run">
+        <div class="bar"><i></i><i></i><i></i><span>lolterm lol replay · GEN vs LYON</span></div>
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.png" aria-label="lolterm actual run">
           <source src="assets/demo.mp4" type="video/mp4">
-          <img src="assets/demo-poster.png" alt="esterm actual run">
+          <img src="assets/demo-poster.png" alt="lolterm actual run">
         </video>
       </div>
       <p class="demo-note"><a href="assets/demo.mp4" data-i18n="video_link">15초 실제 구동 영상 (MP4)</a></p>
@@ -300,7 +300,7 @@
 
 <section class="native">
   <div class="wrap split img-first">
-    <div class="shot"><img src="assets/demo-poster.png" alt="esterm 리플레이 보드" loading="lazy"></div>
+    <div class="shot"><img src="assets/demo-poster.png" alt="lolterm 리플레이 보드" loading="lazy"></div>
     <div>
       <div class="eyebrow" data-i18n="native_eyebrow">Terminal native</div>
       <h2 data-i18n="native_title">키보드, 마우스, 세 가지 언어</h2>
@@ -370,21 +370,21 @@
     </div>
     <div class="install-grid">
       <pre data-i18n-html="install_code1"><span class="c"># 바이너리 설치</span>
-<span class="p">$</span> go install github.com/m16khb-org/esterm@latest
+<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest
 
 <span class="c"># 대화형 앱</span>
-<span class="p">$</span> esterm
+<span class="p">$</span> lolterm
 
 <span class="c"># 최근 Worlds 경기</span>
-<span class="p">$</span> esterm lol schedule -l worlds -a -n 8</pre>
+<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8</pre>
       <div>
         <pre data-i18n-html="install_code2"><span class="c"># 미니맵 의존성 (macOS)</span>
 <span class="p">$</span> brew install yt-dlp ffmpeg deno
 
 <span class="c"># 소스 빌드</span>
-<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git
-<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .</pre>
-        <p class="req" style="margin-top:16px"><span data-i18n="install_req">자세한 사전 점검과 PATH 설정은</span> <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md">INSTALL.md</a><span data-i18n="install_req2">를 참고하세요.</span></p>
+<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git
+<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .</pre>
+        <p class="req" style="margin-top:16px"><span data-i18n="install_req">자세한 사전 점검과 PATH 설정은</span> <a href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md">INSTALL.md</a><span data-i18n="install_req2">를 참고하세요.</span></p>
       </div>
     </div>
   </div>
@@ -408,7 +408,7 @@
         </tbody>
       </table>
     </div>
-    <p style="color:var(--dim);font-size:13px;margin-top:14px"><span data-i18n="verify_note">13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은</span> <a href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a><span data-i18n="verify_note2">에 있습니다.</span></p>
+    <p style="color:var(--dim);font-size:13px;margin-top:14px"><span data-i18n="verify_note">13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은</span> <a href="https://github.com/m16khb-org/lolterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a><span data-i18n="verify_note2">에 있습니다.</span></p>
   </div>
 </section>
 
@@ -421,10 +421,10 @@
       <p data-i18n="docs_sub">설치부터 미니맵 파이프라인, 기여 규칙까지 저장소 안에 정리해 두었습니다.</p>
     </div>
     <div class="docs-grid">
-      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md"><span class="k">01 · setup</span><h3 data-i18n="doc_install_title">설치</h3><p data-i18n="doc_install_desc">사전 점검, PATH, 미니맵 의존성, 검증 체크리스트</p></a>
-      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/docs/internals.md"><span class="k">02 · internals</span><h3 data-i18n="doc_internals_title">구현 상세</h3><p data-i18n="doc_internals_desc">미니맵 파이프라인, 동기화, 백테스트 전체 수치</p></a>
-      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/CONTRIBUTING.md"><span class="k">03 · contribute</span><h3 data-i18n="doc_contrib_title">기여 가이드</h3><p data-i18n="doc_contrib_desc">개발 환경, 테스트, 커밋과 PR 규칙</p></a>
-      <a class="doc" href="https://github.com/m16khb-org/esterm/blob/main/.issueops/ARCHITECTURE.md"><span class="k">04 · design</span><h3 data-i18n="doc_arch_title">아키텍처</h3><p data-i18n="doc_arch_desc">구조와 설계 결정, 검증 기준</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md"><span class="k">01 · setup</span><h3 data-i18n="doc_install_title">설치</h3><p data-i18n="doc_install_desc">사전 점검, PATH, 미니맵 의존성, 검증 체크리스트</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/docs/internals.md"><span class="k">02 · internals</span><h3 data-i18n="doc_internals_title">구현 상세</h3><p data-i18n="doc_internals_desc">미니맵 파이프라인, 동기화, 백테스트 전체 수치</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/CONTRIBUTING.md"><span class="k">03 · contribute</span><h3 data-i18n="doc_contrib_title">기여 가이드</h3><p data-i18n="doc_contrib_desc">개발 환경, 테스트, 커밋과 PR 규칙</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/.issueops/ARCHITECTURE.md"><span class="k">04 · design</span><h3 data-i18n="doc_arch_title">아키텍처</h3><p data-i18n="doc_arch_desc">구조와 설계 결정, 검증 기준</p></a>
     </div>
   </div>
 </section>
@@ -437,19 +437,19 @@
       <p data-i18n="contrib_sub">버그 제보, 경기별 검증 결과, 문서 수정, 새 아이디어 모두 환영합니다. 재현 정보를 함께 적어 주시면 큰 도움이 됩니다.</p>
     </div>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/m16khb-org/esterm/issues" data-i18n="contrib_issue">이슈 열기</a>
-      <a class="btn ghost" href="https://github.com/m16khb-org/esterm/blob/main/CONTRIBUTING.md" data-i18n="contrib_guide">기여 가이드</a>
+      <a class="btn primary" href="https://github.com/m16khb-org/lolterm/issues" data-i18n="contrib_issue">이슈 열기</a>
+      <a class="btn ghost" href="https://github.com/m16khb-org/lolterm/blob/main/CONTRIBUTING.md" data-i18n="contrib_guide">기여 가이드</a>
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span data-i18n="footer_tag">esterm · League of Legends esports terminal CLI</span>
+    <span data-i18n="footer_tag">lolterm · League of Legends esports terminal CLI</span>
     <span data-i18n="footer_version">v0.1.0 · GPL-3.0-or-later</span>
-    <a href="https://github.com/m16khb-org/esterm">GitHub</a>
-    <a href="https://github.com/m16khb-org/esterm/releases" data-i18n="footer_releases">릴리스</a>
-    <a href="https://github.com/m16khb-org/esterm/blob/main/INSTALL.md" data-i18n="nav_install">설치</a>
+    <a href="https://github.com/m16khb-org/lolterm">GitHub</a>
+    <a href="https://github.com/m16khb-org/lolterm/releases" data-i18n="footer_releases">릴리스</a>
+    <a href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md" data-i18n="nav_install">설치</a>
     <span class="sp" data-i18n="footer_note">개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용</span>
   </div>
   <div class="wrap fine" data-i18n="footer_disclaimer">Riot Games와 공식적인 관련이 없습니다.</div>
@@ -458,7 +458,7 @@
 <script>
 const I18N = {
   ko: {
-    page_title: "esterm — 리그 오브 레전드 e스포츠를 터미널에서",
+    page_title: "lolterm — 리그 오브 레전드 e스포츠를 터미널에서",
     nav_features: "기능", nav_minimap: "미니맵", nav_install: "설치",
     release_text: "첫 공개 릴리스", release_notes: "릴리스 노트 →", nav_how: "작동 방식",
     native_eyebrow: "Terminal native", native_title: "키보드, 마우스, 세 가지 언어",
@@ -505,18 +505,18 @@ const I18N = {
     chan_recall: "귀환 · 팀 색 아우라 (청록 또는 빨강)", chan_teleport: "텔레포트 · 보라 아우라, 도착 지점에 옅은 팀 색 원", chan_red: "레드 팀 채널링 · 빨강 아우라, 도착 지점 없이 5초 미만",
     chan_note: "레드 팀은 귀환과 텔레포트가 같은 빨간 링입니다. 방송이 텔레포트 도착 지점에 그리는 빨간 소용돌이가 보이면 텔레포트, 없이 5초를 넘기면 귀환입니다.",
     install_title: "설치", install_sub: "Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.",
-    install_code1: '<span class="c"># 바이너리 설치</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 대화형 앱</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 최근 Worlds 경기</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># 미니맵 의존성 (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_code1: '<span class="c"># 바이너리 설치</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># 대화형 앱</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># 최근 Worlds 경기</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># 미니맵 의존성 (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "자세한 사전 점검과 PATH 설정은", install_req2: "를 참고하세요.",
     verify_title: "숫자로 확인한 미니맵",
     verify_sub: "공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.",
     th_league: "리그", th_games: "경기", th_detect: "생존 검출", th_dead: "죽은 챔피언 오검출", th_flip: "킬 플립 ≤1초",
     all: "전체", verify_note: "13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은", verify_note2: "에 있습니다.",
-    internals_link: "구현 상세", footer_tag: "esterm · League of Legends esports terminal CLI",
+    internals_link: "구현 상세", footer_tag: "lolterm · League of Legends esports terminal CLI",
     footer_note: "개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용"
   },
   en: {
-    page_title: "esterm — League of Legends esports in your terminal",
+    page_title: "lolterm — League of Legends esports in your terminal",
     nav_features: "Features", nav_minimap: "Minimap", nav_install: "Install",
     release_text: "First public release", release_notes: "Release notes →", nav_how: "How it works",
     native_eyebrow: "Terminal native", native_title: "Keyboard, mouse, three languages",
@@ -563,18 +563,18 @@ const I18N = {
     chan_recall: "Recall · team-colour aura (cyan or red)", chan_teleport: "Teleport · purple aura, a faint team-colour disc at the destination", chan_red: "Red-team channel · red aura, no destination, under 5 s",
     chan_note: "On the red team, Recall and Teleport share the red ring. The red swirl the broadcast draws at a Teleport's destination tells the Teleport apart; a red ring that lasts past 5 seconds without one is a Recall.",
     install_title: "Install", install_sub: "Go 1.21+. The minimap needs yt-dlp, ffmpeg and a JS runtime.",
-    install_code1: '<span class="c"># install the binary</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># interactive app</span>\n<span class="p">$</span> esterm\n\n<span class="c"># recent Worlds matches</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># minimap dependencies (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_code1: '<span class="c"># install the binary</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># interactive app</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># recent Worlds matches</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># minimap dependencies (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "See", install_req2: "for the full preflight and PATH setup.",
     verify_title: "A minimap measured, not guessed",
     verify_sub: "A backtest over 16 official games (7 Worlds, 3 LCK, 3 LPL, 3 LEC), run over the full broadcast video.",
     th_league: "League", th_games: "Games", th_detect: "Alive detection", th_dead: "Dead false positives", th_flip: "Kill flips ≤1s",
     all: "All", verify_note: "13 of 16 games passed. Full numbers and criteria are in", verify_note2: ".",
-    internals_link: "the implementation notes", footer_tag: "esterm · League of Legends esports terminal CLI",
+    internals_link: "the implementation notes", footer_tag: "lolterm · League of Legends esports terminal CLI",
     footer_note: "Personal viewing only · uses the unofficial lolesports.com endpoints"
   },
   zh: {
-    page_title: "esterm — 在终端里看英雄联盟电竞赛事",
+    page_title: "lolterm — 在终端里看英雄联盟电竞赛事",
     nav_features: "功能", nav_minimap: "小地图", nav_install: "安装",
     release_text: "首个公开版本", release_notes: "发布说明 →", nav_how: "工作原理",
     native_eyebrow: "Terminal native", native_title: "键盘、鼠标、三种语言",
@@ -621,20 +621,20 @@ const I18N = {
     chan_recall: "回城 · 队伍颜色光环（青色或红色）", chan_teleport: "传送 · 紫色光环，落点为浅色队伍颜色圆", chan_red: "红队引导 · 红色光环，无落点且不足 5 秒",
     chan_note: "红队的回城与传送共用红色光环。直播在传送落点画出的红色漩涡可区分传送；没有落点且红色光环超过 5 秒即为回城。",
     install_title: "安装", install_sub: "需要 Go 1.21+。小地图还需要 yt-dlp、ffmpeg 和 JS 运行时。",
-    install_code1: '<span class="c"># 安装二进制</span>\n<span class="p">$</span> go install github.com/m16khb-org/esterm@latest\n\n<span class="c"># 交互式应用</span>\n<span class="p">$</span> esterm\n\n<span class="c"># 最近的 Worlds 比赛</span>\n<span class="p">$</span> esterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># 小地图依赖（macOS）</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/esterm.git\n<span class="p">$</span> cd esterm &amp;&amp; go build -o ~/.local/bin/esterm .',
+    install_code1: '<span class="c"># 安装二进制</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># 交互式应用</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># 最近的 Worlds 比赛</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
+    install_code2: '<span class="c"># 小地图依赖（macOS）</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "完整的预检和 PATH 设置请参阅", install_req2: "。",
     verify_title: "用数字验证的小地图",
     verify_sub: "对 16 场官方比赛（Worlds 7、LCK 3、LPL 3、LEC 3）的完整直播视频进行回测。",
     th_league: "联赛", th_games: "场次", th_detect: "存活检测", th_dead: "阵亡误检", th_flip: "击杀翻转 ≤1 秒",
     all: "全部", verify_note: "16 场中有 13 场达标。完整数字和标准见", verify_note2: "。",
-    internals_link: "实现细节", footer_tag: "esterm · League of Legends esports terminal CLI",
+    internals_link: "实现细节", footer_tag: "lolterm · League of Legends esports terminal CLI",
     footer_note: "仅供个人观看 · 使用 lolesports.com 非官方接口"
   }
 };
 
 const params = new URLSearchParams(location.search);
-let lang = params.get("lang") || localStorage.getItem("esterm-lang") || "en";
+let lang = params.get("lang") || localStorage.getItem("lolterm-lang") || "en";
 if (!I18N[lang]) lang = "en";
 
 function applyLang(l) {
@@ -654,7 +654,7 @@ function applyLang(l) {
     b.classList.toggle("on", b.dataset.lang === lang);
     b.setAttribute("aria-pressed", b.dataset.lang === lang ? "true" : "false");
   }
-  localStorage.setItem("esterm-lang", lang);
+  localStorage.setItem("lolterm-lang", lang);
   const copy = document.getElementById("copy");
   if (copy) copy.textContent = d.copy;
 }
@@ -666,7 +666,7 @@ applyLang(lang);
 const copy = document.getElementById("copy");
 if (copy) {
   copy.addEventListener("click", async () => {
-    const text = "go install github.com/m16khb-org/esterm@latest";
+    const text = "go install github.com/m16khb-org/lolterm@latest";
     try { await navigator.clipboard.writeText(text); copy.textContent = "✓"; }
     catch { copy.textContent = "!"; }
     setTimeout(() => { copy.textContent = I18N[lang].copy; }, 1600);
