@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"sync"
@@ -488,6 +489,29 @@ func TestPauseDoesNotInflatePlayoutDelay(t *testing.T) {
 	}
 	if ts := parseTime(s.W.Frames[0].RFC460Timestamp); ts.Before(t0.Add(120 * time.Second)) {
 		t.Fatalf("board still shows %s, 10 s after the game resumed at 2:00", ts.Sub(t0))
+	}
+}
+
+// A board opened after a pause never buffers it: without the history lookup the game
+// clock ran ahead by the whole pause (6:46 in T1-KC game 3, Worlds 2026 quarterfinal).
+func TestJoiningAfterAPauseLearnsItFromHistory(t *testing.T) {
+	at, dur := 5*time.Minute, 406*time.Second
+	ff := pausedFeed(t0.Add(20*time.Minute), at, dur)
+	ff.lagMin = 3 * time.Second
+	f := ff.newFeed(2 * time.Second)
+	f.FetchOnce()
+	gid, from, to, ok := f.claimHistory()
+	if !ok {
+		t.Fatal("no history lookup for a game joined 20 min in")
+	}
+	f.scanHistory(context.Background(), gid, from, to)
+	ps := pausesOf(f)
+	if len(ps) != 1 || !ps[0].Start.Equal(t0.Add(at)) || ps[0].Dur != dur {
+		t.Fatalf("pauses %+v", ps)
+	}
+	latest := newestFrame(t, f)
+	if g, want := snapAt(f, ff.now(), latest).Game, latest.Sub(t0)-feedSkew-dur; g != want {
+		t.Fatalf("game clock %s, want %s", g, want)
 	}
 }
 

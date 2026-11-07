@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,8 @@ const (
 	feedDelayMargin   = 500 * time.Millisecond
 	feedSkew          = 3500 * time.Millisecond // feed time since spawn minus the HUD game clock
 	feedPauseGap      = 1500 * time.Millisecond // a gap after a paused frame longer than this is a game pause
+	feedHistWorkers   = 4                       // concurrent window requests of the pause history scan
+	feedHistRetry     = 2 * time.Minute         // wait before a failed pause history scan runs again
 )
 
 // startingTime formats t as the 10 s-aligned startingTime query value of the livestats feed.
@@ -160,6 +163,8 @@ type feed struct {
 	objs     []objEvent // every objective kill seen, in time order (objMerge)
 	detView  bool       // the view on screen shows details
 	lastDet  time.Time  // wall time of the last details request
+	hist     string     // game whose pauses before the buffer are known or being looked up
+	histTry  time.Time  // earliest retry of a failed pause history scan
 }
 
 func newFeed(lid string, poll time.Duration) *feed {
@@ -193,6 +198,12 @@ func (f *feed) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			f.FetchOnce()
+			if gid, from, to, ok := f.claimHistory(); ok {
+				go func() {
+					defer crashGuard()
+					f.scanHistory(ctx, gid, from, to)
+				}()
+			}
 		}
 	}
 }
@@ -254,7 +265,7 @@ func (f *feed) discover(now time.Time) {
 		f.lastDet = time.Time{}
 		f.meta = windowResp{}
 		f.frames, f.dets, f.lags, f.series, f.pauses, f.objs = nil, nil, nil, nil, nil, nil
-		f.lastDisp = time.Time{}
+		f.lastDisp, f.histTry = time.Time{}, time.Time{}
 	}
 }
 
@@ -421,6 +432,79 @@ func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 	tail := f.frames[max(from-1, 0):]
 	f.pauses = mergePauses(f.pauses, findPauses(tail))
 	f.objs = objMerge(f.objs, objDerive(tail, replayKillGap))
+}
+
+// claimHistory hands out, once per game, the stretch before the buffer: a board opened
+// after a pause never buffers it, and the game clock would run ahead by the whole pause.
+// A game followed from its start needs no lookup.
+func (f *feed) claimHistory() (gid string, from, to time.Time, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gid == "" || f.hist == f.gid || f.spawn.IsZero() || len(f.frames) == 0 || f.now().Before(f.histTry) {
+		return "", time.Time{}, time.Time{}, false
+	}
+	f.hist = f.gid
+	if !f.frames[0].ts.After(f.spawn.Add(feedProbeStep)) {
+		return "", time.Time{}, time.Time{}, false
+	}
+	return f.gid, f.spawn, f.frames[0].ts, true
+}
+
+// scanHistory reads every 10 s window of game gid from from to to and adds the pauses in
+// them. A window rejected as too recent holds nothing the buffer lacks; any other failure
+// or ctx ending leaves the lookup to a retry after feedHistRetry.
+func (f *feed) scanHistory(ctx context.Context, gid string, from, to time.Time) {
+	first := from.Truncate(feedProbeStep)
+	wins := make([][]stamped[frame], int(to.Sub(first)/feedProbeStep)+1)
+	jobs := make(chan int)
+	var (
+		wg     sync.WaitGroup
+		failed atomic.Bool
+	)
+	for w := 0; w < feedHistWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				resp, err := f.window(gid, startingTime(first.Add(feedProbeStep*time.Duration(i))))
+				var he *httpStatusError
+				if err != nil && !(errors.As(err, &he) && he.Code == http.StatusBadRequest) {
+					failed.Store(true)
+					continue
+				}
+				for _, fr := range resp.Frames {
+					if ts := parseTime(fr.RFC460Timestamp); !ts.IsZero() {
+						wins[i] = append(wins[i], stamped[frame]{ts, frame{GameState: fr.GameState}})
+					}
+				}
+			}
+		}()
+	}
+	for i := 0; i < len(wins) && ctx.Err() == nil && !failed.Load(); i++ {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gid != gid {
+		return
+	}
+	if ctx.Err() != nil || failed.Load() {
+		f.hist, f.histTry = "", f.now().Add(feedHistRetry)
+		return
+	}
+	var all []stamped[frame]
+	for _, w := range wins {
+		all = append(all, w...)
+	}
+	// Windows inside a pause repeat the frames before it; the merge drops the copies.
+	all = mergeStamped(nil, all, to.Sub(first)+feedProbeStep)
+	f.pauses = mergePauses(f.pauses, findPauses(all))
 }
 
 // delay is how far behind wall clock playout runs: the worst recent arrival lag plus one
