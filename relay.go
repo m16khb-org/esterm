@@ -941,7 +941,8 @@ func fetchLiveEvent(lid, matchID string) (event, string, bool, error) {
 		return event{}, "", false, err
 	}
 	for _, ev := range lr.Data.Schedule.Events {
-		if ev.State != "inProgress" || ev.Match == nil || (matchID != "" && ev.Match.ID != matchID) {
+		// getLive ignores leagueId and lists every league's live events.
+		if ev.State != "inProgress" || ev.Match == nil || (lid != "" && ev.League.ID != lid) || (matchID != "" && ev.Match.ID != matchID) {
 			continue
 		}
 		for _, g := range ev.Match.Games {
