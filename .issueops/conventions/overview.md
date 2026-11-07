@@ -13,9 +13,8 @@ Canonical index: [CONVENTIONS.md](../CONVENTIONS.md)
 - 문법은 go 1.21 기준으로 쓴다. go.mod의 `go 1.21`을 따르며 `for i := range n` 같은 신규 문법은 쓰지 않고 고전적인 for 문을 쓴다.
 - `gofmt`로 정리한다. 저장소 전체 포맷은 요청받았을 때만 한다.
 - 문서(README.md, INSTALL.md, `.issueops` 보강)는 한국어, 코드·식별자·명령은 영어 그대로 둔다.
-- 방송 프레임이나 캡처를 저장소에 넣지 않는다.
 - 죽은 코드, 자리 표시자, TODO를 남기지 않는다. 교체한 코드의 옛 경로는 지운다.
-- 에러는 값으로 반환한다(`getJSON` 등의 `error` 반환). 계층형 구조나 인터페이스 추상화는 외부 경계(HTTP, 자식 프로세스)에만 있다.
+- 에러는 값으로 반환한다(`getJSON` 등의 `error` 반환). 계층형 구조나 인터페이스 추상화는 외부 경계(HTTP, 터미널)에만 있다.
 
 ## Editing rules
 

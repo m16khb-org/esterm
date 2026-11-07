@@ -16,22 +16,19 @@ Canonical index: [OPERATIONS.md](../../OPERATIONS.md)
 
 - 네트워크 없이: `lolterm lol demo -w 100 -h 40 | head -3`.
 - 라이브 경기 한 장면: `lolterm lol relay -1` (경기가 없으면 `NO LIVE GAMES RIGHT NOW`가 정상이다).
-- 전체 화면 보드: `lolterm lol relay -l <league>`. 키는 `b`/`s`/`o` 패널, `m` 미니맵 패널 표시, `v` 방송 영상 동기화 켜기/끄기, `q` 종료.
-- 미니맵 단독 검증(VOD): `lolterm lol minimap -src <URL|파일> -ss <초> -game <livestats gameId> -n <프레임 수> -json`. 출력 필드는 `layout`, `clock`, `kills`, `visible`, `present`, `champions[]`다. 정확한 필드는 코드에서 확인한다.
+- 전체 화면 보드: `lolterm lol relay -l <league>`. 키는 `b`/`s`/`o` 패널, `q` 종료. 끝난 경기는 `lolterm lol replay -match <id> [-g N]`.
 
-## 외부 도구(미니맵에만 필요)
+## 외부 도구
 
-- `ffmpeg`, `yt-dlp`, JS 런타임 `deno`/`bun`/`node` 중 하나. 없으면 나머지 기능은 그대로 동작한다.
-- 경로 재지정 환경 변수: `LOLTERM_FFMPEG`, `LOLTERM_YTDLP` (`minimap_video.go`의 `mmTool`).
-- 로컬 VOD 스모크에서 도구가 PATH에 없으면 실행할 때 PATH를 앞에 덧붙인다. 도구 위치는 개발 머신마다 다르다.
+- 필요 없다. Go 표준 라이브러리만 쓰고 외부 프로세스를 실행하지 않는다.
 
-## 캐시
+## 캐시와 디스크
 
-- Data Dragon 이미지와 버전은 `os.UserCacheDir()/lolterm/ddragon`에 저장된다(`ddragon.go`). 지워도 다음 실행 때 다시 받는다.
+- lolterm 은 디스크에 아무것도 저장하지 않는다. 아이템·룬 이름은 `staticdata.go`에 내장되어 있고, replay 가 받은 프레임은 메모리에만 둔다(최근 3게임).
 
 ## 환경 변수와 비밀
 
-- 시크릿은 쓰지 않는다. lolesports API 키는 사이트가 공개하는 공용 키다. 그 외 환경 변수는 위 두 가지와 터미널 판별용 `COLORTERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TERM` 읽기뿐이다(`minimap_kitty.go`).
+- 시크릿은 쓰지 않는다. lolesports API 키는 사이트가 공개하는 공용 키다. 읽는 환경 변수는 UI 언어를 정하는 `LOLTERM_LANG`뿐이다(`-lang`으로도 정한다).
 
 ## 배포
 

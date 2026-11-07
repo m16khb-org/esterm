@@ -21,24 +21,15 @@ This is the reference document agents should read before writing or modifying te
 ## 이 저장소의 검증 명령
 
 - `go build ./... && go vet ./... && go test -race ./...` (go.mod, 모든 `*_test.go`). 변경 후 이 세 가지를 통과해야 한다.
-- 테스트 파일은 기능별로 있다: `feed_test.go`, `relay_test.go`, `sync_test.go`, `minimap_*_test.go`, `objectives*_test.go`.
-- 셸 스크립트 대역이나 프로세스 그룹을 쓰는 테스트는 `*_unix_test.go`(`!windows`)에 둔다. 디스크 캐시를 쓰는 테스트는 `isolateCache`로 macOS·Linux·Windows 캐시 경로를 모두 임시 디렉터리로 돌린다. Windows 에서도 `go vet ./... && go test ./...`가 통과해야 한다.
+- 테스트 파일은 기능별로 있다: `feed_test.go`, `relay_test.go`, `replay_test.go`, `deaths_test.go`, `objectives_test.go`, `app_test.go`, `app_mouse_test.go`, `ui_*_test.go`, `i18n_test.go`, `main_test.go`. Windows 에서도 `go vet ./... && go test ./...`가 통과해야 한다.
 
 ## 이 저장소의 테스트 규칙
 
-- 테스트는 오프라인에서 결정적으로 돌아야 한다. 네트워크, `/tmp` 경로, 방송 프레임 파일에 의존하지 않는다.
-- 방송 화면 캡처를 저장소에 넣지 않는다. 학습된 글리프 템플릿처럼 작은 숫자 배열은 코드(`minimap_layout_data.go`)에 내장할 수 있다.
-- 소비자가 체감하는 동작과 경계만 테스트한다. 예: 프레임 선택, 10초 창 정렬, 추적기의 숨김/재획득, 동기화 잠금과 일시정지 처리.
-- 테스트하지 않는 것: 실제 YouTube/ffmpeg 호출, 화면 픽셀 배치 전체, 구현 내부 상수.
-
-## VOD 에뮬레이션 하네스
-
-실제 방송으로 하는 검증은 일반 `go test`에 넣지 않고, 빌드 태그 `backtest`가 붙은 영구 백테스트(`backtest_test.go`, `backtest_run_test.go`, `backtest_metrics_test.go`)로 한다.
-
-- 실행: `go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=결과.json`. `LOLTERM_BACKTEST_GAMES=<정규식>` 으로 경기를 고르고 `LOLTERM_BACKTEST_RANGE=시작-끝`(경기 시작부터 초)으로 구간만 돌리고(빠른 반복용) `LOLTERM_BACKTEST_NOMV=1` 로 메인 뷰를 끄고 `LOLTERM_BACKTEST_DOWNLOAD_ONLY=1` 로 영상 캐시만 채우고 `LOLTERM_BACKTEST_V=1` 로 어긋난 킬 플립·깜빡임·재잠금을 모두 본다. 영상과 피드 응답은 `os.UserCacheDir()/lolterm/backtest`(약 19 GB)에 캐시한다.
-- 경기 목록(`btGames`)의 공식 완료 16경기(Worlds 2026 7, LCK 3, LPL 3, LEC 3)를 앱과 같은 `mmPipeline`·`mmSync`·`deaths.go`로 영상 전체에 돌리고, 피드를 정답으로 동기 오차, 검출률, 부활 오차, 깜빡임, 공백 원인을 잰다. 기준과 기준선 수치는 README 백테스트 절에 있다.
-- 트래커, 동기, HUD, 사망 로직을 바꾸면 변경 전후 `-backtest.out` JSON을 비교해 보고한다. 새 리그나 레이아웃을 추가하면 그 경기를 `btGames`에 넣고(API에 VOD가 없으면 `Vod`와 `At` 지정) 같은 지표를 잰다. 측정 없이 지원한다고 쓰지 않는다.
-- 일회용 스크립트와 프레임은 `/tmp` 아래에 두고 검증 후 지운다. 저장소에는 방송 화면을 넣지 않는다.
+- 테스트는 오프라인에서 결정적으로 돌아야 한다. 네트워크와 `/tmp` 경로에 의존하지 않는다.
+- 소비자가 체감하는 동작과 경계만 테스트한다. 예: 프레임 선택, 10초 창 정렬, 일시정지 처리, 사망·부활 계산, 오브젝트 타이머, 키·마우스 입력.
+- 사망·부활 로직을 바꾸면 `deaths_test.go`의 단위 테스트를 함께 추가하거나 고친다.
+- 테스트하지 않는 것: 실제 lolesports 네트워크 호출, 화면 픽셀 배치 전체, 구현 내부 상수.
+- 일회용 스크립트는 `/tmp` 아래에 두고 검증 후 지운다.
 
 ## Well-structured tests
 
