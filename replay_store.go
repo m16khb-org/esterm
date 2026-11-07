@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -69,8 +70,8 @@ type replayStore struct {
 	gid         string
 	spawn, end  time.Time
 	first, last int64 // first and last window of the game
-	win         func(gid, start string) (windowResp, error)
-	det         func(gid, start string) (detailsResp, error)
+	win         func(ctx context.Context, gid, start string) (windowResp, error)
+	det         func(ctx context.Context, gid, start string) (detailsResp, error)
 	retry       time.Duration
 	pace        time.Duration // gap between background requests
 	now         func() time.Time
@@ -81,7 +82,6 @@ type replayStore struct {
 	frames   []stamped[frame]
 	dets     []stamped[detailsFrame]
 	pauses   []feedPause
-	kills    []feedKill
 	objs     []objEvent
 	done     map[int64]bool // windows fetched
 	doneDet  map[int64]bool // detail windows fetched
@@ -98,14 +98,14 @@ func newReplayStore(gid string, spawn, end time.Time, retry time.Duration) *repl
 	return &replayStore{
 		gid: gid, spawn: spawn, end: end,
 		first: bucketOf(spawn), last: bucketOf(end),
-		win: func(gid, start string) (windowResp, error) {
+		win: func(ctx context.Context, gid, start string) (windowResp, error) {
 			var w windowResp
-			err := getJSON(feedBase+"/window/"+gid+"?startingTime="+start, &w)
+			err := getJSONCtx(ctx, feedBase+"/window/"+gid+"?startingTime="+start, &w)
 			return w, err
 		},
-		det: func(gid, start string) (detailsResp, error) {
+		det: func(ctx context.Context, gid, start string) (detailsResp, error) {
 			var d detailsResp
-			err := getJSON(feedBase+"/details/"+gid+"?startingTime="+start, &d)
+			err := getJSONCtx(ctx, feedBase+"/details/"+gid+"?startingTime="+start, &d)
 			return d, err
 		},
 		retry: retry, pace: replayPace, now: time.Now, wake: make(chan struct{}, 1),
@@ -121,7 +121,7 @@ func (s *replayStore) poke() {
 	}
 }
 
-// absorb merges a fetched window and its details and re-derives pauses and kills.
+// absorb merges a fetched window and its details and re-derives pauses and objectives.
 func (s *replayStore) absorb(w windowResp, d detailsResp) {
 	var wf []stamped[frame]
 	for _, fr := range w.Frames {
@@ -147,27 +147,7 @@ func (s *replayStore) absorb(w windowResp, d detailsResp) {
 	}
 	s.frames = mergeStamped(s.frames, wf, replayKeepAll)
 	s.pauses = findPauses(s.frames)
-	s.kills = replayKills(s.frames)
 	s.objs = objDerive(s.frames, replayKillGap)
-}
-
-// replayKills lists the single-kill increases between frames at most replayKillGap apart:
-// across a longer gap (a window not fetched yet) the time of the kill is unknown.
-func replayKills(fr []stamped[frame]) []feedKill {
-	var out []feedKill
-	for i := 1; i < len(fr); i++ {
-		if fr[i].ts.Sub(fr[i-1].ts) > replayKillGap {
-			continue
-		}
-		p, c := fr[i-1].v, fr[i].v
-		if c.BlueTeam.TotalKills == p.BlueTeam.TotalKills+1 {
-			out = append(out, feedKill{0, c.BlueTeam.TotalKills, fr[i].ts})
-		}
-		if c.RedTeam.TotalKills == p.RedTeam.TotalKills+1 {
-			out = append(out, feedKill{1, c.RedTeam.TotalKills, fr[i].ts})
-		}
-	}
-	return out
 }
 
 // setFocus tells the store which feed time is on screen; its windows are fetched first.
@@ -225,7 +205,7 @@ func (s *replayStore) mark(b int64, win, det, on bool) {
 }
 
 // fetch loads window b (and its details) and records the outcome.
-func (s *replayStore) fetch(b int64, win, det bool) {
+func (s *replayStore) fetch(ctx context.Context, b int64, win, det bool) {
 	start := startingTime(bucketStart(b))
 	var (
 		w          windowResp
@@ -240,11 +220,11 @@ func (s *replayStore) fetch(b int64, win, det bool) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			d, derr = s.det(s.gid, start)
+			d, derr = s.det(ctx, s.gid, start)
 		}()
 	}
 	if win {
-		w, werr = s.win(s.gid, start)
+		w, werr = s.win(ctx, s.gid, start)
 	}
 	wg.Wait()
 	if (win && werr == nil) || (det && derr == nil) {
@@ -259,7 +239,11 @@ func (s *replayStore) fetch(b int64, win, det bool) {
 		s.doneDet[b] = true
 	}
 	if (win && werr != nil) || (det && derr != nil) {
-		s.failed[b] = s.now()
+		// A canceled request was not a failed fetch: the window simply was not needed any
+		// more, and marking it failed would delay it after the next open.
+		if !errors.Is(werr, context.Canceled) && !errors.Is(derr, context.Canceled) {
+			s.failed[b] = s.now()
+		}
 	}
 	s.mu.Unlock()
 	s.poke()
@@ -302,8 +286,9 @@ func (s *replayStore) run(ctx context.Context) {
 		}
 		wg.Add(1)
 		go func() {
+			defer crashGuard()
 			defer wg.Done()
-			s.fetch(b, win, det)
+			s.fetch(ctx, b, win, det)
 			<-sem
 		}()
 	}
@@ -322,35 +307,10 @@ func (s *replayStore) progress() float64 {
 	return float64(n) / float64(s.last-s.first+1)
 }
 
-// edge is the feed time up to which every window has been fetched.
-func (s *replayStore) edge() time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for b := s.first; b <= s.last; b++ {
-		if !s.done[b] {
-			return bucketStart(b)
-		}
-	}
-	return s.end
-}
-
 func (s *replayStore) pausesList() []feedPause {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]feedPause(nil), s.pauses...)
-}
-
-// gameStart is the feed time the game's first gold showed at, once its window is loaded.
-func (s *replayStore) gameStart() (time.Time, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return gameStart(s.frames)
-}
-
-func (s *replayStore) killsList() []feedKill {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]feedKill(nil), s.kills...)
 }
 
 func (s *replayStore) requestCount() int {
@@ -359,25 +319,10 @@ func (s *replayStore) requestCount() int {
 	return s.requests
 }
 
-func (s *replayStore) metadata() windowResp {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.meta
-}
-
-// livesAt is who is dead at feed time t, with the respawns the whole game shows; skew is
-// the sync's feed-minus-HUD clock skew (see snapshot).
-func (s *replayStore) livesAt(t time.Time, skew time.Duration) mmLives {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	clock := func(ts time.Time) time.Duration { return ts.Sub(s.spawn) - skew - pauseShift(s.pauses, ts) }
-	return livesAt(s.frames, t, clock, true)
-}
-
 // snapshot builds the board state at feed time t: the latest frame not past t (the first
 // one before the game's own start), the gold series up to it, the lives of the champions
 // (exact respawns: the store holds the whole game) and game as the header clock.
-func (s *replayStore) snapshot(t time.Time, game, skew time.Duration) feedSnap {
+func (s *replayStore) snapshot(t time.Time, game time.Duration) feedSnap {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := feedSnap{GID: s.gid, Spawn: s.spawn, W: s.meta, Game: game}
@@ -389,7 +334,7 @@ func (s *replayStore) snapshot(t time.Time, game, skew time.Duration) feedSnap {
 	if d, ok := pickStamped(s.dets, cur.ts); ok {
 		snap.Det.Frames = []detailsFrame{d.v}
 	}
-	clock := func(ts time.Time) time.Duration { return ts.Sub(s.spawn) - skew - pauseShift(s.pauses, ts) }
+	clock := func(ts time.Time) time.Duration { return ts.Sub(s.spawn) - feedSkew - pauseShift(s.pauses, ts) }
 	snap.Lives = livesAt(s.frames, t, clock, true)
 	snap.Obj = objAt(s.objs, cur.v, cur.ts, clock, true)
 	end := sort.Search(len(s.frames), func(i int) bool { return s.frames[i].ts.After(cur.ts) })

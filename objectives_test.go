@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+func sec(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }
+
 // objKill is one objective kill of a synthetic game: at feed seconds after the start, by
 // team 0 (blue) or 1 (red); what is a drake type, objElderName or "baron".
 type objKill struct {
@@ -187,14 +189,15 @@ func TestObjSeekingBackAndForthShowsTheStateOfThatMoment(t *testing.T) {
 		w, _ := sw.win("g1", startingTime(bucketStart(b)))
 		st.absorb(w, detailsResp{})
 	}
-	at := func(s float64) objView { return st.snapshot(replayT0.Add(sec(s)), 0, 0).Obj }
+	at := func(s float64) objView { return st.snapshot(replayT0.Add(sec(s)), 0).Obj }
 	for _, s := range []float64{10, 150, 10, 100} { // forward, back before the kill, forward again
 		if v := at(s); v.Dragon.State != objWaiting || v.Baron.State != objWaiting {
 			t.Errorf("at %v s: dragon %v baron %v, want both waiting", s, v.Dragon.State, v.Baron.State)
 		}
 	}
-	if a, b := at(10).Dragon.Left, at(10).Dragon.Left; a != b || !objNear(a, 290*time.Second) {
-		t.Errorf("dragon at 10 s = %v, want 4:50 on every visit", a)
+	// feed 10 s is game 6.5 s (the feed runs feedSkew ahead of the game clock): the first drake is 4:53.5 away
+	if a, b := at(10).Dragon.Left, at(10).Dragon.Left; a != b || !objNear(a, 293500*time.Millisecond) {
+		t.Errorf("dragon at 10 s = %v, want 4:53.5 on every visit", a)
 	}
 	if got := at(150).Dragon.Left; !objNear(got, 170*time.Second) { // killed at 20, up at 320
 		t.Errorf("dragon at 150 s = %v, want 2:50", got)
@@ -297,17 +300,16 @@ func TestObjWithoutTheGameClockOnlyKillTimersAreKnown(t *testing.T) {
 func TestFeedSnapshotCarriesObjectives(t *testing.T) {
 	f := newFeed("", time.Second)
 	f.spawn = replayT0
-	f.SetSkew(time.Second)
 	fr := objGame(400, []objKill{{100, 1, "infernal"}}, 0, 0)
 	for i := 0; i < len(fr); i += 100 { // a poll's worth of frames at a time
 		f.absorbLocked(windowResp{Frames: fr[i:min(i+100, len(fr))]}, detailsResp{})
 	}
-	s := f.SnapshotAt(replayT0, replayT0.Add(150*time.Second))
+	s := snapAt(f, replayT0, replayT0.Add(150*time.Second))
 	// the drake died at 100 s feed, 50 s before the shown frame (the skew cancels): up in 4:10.
 	if !s.Obj.Valid || s.Obj.Dragon.State != objWaiting || !objNear(s.Obj.Dragon.Left, 250*time.Second) {
 		t.Errorf("snapshot dragon = %+v, want waiting about 4:10", s.Obj.Dragon)
 	}
-	if s.Obj.Baron.State != objWaiting || !objNear(s.Obj.Baron.Left, 1200*time.Second-149*time.Second) {
+	if s.Obj.Baron.State != objWaiting || !objNear(s.Obj.Baron.Left, 1200*time.Second-146500*time.Millisecond) { // feed 150 s = game 146.5 s
 		t.Errorf("snapshot baron = %+v", s.Obj.Baron)
 	}
 }
@@ -354,31 +356,28 @@ func lineText(l line) string {
 var ansiOff = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestBoardShowsTheTimerRowAndStillFitsTheTerminal(t *testing.T) {
-	offlineMap(t)
 	obj := objView{Valid: true, Soul: -1, Point: -1,
 		Dragon: objTimer{State: objWaiting, Left: 192 * time.Second, Drake: "infernal"},
 		Baron:  objTimer{State: objUp}}
 	now := time.Now()
-	for _, mode := range []string{mmModeText, mmModeBlocks, mmModeKitty} {
-		view := mmView{Mode: mode, Status: "x", CellW: 8, CellH: 16, Obj: obj}
-		for _, w := range []int{50, 80, 104, 200} {
-			for h := 12; h <= 60; h++ {
-				for flags := 0; flags < 8; flags++ {
-					tg := toggles{view: flags & 1, spark: flags&2 != 0, omap: flags&4 != 0, mm: true}
-					if c := demoCanvasAt(w, h, now, 2*time.Second, detailsResp{}, tg, nil, view); c.h > h {
-						t.Fatalf("mode %s w=%d h=%d tg=%+v: canvas has %d rows", mode, w, h, tg, c.h)
-					}
+	view := boardView{Obj: obj}
+	for _, w := range []int{50, 80, 104, 200} {
+		for h := 12; h <= 60; h++ {
+			for flags := 0; flags < 8; flags++ {
+				tg := toggles{view: flags & 1, spark: flags&2 != 0, omap: flags&4 != 0}
+				if c := demoCanvasAt(w, h, now, 2*time.Second, detailsResp{}, tg, nil, view); c.h > h {
+					t.Fatalf("w=%d h=%d tg=%+v: canvas has %d rows", w, h, tg, c.h)
 				}
 			}
 		}
 	}
 	for w, want := range map[int]string{104: "Dragon 3:12 Infernal · Baron UP", 32: "DRG 3:12 INF · BRN UP", 24: "D 3:12 · B UP"} {
-		c := demoCanvasAt(w, 60, now, 2*time.Second, detailsResp{}, toggles{}, nil, mmView{Obj: obj})
+		c := demoCanvasAt(w, 60, now, 2*time.Second, detailsResp{}, toggles{}, nil, view)
 		if got := ansiOff.ReplaceAllString(canvasString(c), ""); !strings.Contains(got, want) {
 			t.Errorf("width %d: no %q in\n%s", w, want, got)
 		}
 	}
-	if c := demoCanvasAt(104, 60, now, 2*time.Second, detailsResp{}, toggles{}, nil, mmView{}); strings.Contains(ansiOff.ReplaceAllString(canvasString(c), ""), "Baron") {
+	if c := demoCanvasAt(104, 60, now, 2*time.Second, detailsResp{}, toggles{}, nil, boardView{}); strings.Contains(ansiOff.ReplaceAllString(canvasString(c), ""), "Baron") {
 		t.Error("a timer row without a view")
 	}
 }

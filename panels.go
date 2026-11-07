@@ -28,6 +28,20 @@ type detailsParticipant struct {
 
 type detMap map[int]detailsParticipant
 
+func itemName(id int) string {
+	if n, ok := bundledItems[id]; ok && n != "" {
+		return n
+	}
+	return fmt.Sprintf("#%d", id)
+}
+
+func runeName(id int) string {
+	if n, ok := bundledRunes[id]; ok && n != "" {
+		return n
+	}
+	return fmt.Sprintf("#%d", id)
+}
+
 func detFrom(dr detailsResp) detMap {
 	m := detMap{}
 	if len(dr.Frames) == 0 {
@@ -45,27 +59,16 @@ type toggles struct {
 	view  int  // b cycles: 0 stats, 1 items, 2 runes
 	spark bool // s: gold-diff sparkline
 	omap  bool // o: objective map panel
-	mm    bool // m: broadcast minimap panel (the video pipeline runs while hidden)
-	video bool // v: broadcast video sync (pipeline + synced playout)
 	// replay is the playback state of a replayed game (nil: live): the header says REPLAY, the footer shows the position.
 	replay *replayState
 	embed  bool // drawn inside the app's pane: the app's hint bar lists the keys
 }
 
-// mmView is what the minimap panel shows: the draw mode, champions and a status line.
-// Lives is the feed's word on who is dead at the shown instant; the scoreboard rows read
-// it too, so board and map agree.
-type mmView struct {
-	Mode         string // mmModeKitty, mmModeBlocks or mmModeText
-	Markers      []mmMarker
-	Icons        []mmIcon
-	TPs          []mmTP // Teleport destinations (kitty draws them; Markers carry them as mmTPLabel)
-	Ver          string // Data Dragon version of the icons
-	CellW, CellH int    // terminal cell size in pixels (kitty)
-	Status       string
-	Hidden       bool // the broadcast shows no live minimap (replay, desk or draft)
-	Lives        mmLives
-	Obj          objView // objective timers at the shown instant
+// boardView is what the feed says at the shown instant besides the frame: who is dead
+// and until when, and the objective timers.
+type boardView struct {
+	Lives champLives
+	Obj   objView
 }
 
 // ---------------- gold-diff series ----------------
@@ -134,12 +137,21 @@ func runePage(dp detailsParticipant) string {
 	return out
 }
 
-// itemsCols splits budget for the items view: champion + FULL item names + skill (one focus, wide).
+// itemsCols splits budget for the items and runes views: name + champion + the detail column
+// + skill. The skill column (Q>W>E) never shrinks; the champion column and then the name
+// give way first, and the detail column is always measured from the budget so no row can
+// grow past it.
 func itemsCols(budget int) (nameW, champW, skillW, itemsW int) {
-	nameW, champW, skillW = 12, 8, 6
+	skillW = 6
+	nameW = min(12, max(8, budget/4))
+	champW = 8
 	itemsW = budget - nameW - champW - skillW - 3
-	if itemsW < 20 {
-		itemsW = 20
+	if itemsW < 8 {
+		champW = 0
+		itemsW = budget - nameW - skillW - 3
+	}
+	if itemsW < 8 {
+		nameW, itemsW = 6, max(0, budget-6-skillW-3)
 	}
 	return
 }
@@ -150,6 +162,7 @@ func itemsPlayerRow(name, champ string, dp detailsParticipant, tc string, budget
 		its = append(its, itemName(id))
 	}
 	items := trim(strings.Join(its, " · "), itemsW)
+	// champW is 0 when the champion column had to go; the empty column keeps the row budget wide.
 	return line{
 		C(padR(name, nameW), tc), S(" "),
 		C(padR(champ, champW), cDim), S(" "),
@@ -167,13 +180,10 @@ func itemsPlayerHeader(budget int) line {
 	}
 }
 
-// runesPlayerRow renders the runes view row: champion + FULL rune page (keystone + primary path + secondary) + skill.
+// runesPlayerRow renders the runes view row: name + champion + FULL rune page (keystone +
+// primary path + secondary) + skill, on the same column split as the items view.
 func runesPlayerRow(name, champ string, dp detailsParticipant, tc string, budget int) line {
-	nameW, champW, skillW := 12, 8, 6
-	rW := budget - nameW - champW - skillW - 3
-	if rW < 20 {
-		rW = 20
-	}
+	nameW, champW, skillW, rW := itemsCols(budget)
 	return line{
 		C(padR(name, nameW), tc), S(" "),
 		C(padR(champ, champW), cDim), S(" "),
@@ -182,11 +192,7 @@ func runesPlayerRow(name, champ string, dp detailsParticipant, tc string, budget
 	}
 }
 func runesPlayerHeader(budget int) line {
-	nameW, champW, skillW := 12, 8, 6
-	rW := budget - nameW - champW - skillW - 3
-	if rW < 20 {
-		rW = 20
-	}
+	nameW, champW, skillW, rW := itemsCols(budget)
 	return line{
 		C(padR(tr("player"), nameW), cDim), S(" "),
 		C(padR(tr("champion"), champW), cDim), S(" "),
@@ -216,18 +222,20 @@ func sparkline(series []goldPt, width int) line {
 	l = append(l, C(tr("gold"), cBold), S(" "))
 	cur := series[len(series)-1].diff
 	tail := fmt.Sprintf("  %+dk", cur/1000)
-	barW := width - 5 - len(tail)
+	if cur > -1000 && cur < 1000 { // the integer form would print "+0k" for every sub-1k lead
+		tail = fmt.Sprintf("  %+.1fk", math.Trunc(float64(cur)/100)/10)
+	}
+	barW := width - 5 - runeLen(tail)
 	if barW < 10 {
 		barW = 10
 	}
-	step := float64(len(series)) / float64(barW)
-	if step < 1 {
-		step = 1
-	}
+	// Each bar cell samples the series at its own position, so the curve spans the whole bar
+	// instead of repeating the newest sample past the end of the series.
+	last := len(series) - 1
 	for i := 0; i < barW; i++ {
-		idx := int(float64(i) * step)
-		if idx >= len(series) {
-			idx = len(series) - 1
+		idx := 0
+		if barW > 1 {
+			idx = (i*last + (barW-1)/2) / (barW - 1)
 		}
 		d := series[idx].diff
 		lvl := int(math.Round(math.Abs(float64(d)) / float64(maxAbs) * 7))
@@ -260,26 +268,43 @@ func elemChar(e string) string {
 }
 func soulStr(dragons []string) string {
 	if len(dragons) >= 4 {
-		return " ★SOUL"
+		return " ★" + strings.ToUpper(tr("soul"))
 	}
 	return ""
 }
 
-// objMapPanel returns bordered lines summarizing map control.
+// objDragonLine is the dragons row: element letters and the soul badge, or - when the panel
+// is too narrow for them - just the counts.
+func objDragonLine(b, r []string, elements bool) line {
+	bs, rs := fmt.Sprintf("%d", len(b)), fmt.Sprintf("%d", len(r))
+	if elements {
+		bs += " " + strings.Join(mapSlice(b, elemChar), "·")
+		rs += " " + strings.Join(mapSlice(r, elemChar), "·")
+	}
+	bs += soulStr(b)
+	rs += soulStr(r)
+	return line{C(strings.ToUpper(tr("dragon")), cBold), S("  "), C(bs, cCyan), S("   "), C(rs, cRed)}
+}
+
+// objMapPanel returns bordered lines summarizing map control. Every row is fitted to the
+// panel: the dragon elements and then the gold lead drop out whole rather than being cut.
 func objMapPanel(b, r teamStats, t int) []line {
 	W := t - 4
 	var out []line
 	// towers tug bar
-	out = append(out, borderedL(statBarLine("TOWER", b.Towers, r.Towers,
+	out = append(out, borderedL(statBarLine(tr("tower"), b.Towers, r.Towers,
 		fmt.Sprintf("%d", b.Towers), fmt.Sprintf("%d", r.Towers), W), t))
 	// dragons: elements + soul
-	be := strings.Join(mapSlice(b.Dragons, elemChar), "·")
-	re := strings.Join(mapSlice(r.Dragons, elemChar), "·")
-	dl := line{C("DRAGON", cBold), S("  "),
-		C(fmt.Sprintf("%d %s%s", len(b.Dragons), be, soulStr(b.Dragons)), cCyan),
-		S("   "), C(fmt.Sprintf("%d %s%s", len(r.Dragons), re, soulStr(r.Dragons)), cRed)}
+	dl := objDragonLine(b.Dragons, r.Dragons, true)
+	if dl.vis() > W {
+		dl = objDragonLine(b.Dragons, r.Dragons, false)
+	}
 	out = append(out, borderedL(dl, t))
 	// baron/inhib + gold lead
+	bl := line{C(strings.ToUpper(tr("baron")), cBold), S(" "), C(fmt.Sprintf("%d", b.Barons), cCyan),
+		S(" ─ "), C(fmt.Sprintf("%d", r.Barons), cRed),
+		S("    "), C(tr("inhibitor"), cBold), S(" "), C(fmt.Sprintf("%d", b.Inhibitors), cCyan),
+		S(" ─ "), C(fmt.Sprintf("%d", r.Inhibitors), cRed)}
 	lead := r.TotalGold - b.TotalGold
 	leadStr := "even"
 	lc := cDim
@@ -290,11 +315,9 @@ func objMapPanel(b, r teamStats, t int) []line {
 		leadStr = "blue +" + gold(-lead)
 		lc = cCyan
 	}
-	bl := line{C("BARON", cBold), S(" "), C(fmt.Sprintf("%d", b.Barons), cCyan),
-		S(" ─ "), C(fmt.Sprintf("%d", r.Barons), cRed),
-		S("    "), C("INHIB", cBold), S(" "), C(fmt.Sprintf("%d", b.Inhibitors), cCyan),
-		S(" ─ "), C(fmt.Sprintf("%d", r.Inhibitors), cRed),
-		S("    "), C("GOLD ", cBold), C(leadStr, lc)}
+	if gl := (line{S("    "), C(tr("gold"), cBold), S(" "), C(leadStr, lc)}); bl.vis()+gl.vis() <= W {
+		bl = append(bl, gl...)
+	}
 	out = append(out, borderedL(bl, t))
 	return out
 }

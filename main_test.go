@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestGetJSONReportsHTTPStatus(t *testing.T) {
 	old := httpClient.Transport
 	httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {

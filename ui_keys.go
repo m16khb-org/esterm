@@ -55,8 +55,9 @@ type key struct {
 }
 
 // escTimeout is how long a lone ESC byte waits for the rest of a sequence before it is a
-// plain Escape key.
-const escTimeout = 30 * time.Millisecond
+// plain Escape key. Slow links can split an arrow sequence across reads, so keep it well
+// above one round trip.
+const escTimeout = 50 * time.Millisecond
 
 // decodeKeys turns raw terminal bytes into keys. A trailing incomplete escape sequence or
 // UTF-8 rune is returned as rest so the caller can prepend it to the next read (or, after

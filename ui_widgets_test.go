@@ -179,7 +179,7 @@ func TestDrawPopupCenteredAndClipped(t *testing.T) {
 		body = append(body, line{S("a long body line")})
 	}
 	in = drawPopup(d, rect{0, 0, 10, 5}, "T", body)
-	if in != (rect{1, 1, 8, 3}) {
+	if in != (rect{1, 1, 8, 2}) { // the popup stops above the hint bar row
 		t.Fatalf("clipped inner %v", in)
 	}
 	if got := rowText(d, 1); !strings.Contains(got, "…") || len([]rune(got)) != 10 {
@@ -189,7 +189,7 @@ func TestDrawPopupCenteredAndClipped(t *testing.T) {
 
 func TestMenuNavigationAndDraw(t *testing.T) {
 	m := &menu{Title: "Options", Items: []menuItem{
-		{"Minimap", "auto", "drawing mode"}, {"Video", "on", "sync"}, {"Poll", "2s", ""}}}
+		{"Interval", "2s", "how often"}, {"Column", "shown", "list"}, {"Language", "en", ""}}}
 	m.Move(-1)
 	if m.Sel != 2 {
 		t.Fatalf("wrap up: %d", m.Sel)
@@ -209,7 +209,7 @@ func TestMenuNavigationAndDraw(t *testing.T) {
 	for y := 0; y < c.h; y++ {
 		all += rowText(c, y) + "\n"
 	}
-	for _, s := range []string{"Options", "▸ Minimap  auto", "  Video    on", "drawing mode"} {
+	for _, s := range []string{"Options", "▸ Interval  2s", "  Column    shown", "how often"} {
 		if !strings.Contains(all, s) {
 			t.Errorf("missing %q in\n%s", s, all)
 		}

@@ -101,17 +101,14 @@ func TestReplayLivesAreExact(t *testing.T) {
 		t.Fatalf("the counter ticked, health still full: %+v, want dead, exact, 17.75 s", l)
 	}
 	l := livesAt(fr, at(105.25), feedClock, true)[3]
-	if !l.Dead || !l.Exact || !near(l.Secs, 12.75) || l.AliveFor != 0 {
+	if !l.Dead || !l.Exact || !near(l.Secs, 12.75) {
 		t.Fatalf("mid-death: %+v, want dead, exact, 12.75 s", l)
 	}
 	if l := livesAt(fr, at(117.75), feedClock, true)[3]; !l.Dead || !near(l.Secs, 0.25) {
 		t.Fatalf("a quarter second before the respawn: %+v", l)
 	}
-	if l := livesAt(fr, at(118), feedClock, true)[3]; l.Dead || l.AliveFor != 0 {
-		t.Fatalf("at the first frame with health: %+v, want alive for 0 s", l)
-	}
-	if l := livesAt(fr, at(130), feedClock, true)[3]; l.Dead || !near(l.AliveFor, 12) {
-		t.Fatalf("12 s after the respawn: %+v", l)
+	if l := livesAt(fr, at(118), feedClock, true)[3]; l.Dead {
+		t.Fatalf("at the first frame with health: %+v, want alive", l)
 	}
 }
 
@@ -121,8 +118,8 @@ func TestLivesIgnoreRevivesAndChampionsThatNeverDied(t *testing.T) {
 	if l[5].Dead {
 		t.Fatalf("health 0 without the counter ticking is a revive, not a death: %+v", l[5])
 	}
-	if l[3].Dead || l[3].AliveFor != 32 || l[1].AliveFor != 32 {
-		t.Fatalf("a champion that never died has been alive since the first frame: p3 %+v p1 %+v", l[3], l[1])
+	if l[3].Dead || l[1].Dead {
+		t.Fatalf("a champion that never died is alive: p3 %+v p1 %+v", l[3], l[1])
 	}
 	if l := livesAt(fr, at(32), feedClock, false); l[5].Dead {
 		t.Fatalf("live: a revive is no death either: %+v", l[5])
@@ -200,10 +197,54 @@ func TestLiveLivesEstimateAndSnapToTheFeed(t *testing.T) {
 	if l := livesAt(fr, at(117), feedClock, false)[3]; !l.Dead || l.Secs != 0 {
 		t.Fatalf("overdue: %+v, want dead with 0 s", l)
 	}
-	// Health in the feed ends it at once, whatever the estimate said.
-	early := lifeFrames(0.5, 200, deadBetween(100, 108), nil)
-	if l := livesAt(early, at(108), feedClock, false)[3]; l.Dead || l.AliveFor != 0 {
+	// Health in the feed ends it at once, whatever the estimate said — once it comes back
+	// late enough to be a respawn: a come back before the timer is a revive in place (see
+	// TestReviveInPlaceIsNoRespawn).
+	early := lifeFrames(0.5, 200, deadBetween(100, 115), nil)
+	if l := livesAt(early, at(115), feedClock, false)[3]; l.Dead {
 		t.Fatalf("full health must snap to alive: %+v", l)
+	}
+}
+
+// TestReviveInPlaceIsNoRespawn covers Sion's Glory in Death: the deaths counter ticks, the
+// health falls to 0, and a few seconds later the zombie's fresh health bar reads high and
+// decays back to 0. A death timer never runs out that early, so the health coming back is no
+// respawn: the champion is up again in place, then dead until the timer gives it back, and
+// the fountain health is the respawn.
+func TestReviveInPlaceIsNoRespawn(t *testing.T) {
+	// Participant 3 (level 6, 16 s timer) dies at 100 s: health 0 at 100.5 s, the zombie's
+	// bar at 102 s, gone by 105.5 s, and the fountain health at 118 s.
+	state := func(sec float64, pid int) lifeState {
+		switch {
+		case pid != 3 || sec < 100:
+			return lifeState{6, 0, 1500}
+		case sec < 100.5:
+			return lifeState{6, 1, 1500}
+		case sec < 102:
+			return lifeState{6, 1, 0}
+		case sec < 105.5:
+			return lifeState{6, 1, 1500 - int((sec-102)*100)}
+		case sec < 118:
+			return lifeState{6, 1, 0}
+		}
+		return lifeState{6, 1, 1500}
+	}
+	fr := lifeFrames(0.5, 200, state, nil)
+	// The zombie's health is the champion up again in place: alive, and the death goes on.
+	for _, look := range []bool{true, false} {
+		if l := livesAt(fr, at(104), feedClock, look)[3]; l.Dead {
+			t.Fatalf("lookahead %v, on the zombie's health: %+v, want alive", look, l)
+		}
+	}
+	// When the zombie falls it is dead again until the timer gives it back at 118 s.
+	if l := livesAt(fr, at(110), feedClock, true)[3]; !l.Dead || !l.Exact || !near(l.Secs, 8) {
+		t.Fatalf("replay, after the zombie fell: %+v, want dead with exactly 8 s", l)
+	}
+	if l := livesAt(fr, at(110), feedClock, false)[3]; !l.Dead || l.Exact || !near(l.Secs, 6.5) {
+		t.Fatalf("live, after the zombie fell: %+v, want dead with the 6.5 s estimate", l)
+	}
+	if l := livesAt(fr, at(118), feedClock, true)[3]; l.Dead {
+		t.Fatalf("back at the fountain: %+v, want alive", l)
 	}
 }
 
@@ -240,7 +281,7 @@ func TestLivesStartedMidDeathCountFromTheFirstFrame(t *testing.T) {
 	if l := livesAt(fr, at(5), feedClock, true)[3]; !l.Dead || !l.Exact || !near(l.Secs, 15) {
 		t.Fatalf("replay: %+v, want exactly 15 s", l)
 	}
-	if l := livesAt(fr, at(60), feedClock, false)[3]; l.Dead || !near(l.AliveFor, 40) {
+	if l := livesAt(fr, at(60), feedClock, false)[3]; l.Dead {
 		t.Fatalf("after the respawn: %+v", l)
 	}
 }
@@ -268,31 +309,6 @@ func TestLivesCountDownOnTheGameClockAcrossAPause(t *testing.T) {
 	}
 }
 
-func TestLivesAliveForSinceTheLastRespawn(t *testing.T) {
-	state := func(sec float64, pid int) lifeState {
-		switch {
-		case pid != 3 || sec < 40:
-			return lifeState{6, 0, 1500}
-		case sec < 40.5:
-			return lifeState{6, 1, 1500}
-		case sec < 55:
-			return lifeState{6, 1, 0}
-		}
-		return lifeState{6, 1, 1500}
-	}
-	fr := lifeFrames(0.5, 700, state, nil)
-	if l := livesAt(fr, at(100), feedClock, false)[3]; !near(l.AliveFor, 45) {
-		t.Fatalf("alive for %.2f s, want 45 s since the respawn at 55 s", l.AliveFor)
-	}
-	// Far from the death the answer is only a lower bound: at least deathLookBack.
-	if l := livesAt(fr, at(650), feedClock, false)[3]; l.AliveFor < deathLookBack.Seconds() {
-		t.Fatalf("alive for %.2f s, want at least %v", l.AliveFor, deathLookBack)
-	}
-	if l := livesAt(fr, at(-5), feedClock, false)[3]; l.AliveFor != 0 {
-		t.Fatalf("before the first frame: %+v", l)
-	}
-}
-
 func TestLivesWithoutFramesAreUnknown(t *testing.T) {
 	if l := livesAt(nil, at(1), feedClock, true); l != nil {
 		t.Fatalf("no frames: %+v", l)
@@ -300,15 +316,5 @@ func TestLivesWithoutFramesAreUnknown(t *testing.T) {
 	empty := []stamped[frame]{{at(0), frame{}}}
 	if l := livesAt(empty, at(1), feedClock, true); l != nil {
 		t.Fatalf("frames without participants: %+v", l)
-	}
-}
-
-func TestLivesCarryLevelAndHealthForTheMainView(t *testing.T) {
-	fr := lifeFrames(0.5, 60, func(sec float64, pid int) lifeState { return lifeState{level: 7 + pid, hp: 500 * (pid % 5)} }, nil)
-	l := livesAt(fr, at(30), feedClock, false)
-	for pid, want := range map[int]mmLife{3: {Level: 10, HP: 0.75}, 5: {Level: 12, HP: 0}} {
-		if got := l[pid]; got.Level != want.Level || math.Abs(got.HP-want.HP) > 1e-9 || got.Dead {
-			t.Fatalf("participant %d: %+v, want level %d health %.2f alive", pid, got, want.Level, want.HP)
-		}
 	}
 }

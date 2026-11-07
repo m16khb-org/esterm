@@ -68,8 +68,9 @@ func eventID(e event) string {
 	return e.ID
 }
 
-// findEventID returns the id of the live event for a league (or next upcoming).
-func findEventID(lid string) string {
+// findEventID returns the id of the live event for a league, else the next upcoming
+// one, else the most recent one.
+func findEventID(lid string) (string, error) {
 	var lr scheduleResp
 	url := gwBase + "/getLive?hl=en-US"
 	if lid != "" {
@@ -78,11 +79,11 @@ func findEventID(lid string) string {
 	if getJSON(url, &lr) == nil {
 		for _, e := range lr.Data.Schedule.Events {
 			if e.State == "inProgress" {
-				return eventID(e)
+				return eventID(e), nil
 			}
 		}
 		if len(lr.Data.Schedule.Events) > 0 {
-			return eventID(lr.Data.Schedule.Events[0])
+			return eventID(lr.Data.Schedule.Events[0]), nil
 		}
 	}
 	var sr scheduleResp
@@ -90,16 +91,19 @@ func findEventID(lid string) string {
 	if lid != "" {
 		url2 += "&leagueId=" + lid
 	}
-	getJSON(url2, &sr)
-	for _, e := range sr.Data.Schedule.Events {
+	if err := getJSON(url2, &sr); err != nil {
+		return "", err
+	}
+	evs := sr.Data.Schedule.Events
+	for _, e := range evs {
 		if e.State != "completed" {
-			return eventID(e)
+			return eventID(e), nil
 		}
 	}
-	if len(sr.Data.Schedule.Events) > 0 {
-		return eventID(sr.Data.Schedule.Events[0])
+	if len(evs) > 0 {
+		return eventID(evs[len(evs)-1]), nil
 	}
-	return ""
+	return "", nil
 }
 
 func streamURL(provider, param string) string {
@@ -122,12 +126,16 @@ func cmdStreams(args []string) {
 	fs := flag.NewFlagSet("lol streams", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	fs.Parse(args)
-	lid, ok := leagueID(*league)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", *league)
-		return
+	lid, err := leagueID(*league)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
-	eid := findEventID(lid)
+	eid, err := findEventID(lid)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	if eid == "" {
 		fmt.Println("  no event found — try: lolterm lol schedule")
 		return
@@ -135,7 +143,7 @@ func cmdStreams(args []string) {
 	var ed eventDetailsResp
 	if err := getJSON(gwBase+"/getEventDetails?hl=en-US&id="+eid, &ed); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		os.Exit(1)
 	}
 	streams := ed.Data.Event.Streams
 	if len(streams) == 0 {
@@ -175,12 +183,16 @@ func cmdStandings(args []string) {
 	fs := flag.NewFlagSet("lol standings", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	fs.Parse(args)
-	lid, ok := leagueID(*league)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", *league)
-		return
+	lid, err := leagueID(*league)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
-	eid := findEventID(lid)
+	eid, err := findEventID(lid)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	if eid == "" {
 		fmt.Println("  no event found")
 		return
@@ -188,7 +200,7 @@ func cmdStandings(args []string) {
 	var ed eventDetailsResp
 	if err := getJSON(gwBase+"/getEventDetails?hl=en-US&id="+eid, &ed); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		os.Exit(1)
 	}
 	tid := ed.Data.Event.Tournament.ID
 	if tid == "" {
@@ -198,7 +210,7 @@ func cmdStandings(args []string) {
 	var sr standingsResp
 	if err := getJSON(gwBase+"/getStandings?hl=en-US&tournamentId="+tid, &sr); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		os.Exit(1)
 	}
 	if len(sr.Data.Standings) == 0 {
 		fmt.Println("  no standings available")
@@ -224,14 +236,20 @@ func cmdStandings(args []string) {
 				}
 				if len(m.Teams) > 0 && m.Teams[0].Result != nil {
 					winA = m.Teams[0].Result.GameWins
+					if m.Teams[0].Result.Outcome == "win" {
+						codeA += "*"
+					}
 				}
 				if len(m.Teams) > 1 && m.Teams[1].Result != nil {
 					winB = m.Teams[1].Result.GameWins
+					if m.Teams[1].Result.Outcome == "win" {
+						codeB += "*"
+					}
 				}
 				marker := " "
 				switch m.State {
 				case "inProgress":
-					marker = "🔴"
+					marker = "●"
 				case "unstarted":
 					marker = "·"
 				case "completed":

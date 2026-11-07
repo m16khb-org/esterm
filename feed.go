@@ -17,10 +17,8 @@ const (
 	feedResync        = feedProbeStep * feedProbeMax // newest frame older than this: re-probe the live edge
 	feedLagWindow     = 8                            // polls considered by the adaptive playout delay
 	feedDelayMargin   = 500 * time.Millisecond
-	feedPriorSkew     = 3500 * time.Millisecond // feed time since spawn minus the HUD game clock until sync learns it
+	feedSkew          = 3500 * time.Millisecond // feed time since spawn minus the HUD game clock
 	feedPauseGap      = 1500 * time.Millisecond // a gap after a paused frame longer than this is a game pause
-	feedBackoffMin    = 2 * time.Second         // pause between backfills, doubled while they find nothing older
-	feedBackoffMax    = 2 * time.Minute
 )
 
 // startingTime formats t as the 10 s-aligned startingTime query value of the livestats feed.
@@ -38,7 +36,7 @@ type feedSnap struct {
 	Series []goldPt
 	Lag    time.Duration // wall clock minus the current frame's timestamp
 	Game   time.Duration // game clock of the current frame as the broadcast shows it; -1 if unknown
-	Lives  mmLives       // who is dead and until when at the shown instant; nil without frames
+	Lives  champLives    // who is dead and until when at the shown instant; nil without frames
 	Obj    objView       // objective timers at the shown instant; zero without frames
 }
 
@@ -122,35 +120,12 @@ func pauseShift(ps []feedPause, t time.Time) time.Duration {
 	return sum
 }
 
-// feedKill is a change of a team's kill count seen in the feed: Team 0 blue, 1 red; T is
-// the timestamp of the first frame showing Count.
-type feedKill struct {
-	Team, Count int
-	T           time.Time
-}
-
 // findPauses returns the pauses visible in the sorted frames.
 func findPauses(fr []stamped[frame]) []feedPause {
 	var out []feedPause
 	for i := 1; i < len(fr); i++ {
 		if gap := fr[i].ts.Sub(fr[i-1].ts); fr[i-1].v.GameState == "paused" && gap > feedPauseGap {
 			out = append(out, feedPause{fr[i-1].ts, gap})
-		}
-	}
-	return out
-}
-
-// findKills returns every single-kill increase between consecutive frames. Jumps of more
-// than one kill have no unambiguous count and are skipped.
-func findKills(fr []stamped[frame]) []feedKill {
-	var out []feedKill
-	for i := 1; i < len(fr); i++ {
-		p, c := fr[i-1].v, fr[i].v
-		if c.BlueTeam.TotalKills == p.BlueTeam.TotalKills+1 {
-			out = append(out, feedKill{0, c.BlueTeam.TotalKills, fr[i].ts})
-		}
-		if c.RedTeam.TotalKills == p.RedTeam.TotalKills+1 {
-			out = append(out, feedKill{1, c.RedTeam.TotalKills, fr[i].ts})
 		}
 	}
 	return out
@@ -165,7 +140,7 @@ type feed struct {
 
 	// injectable for tests; newFeed wires the real implementations.
 	now       func() time.Time
-	liveEvent func(lid, matchID string) (event, string, bool)
+	liveEvent func(lid, matchID string) (event, string, bool, error)
 	spawnAt   func(gid string) time.Time
 	window    func(gid, start string) (windowResp, error)
 	details   func(gid, start string) (detailsResp, error)
@@ -182,16 +157,9 @@ type feed struct {
 	lastDisp time.Time
 	series   []goldPt
 	pauses   []feedPause
-	skew     time.Duration // 0 until SetSkew
-	kills    []feedKill    // every kill-count increase seen, in discovery order
-	start    time.Time     // when the game's first gold showed, once its frames were seen
-	killSeen map[[2]int]bool
-	objs     []objEvent    // every objective kill seen, in time order (objMerge)
-	fetching bool          // a backfill is running
-	nextTry  time.Time     // earliest start of the next backfill
-	backoff  time.Duration // wait after the last backfill that found nothing older
-	detView  bool          // the view on screen shows details
-	lastDet  time.Time     // wall time of the last details request
+	objs     []objEvent // every objective kill seen, in time order (objMerge)
+	detView  bool       // the view on screen shows details
+	lastDet  time.Time  // wall time of the last details request
 }
 
 func newFeed(lid string, poll time.Duration) *feed {
@@ -256,11 +224,18 @@ func (f *feed) SetDetailsView(on bool) {
 }
 
 func (f *feed) discover(now time.Time) {
-	ev, gid, found := f.liveEvent(f.lid, f.matchID)
+	ev, gid, found, err := f.liveEvent(f.lid, f.matchID)
 	if !found {
 		ev, gid = event{}, ""
 	}
 	f.mu.Lock()
+	f.lastDisc = now
+	if err != nil {
+		// A failed lookup says nothing about the game: keep the buffer, the header and the
+		// game id, and try again on the normal cadence.
+		f.mu.Unlock()
+		return
+	}
 	changed := gid != f.gid
 	f.mu.Unlock()
 	var spawn time.Time
@@ -269,7 +244,6 @@ func (f *feed) discover(now time.Time) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.lastDisc = now
 	f.ev = ev
 	if gid == f.gid && f.spawn.IsZero() {
 		f.spawn = spawn // the first lookup failed: try again until it works
@@ -277,10 +251,9 @@ func (f *feed) discover(now time.Time) {
 	if gid != f.gid {
 		f.gid = gid
 		f.spawn = spawn
-		f.nextTry, f.backoff, f.lastDet = time.Time{}, 0, time.Time{}
+		f.lastDet = time.Time{}
 		f.meta = windowResp{}
-		f.frames, f.dets, f.lags, f.series, f.pauses, f.skew = nil, nil, nil, nil, nil, 0
-		f.kills, f.killSeen, f.objs, f.start = nil, nil, nil, time.Time{}
+		f.frames, f.dets, f.lags, f.series, f.pauses, f.objs = nil, nil, nil, nil, nil, nil
 		f.lastDisp = time.Time{}
 	}
 }
@@ -314,8 +287,8 @@ func (f *feed) fetchFrames() {
 		newest = f.frames[n-1].ts
 	}
 	// A finished game publishes nothing newer, however long ago its last frame was: keep it
-	// (the video still shows the end of the game) instead of dropping the buffer and
-	// flickering between an empty and a refilled scoreboard.
+	// instead of dropping the buffer and flickering between an empty and a refilled
+	// scoreboard.
 	if n := len(f.frames); !newest.IsZero() && at.Sub(newest) > feedResync && f.frames[n-1].v.GameState != "finished" {
 		// Far behind (e.g. after sleep): drop the stale buffer and probe for the live edge again.
 		if f.pausedLast() {
@@ -332,6 +305,7 @@ func (f *feed) fetchFrames() {
 	if det {
 		f.lastDet = at
 	}
+	paused := f.pausedLast() // a backfill can replace the buffer, so read it under the lock
 	f.mu.Unlock()
 	if gid == "" {
 		return
@@ -341,7 +315,7 @@ func (f *feed) fetchFrames() {
 		w windowResp
 		d detailsResp
 	)
-	if !newest.IsZero() && !(f.pausedLast() && at.Sub(newest) > 2*feedProbeStep) {
+	if !newest.IsZero() && !(paused && at.Sub(newest) > 2*feedProbeStep) {
 		// Frame timestamps are irregular, so the newest frame of a window can sit anywhere in
 		// its last half second. The next window is empty until the feed publishes it, so it
 		// is polled together with the current one only once the newest frame is within a
@@ -375,8 +349,9 @@ func (f *feed) fetchFrames() {
 	} else {
 		for i := 0; i < feedProbeMax; i++ {
 			at = f.now()
+			start := startingTime(at.Add(-feedProbeStep * time.Duration(i+1)))
 			var err error
-			w, d, err = f.fetchPair(gid, startingTime(at.Add(-feedProbeStep*time.Duration(i+1))), det)
+			w, d, err = f.fetchPair(gid, start, false) // details belong to the window that wins
 			if err != nil {
 				// The feed rejects a window whose end is less than ~20 s old. The live
 				// edge is found by stepping further back, so keep probing on that 400.
@@ -387,6 +362,9 @@ func (f *feed) fetchFrames() {
 				return
 			}
 			if len(w.Frames) > 0 {
+				if det {
+					d, _ = f.details(gid, start)
+				}
 				break
 			}
 		}
@@ -398,7 +376,9 @@ func (f *feed) fetchFrames() {
 		return
 	}
 	f.absorbLocked(w, d)
-	if n := len(f.frames); n > 0 {
+	// A paused frame means the feed is quiet on purpose: that silence is the pause, not
+	// jitter, and absorbing it would hold playout back for the whole pause after resume.
+	if n := len(f.frames); n > 0 && !f.pausedLast() {
 		f.lags = append(f.lags, at.Sub(f.frames[n-1].ts))
 		if len(f.lags) > feedLagWindow {
 			f.lags = f.lags[len(f.lags)-feedLagWindow:]
@@ -407,7 +387,7 @@ func (f *feed) fetchFrames() {
 }
 
 // absorbLocked merges a fetched window and its details into the buffers and derives the
-// pauses and kills they reveal. Callers hold f.mu.
+// pauses and objectives they reveal. Callers hold f.mu.
 func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 	var wf []stamped[frame]
 	for _, fr := range w.Frames {
@@ -430,7 +410,7 @@ func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 	if len(wf) == 0 {
 		return
 	}
-	// Pauses and kills only change around the frames just added: scan from the one before.
+	// Pauses and objectives only change around the frames just added: scan from the one before.
 	first := wf[0].ts
 	for _, e := range wf[1:] {
 		if e.ts.Before(first) {
@@ -440,90 +420,7 @@ func (f *feed) absorbLocked(w windowResp, d detailsResp) {
 	from := sort.Search(len(f.frames), func(i int) bool { return !f.frames[i].ts.Before(first) })
 	tail := f.frames[max(from-1, 0):]
 	f.pauses = mergePauses(f.pauses, findPauses(tail))
-	for _, k := range findKills(tail) {
-		key := [2]int{k.Team, k.Count}
-		if f.killSeen == nil {
-			f.killSeen = map[[2]int]bool{}
-		}
-		if !f.killSeen[key] {
-			f.killSeen[key] = true
-			f.kills = append(f.kills, k)
-		}
-	}
 	f.objs = objMerge(f.objs, objDerive(tail, replayKillGap))
-	if f.start.IsZero() {
-		f.start, _ = gameStart(f.frames)
-	}
-}
-
-// Need makes sure the buffer reaches back to feed time t: when it starts later, the
-// missing windows are fetched in the background (at most one backfill runs at a time).
-// A t older than the buffer keeps is never fetched, it would be trimmed right back, and
-// attempts that find nothing older back off exponentially in wall-clock time.
-func (f *feed) Need(t time.Time) {
-	f.mu.Lock()
-	if f.fetching || f.gid == "" || len(f.frames) == 0 || !t.Before(f.frames[0].ts) ||
-		t.Before(f.frames[len(f.frames)-1].ts.Add(-feedKeep)) {
-		f.mu.Unlock()
-		return
-	}
-	gid, oldest, now := f.gid, f.frames[0].ts, f.now()
-	if now.Before(f.nextTry) {
-		f.mu.Unlock()
-		return
-	}
-	f.fetching = true
-	f.mu.Unlock()
-	go f.backfill(gid, oldest, t)
-}
-
-// backfill fetches the 10 s windows from the one holding from back to the one holding to,
-// stopping at the start of what the buffer keeps. It schedules the next attempt: soon
-// after one that reached further back, exponentially later after one that did not.
-func (f *feed) backfill(gid string, from, to time.Time) {
-	defer func() {
-		f.mu.Lock()
-		f.fetching = false
-		if len(f.frames) > 0 && f.frames[0].ts.Before(from) {
-			f.backoff = feedBackoffMin
-		} else {
-			f.backoff = min(max(2*f.backoff, feedBackoffMin), feedBackoffMax)
-		}
-		f.nextTry = f.now().Add(f.backoff)
-		f.mu.Unlock()
-	}()
-	last := to.Truncate(feedProbeStep)
-	for i := 0; i < feedProbeMax*2; i++ {
-		start := from.Truncate(feedProbeStep).Add(-feedProbeStep * time.Duration(i))
-		f.mu.Lock()
-		if f.gid != gid {
-			f.mu.Unlock()
-			return
-		}
-		var floor time.Time
-		if n := len(f.frames); n > 0 {
-			floor = f.frames[n-1].ts.Add(-feedKeep).Truncate(feedProbeStep)
-		}
-		det := f.detView
-		f.mu.Unlock()
-		if start.Before(floor) {
-			return
-		}
-		w, d, err := f.fetchPair(gid, startingTime(start), det)
-		if err != nil {
-			return
-		}
-		f.mu.Lock()
-		if f.gid != gid {
-			f.mu.Unlock()
-			return
-		}
-		f.absorbLocked(w, d)
-		f.mu.Unlock()
-		if !start.After(last) {
-			return
-		}
-	}
 }
 
 // delay is how far behind wall clock playout runs: the worst recent arrival lag plus one
@@ -564,23 +461,9 @@ func mergePauses(buf, add []feedPause) []feedPause {
 	return buf
 }
 
-func (f *feed) skewLocked() time.Duration {
-	if f.skew == 0 {
-		return feedPriorSkew
-	}
-	return f.skew
-}
-
 // gameTime converts a frame timestamp to the game clock the broadcast HUD shows.
 func (f *feed) gameTime(ts time.Time) time.Duration {
-	return ts.Sub(f.spawn) - f.skewLocked() - pauseShift(f.pauses, ts)
-}
-
-// SetSkew sets the feed-to-HUD clock skew the sync estimator learned; 0 restores the prior.
-func (f *feed) SetSkew(d time.Duration) {
-	f.mu.Lock()
-	f.skew = d
-	f.mu.Unlock()
+	return ts.Sub(f.spawn) - feedSkew - pauseShift(f.pauses, ts)
 }
 
 // Pauses returns the game pauses seen so far.
@@ -590,63 +473,11 @@ func (f *feed) Pauses() []feedPause {
 	return append([]feedPause(nil), f.pauses...)
 }
 
-// KillsSince returns the kill-count increases seen after the first from ones and the
-// number seen in total, to pass to the next call.
-func (f *feed) KillsSince(from int) ([]feedKill, int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if from > len(f.kills) {
-		from = 0
-	}
-	return append([]feedKill(nil), f.kills[from:]...), len(f.kills)
-}
-
-// GameStart returns when the game's first gold showed, once the feed has seen the frames
-// around it (a feed that joined later never does).
-func (f *feed) GameStart() (time.Time, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.start, !f.start.IsZero()
-}
-
-// Kills returns every kill-count increase seen so far.
-func (f *feed) Kills() []feedKill {
-	ks, _ := f.KillsSince(0)
-	return ks
-}
-
-// Position returns the feed time the adaptive playout last showed.
-func (f *feed) Position() (time.Time, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.lastDisp, !f.lastDisp.IsZero()
-}
-
-// LivesAt is who is dead at feed time t (see livesAt), nil while no frame is buffered.
-func (f *feed) LivesAt(t time.Time) mmLives {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.frames) == 0 {
-		return nil
-	}
-	return livesAt(f.frames, t, f.gameClockLocked(), false)
-}
-
 // Meta returns the live event and game with its metadata but no frame.
 func (f *feed) Meta() feedSnap {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return feedSnap{Ev: f.ev, GID: f.gid, Spawn: f.spawn, W: f.meta, Game: -1}
-}
-
-// Latest returns the timestamp of the newest buffered frame.
-func (f *feed) Latest() (time.Time, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.frames) == 0 {
-		return time.Time{}, false
-	}
-	return f.frames[len(f.frames)-1].ts, true
 }
 
 // Snapshot returns the state to draw at now, playing out at the adaptive delay. It never
@@ -660,17 +491,6 @@ func (f *feed) Snapshot(now time.Time) feedSnap {
 	}
 	f.lastDisp = disp
 	return f.snapLocked(now, disp)
-}
-
-// SnapshotAt returns the state to draw at feed time t: the latest buffered frame not past t.
-func (f *feed) SnapshotAt(now, t time.Time) feedSnap {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.frames) > 0 && t.Before(f.frames[0].ts) {
-		// Nothing at or before t is buffered (yet): show no frame rather than a later one.
-		return feedSnap{Ev: f.ev, GID: f.gid, Spawn: f.spawn, W: f.meta, Game: -1}
-	}
-	return f.snapLocked(now, t)
 }
 
 // gameClockLocked is the game clock of a frame timestamp for the death model: the broadcast

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -195,20 +196,22 @@ func parseTime(s string) time.Time {
 	return t
 }
 
-func leagueID(slug string) (string, bool) {
+// leagueID resolves a league slug or name; "" means all leagues. The error tells a
+// failed request apart from an unknown league.
+func leagueID(slug string) (string, error) {
 	if slug == "" {
-		return "", true
+		return "", nil
 	}
 	var lr leaguesResp
 	if err := getJSON(gwBase+"/getLeagues?hl=en-US", &lr); err != nil {
-		return "", false
+		return "", err
 	}
 	for _, l := range lr.Data.Leagues {
 		if strings.EqualFold(l.Slug, slug) || strings.EqualFold(l.Name, slug) {
-			return l.ID, true
+			return l.ID, nil
 		}
 	}
-	return "", false
+	return "", fmt.Errorf("unknown league: %s (see: lolterm lol leagues)", slug)
 }
 
 func gold(g int) string {
@@ -255,6 +258,8 @@ func main() {
 		runLoL(args[1:])
 	case "-h", "--help", "help":
 		usage()
+	case "-version", "--version", "version":
+		fmt.Println(version())
 	default:
 		fmt.Fprintf(os.Stderr, "unknown game: %s\n\n", args[0])
 		usage()
@@ -264,6 +269,25 @@ func main() {
 
 func usage() {
 	fmt.Println(tr("usage"))
+}
+
+// version is the module version `go install …@vX` stamped into the binary; a build from
+// a checkout reports "(devel)" plus the commit when the VCS info is available.
+func version() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "lolterm (unknown)"
+	}
+	v := bi.Main.Version
+	if v == "" || v == "(devel)" {
+		v = "(devel)"
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				v += " " + s.Value[:7]
+			}
+		}
+	}
+	return "lolterm " + v
 }
 
 func runLoL(args []string) {
@@ -280,8 +304,6 @@ func runLoL(args []string) {
 		cmdRelay(args[1:])
 	case "replay":
 		cmdReplay(args[1:])
-	case "minimap":
-		cmdMinimap(args[1:])
 	case "live":
 		cmdLive(args[1:])
 	case "streams":
@@ -306,19 +328,18 @@ func lolUsage() {
 
 Usage:
   lolterm lol                                          interactive app (same as plain 'lolterm')
-  lolterm lol relay      [-l <league>] [-i Dur] [-src S] [-icons M] [-1]
-                                                      ASCII live broadcast (plays frames every 0.5s, polls every -i, default 2s);
-                                                      keys: b views · s spark · o objectives · m minimap panel · v broadcast video sync · q quit
-  lolterm lol replay     [-match ID [-g N] [-src S] [-icons M]] [-l <league>]
-                                                      replay a finished game with the official VOD's minimap (no -match: list recent matches);
-                                                      keys: space pause · ←/→ ±10s · +/- speed 1×/2×/4× · b s o m v as relay · q quit
-  lolterm lol minimap    [-src URL|FILE] [-ss SEC] [-game ID] [-icons M] [-n N] [-json]
-                                                      champion positions detected on the broadcast minimap
+  lolterm lol relay      [-l <league>] [-i Dur] [-1]   ASCII live board (plays frames every 0.5s, polls every -i, default 2s);
+                                                      keys: b views · s spark · o objectives · ctrl+l redraw · q quit
+  lolterm lol replay     [-match ID [-g N]] [-l <league>]
+                                                      replay a finished game from the stats feed (no -match: list recent matches);
+                                                      keys: space pause · ←/→ ±10s · +/- speed 1×/2×/4× · b s o ctrl+l as relay · q quit
   lolterm lol live       [-l <league>] [-w]            live games + real-time board
   lolterm lol streams    [-l <league>]                 broadcast stream links (where to watch)
   lolterm lol standings  [-l <league>]                 tournament bracket / standings
   lolterm lol schedule   [-l <league>] [-n N] [-a]     upcoming matches (-a = recent)
   lolterm lol leagues                                  list leagues & slugs
+  lolterm lol demo       [-w N] [-h N] [-b|-r] [-s] [-o]
+                                                      one synthetic board frame (no network); checks the terminal
 
 Flags:
   -l <league>   filter by slug (msi, worlds, lck, lpl, lec, lcs, ...)
@@ -326,18 +347,10 @@ Flags:
   -n N          number of matches (default 15)
   -a            show recent/completed instead of upcoming
 
-  -src <url|file>  minimap video: YouTube/Twitch page, media URL or local file (default: the live match's stream)
-  -icons <mode>    minimap drawing: auto|kitty (pixel icons)|blocks (truecolor half-blocks)|text (braille + lane letters)
-  -json            minimap: one JSON line per frame, positions in game units
-
-Minimap needs yt-dlp, ffmpeg and a JS runtime (deno, bun or node): brew install yt-dlp ffmpeg deno
-The minimap shows broadcast time, which differs from the stats feed. Personal use only; do not record or redistribute.
-
 Examples:
   lolterm lol live -l msi -w
   lolterm lol schedule -l lck -n 10
-  lolterm lol leagues
-  lolterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk -ss 1500 -game 115660588583040711 -n 10 -json`)
+  lolterm lol leagues`)
 }
 
 func cmdLeagues(args []string) {
@@ -365,37 +378,41 @@ func cmdLive(args []string) {
 	watch := fs.Bool("w", false, "refresh every 30s")
 	fs.Parse(args)
 
+	lid, err := leagueID(*league)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	if *watch {
 		for {
 			clearScreen()
-			renderLive(*league)
+			if err := renderLive(lid); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+			}
 			fmt.Println("\n  ↻ refreshing in 30s — Ctrl+C to quit")
 			time.Sleep(30 * time.Second)
 		}
 	}
-	renderLive(*league)
+	if err := renderLive(lid); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 }
 
-func renderLive(leagueSlug string) {
-	lid, ok := leagueID(leagueSlug)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", leagueSlug)
-		return
-	}
+func renderLive(lid string) error {
 	url := gwBase + "/getLive?hl=en-US"
 	if lid != "" {
 		url += "&leagueId=" + lid
 	}
 	var lr scheduleResp
 	if err := getJSON(url, &lr); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		return err
 	}
 	events := lr.Data.Schedule.Events
 	if len(events) == 0 {
 		fmt.Println("  ⌛ No live games right now.")
 		fmt.Println("    try: lolterm lol schedule")
-		return
+		return nil
 	}
 	for i, ev := range events {
 		if i > 0 {
@@ -403,6 +420,7 @@ func renderLive(leagueSlug string) {
 		}
 		renderLiveEvent(ev)
 	}
+	return nil
 }
 
 func renderLiveEvent(ev event) {
@@ -484,17 +502,17 @@ func renderWindow(w windowResp, codes map[string]string) {
 func renderParticipants(bm, rm teamMeta, b, r teamStats) {
 	bm2 := mapMeta(bm)
 	rm2 := mapMeta(rm)
-	fmt.Printf("  %-24s %-12s %9s %5s %9s %s\n", "PLAYER", "CHAMPION", "K/D/A", "CS", "GOLD", "HP")
+	fmt.Printf("  %s %-12s %9s %5s %9s %s\n", padR("PLAYER", 24), "CHAMPION", "K/D/A", "CS", "GOLD", "HP")
 	for _, p := range b.Participants {
 		m := bm2[p.ParticipantID]
-		fmt.Printf("  %-24s %-12s %9s %5d %9s %s\n",
-			trunc(m.SummonerName, 24), m.ChampionID, kda(p.Kills, p.Deaths, p.Assists),
+		fmt.Printf("  %s %-12s %9s %5d %9s %s\n",
+			padR(m.SummonerName, 24), m.ChampionID, kda(p.Kills, p.Deaths, p.Assists),
 			p.CreepScore, gold(p.TotalGold), hpBar(p.CurrentHealth, p.MaxHealth))
 	}
 	for _, p := range r.Participants {
 		m := rm2[p.ParticipantID]
-		fmt.Printf("  %-24s %-12s %9s %5d %9s %s\n",
-			trunc(m.SummonerName, 24), m.ChampionID, kda(p.Kills, p.Deaths, p.Assists),
+		fmt.Printf("  %s %-12s %9s %5d %9s %s\n",
+			padR(m.SummonerName, 24), m.ChampionID, kda(p.Kills, p.Deaths, p.Assists),
 			p.CreepScore, gold(p.TotalGold), hpBar(p.CurrentHealth, p.MaxHealth))
 	}
 }
@@ -526,10 +544,10 @@ func cmdSchedule(args []string) {
 	past := fs.Bool("a", false, "show recent/completed")
 	fs.Parse(args)
 
-	lid, ok := leagueID(*league)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", *league)
-		return
+	lid, err := leagueID(*league)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
 	url := gwBase + "/getSchedule?hl=en-US"
 	if lid != "" {
@@ -538,7 +556,7 @@ func cmdSchedule(args []string) {
 	var sr scheduleResp
 	if err := getJSON(url, &sr); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		os.Exit(1)
 	}
 	now := time.Now()
 	var shown []event
@@ -570,7 +588,7 @@ func cmdSchedule(args []string) {
 			shown[i], shown[j] = shown[j], shown[i]
 		}
 	}
-	if len(shown) > *n {
+	if *n >= 0 && len(shown) > *n {
 		shown = shown[:*n]
 	}
 
@@ -584,7 +602,7 @@ func cmdSchedule(args []string) {
 	}
 	fmt.Printf("  %s — %s\n", title, leagueLabel)
 	fmt.Println("  " + strings.Repeat("─", 56))
-	fmt.Printf("  %-5s %-5s %-12s %-16s %s\n", "DATE", "TIME", "LEAGUE", "MATCH", "SCORE")
+	fmt.Printf("  %-5s %-5s %-12s %-16s %s\n", "DATE", "KST", "LEAGUE", "MATCH", "SCORE")
 	for _, ev := range shown {
 		t := parseTime(ev.StartTime).In(kst)
 		left, right := "TBD", "TBD"
@@ -616,10 +634,7 @@ func cmdSchedule(args []string) {
 		if ev.State == "inProgress" {
 			score += "  [LIVE]"
 		}
-		league := strings.ToUpper(ev.League.Slug)
-		if len(league) > 12 {
-			league = league[:12]
-		}
+		league := trunc(strings.ToUpper(ev.League.Slug), 12)
 		fmt.Printf("  %-5s %-5s %-12s %-16s %s\n",
 			t.Format("01-02"), t.Format("15:04"), league, matchStr, score)
 	}
@@ -641,9 +656,11 @@ func codeOr(code, name string) string {
 	return name
 }
 
+// trunc shortens s to n runes, ending in "…" when cut; it never splits a UTF-8 sequence.
 func trunc(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }

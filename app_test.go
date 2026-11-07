@@ -17,10 +17,9 @@ type appFakeBoard struct {
 	keys   []key
 }
 
-func (b *appFakeBoard) Draw(now time.Time, w, h int, tg *toggles, mode string) *canvas {
+func (b *appFakeBoard) Draw(now time.Time, w, h int, tg *toggles) *canvas {
 	c := newCanvas(w, h)
-	c.text(0, 0, line{S(fmt.Sprintf("board %dx%d mode=%s video=%v", w, h, mode, tg.video))}, w)
-	c.mm = &mmSlot{Row: 2, Col: 3, Cols: 10, Rows: 5}
+	c.text(0, 0, line{S(fmt.Sprintf("board %dx%d view=%d", w, h, tg.view))}, w)
 	return c
 }
 
@@ -111,15 +110,6 @@ func newAppRig(t *testing.T) *appRig {
 			for i, g := range byID[id].Match.Games {
 				er.Data.Event.Match.Games = append(er.Data.Event.Match.Games, replayGameJSON{Number: i + 1, State: g.State})
 			}
-			er.Data.Event.Match.Games[0].Vods = make([]struct {
-				Parameter      string `json:"parameter"`
-				Locale         string `json:"locale"`
-				Provider       string `json:"provider"`
-				Offset         int    `json:"offset"`
-				FirstFrameTime string `json:"firstFrameTime"`
-				StartMillis    int64  `json:"startMillis"`
-				EndMillis      int64  `json:"endMillis"`
-			}, 1)
 			return er, nil
 		},
 		openLive: func(ev event, o appOptions) (board, error) {
@@ -311,8 +301,11 @@ func TestAppEnterRouting(t *testing.T) {
 	if len(r.opened) != 1 || r.opened[0] != "live:m-live" || a.board == nil || a.focus != fMain {
 		t.Fatalf("enter on live: opened %v focus %v", r.opened, a.focus)
 	}
-	if !strings.Contains(a.boardTitle, "T1 vs G2") {
-		t.Errorf("title = %q", a.boardTitle)
+	if a.boardTitle == nil {
+		t.Fatal("no board title")
+	}
+	if got := a.boardTitle(); !strings.Contains(got, "T1 vs G2") {
+		t.Errorf("title = %q", got)
 	}
 
 	// finished match -> replay of game 1, the previous board is closed
@@ -388,13 +381,13 @@ func TestAppBoardKeysOnlyWhenMainFocused(t *testing.T) {
 	if len(b.keys) != 2 {
 		t.Fatalf("board saw %v", b.keys)
 	}
-	r.typ("v") // a board toggle: the app, not the fake board's Key, handles it
-	if a.tg.video {
-		t.Error("v did not toggle the video")
+	r.typ("s") // a board toggle: the app, not the fake board's Key, handles it
+	if !a.tg.spark {
+		t.Error("s did not toggle the sparkline")
 	}
 	r.typ("1") // lists focused: j moves the leagues, the board sees nothing
 	r.typ("j")
-	if len(b.keys) != 4 || a.selLeague().Slug != "msi" { // space, right, v and the "1" that moved the focus away
+	if len(b.keys) != 4 || a.selLeague().Slug != "msi" { // space, right, s and the "1" that moved the focus away
 
 		t.Errorf("lists focused: board saw %d keys, league %s", len(b.keys), a.selLeague().Slug)
 	}
@@ -458,28 +451,13 @@ func TestAppOptionsMenu(t *testing.T) {
 		t.Fatal(", does not open the options")
 	}
 	text := appPlain(a.Render(time.Now()))
-	for _, want := range []string{"Options", "Minimap drawing", "Broadcast video sync", "Poll interval", "Left column"} {
+	for _, want := range []string{"Options", "Poll interval", "Left column", "Language"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("options menu lacks %q", want)
 		}
 	}
-	if c := a.Render(time.Now()); c.mm != nil {
-		t.Error("the kitty slot stays while a popup covers it")
-	}
 
-	r.press(key{Kind: keyEnter}) // Minimap drawing: auto -> kitty
-	if a.opt.Mode != mmModeKitty || a.resolveMode() != mmModeKitty {
-		t.Errorf("mode = %s", a.opt.Mode)
-	}
-	r.press(key{Kind: keyLeft}, key{Kind: keyLeft}) // back to auto, then text
-	if a.opt.Mode != mmModeText {
-		t.Errorf("left twice: mode = %s, want text", a.opt.Mode)
-	}
-	r.press(key{Kind: keyDown}, key{Kind: keyEnter}) // video off
-	if a.opt.Video || a.tg.video || a.tg.mm {
-		t.Errorf("video option %v, board video %v mm %v", a.opt.Video, a.tg.video, a.tg.mm)
-	}
-	r.press(key{Kind: keyDown}, key{Kind: keyEnter}) // poll 2s -> 5s restarts the live board
+	r.press(key{Kind: keyEnter}) // poll 2s -> 5s restarts the live board
 	if a.opt.Poll != 5*time.Second {
 		t.Errorf("poll = %v", a.opt.Poll)
 	}
@@ -502,18 +480,6 @@ func TestAppOptionsMenu(t *testing.T) {
 	r.typ(",")
 	if a.menu == nil {
 		t.Error(", is not reachable from the board")
-	}
-}
-
-func TestAppVideoOptionAppliesToNewBoards(t *testing.T) {
-	r := newAppRig(t)
-	a := r.a
-	r.typ(",")
-	r.press(key{Kind: keyDown}, key{Kind: keyEnter}, key{Kind: keyEsc})
-	r.pick("m-live")
-	r.press(key{Kind: keyEnter})
-	if a.tg.video || a.tg.mm || !a.tg.embed {
-		t.Errorf("toggles %+v with the video option off", a.tg)
 	}
 }
 
@@ -552,13 +518,14 @@ func TestAppLayoutRowsAreExactlyW(t *testing.T) {
 
 func TestAppLeftColumnWidths(t *testing.T) {
 	cases := []struct{ w, h, left int }{
-		{200, 50, 44}, // 30% = 60 -> max 44
-		{160, 50, 44}, // 48 -> 44
-		{130, 40, 39}, // 30% of 130
-		{120, 40, 36},
-		{119, 40, 26},
+		{200, 50, 44}, // 26% = 52 -> max 44
+		{170, 50, 44}, // 44.2 -> 44
+		{160, 50, 41}, // 26% of 160
+		{130, 40, 33},
+		{120, 40, 31},
+		{119, 40, 30},
 		{100, 30, 26},
-		{80, 24, 26},
+		{80, 24, 26}, // the floor
 	}
 	for _, c := range cases {
 		a := newAppRig(t).a
@@ -571,9 +538,20 @@ func TestAppLeftColumnWidths(t *testing.T) {
 			t.Errorf("%dx%d: left column heights %d+%d+%d != %d", c.w, c.h, lay.leagues.H, lay.matches.H, lay.games.H, c.h-1)
 		}
 	}
-	// 30% of 120 is below the minimum 28 only for narrower terminals: check the floor directly.
-	if got := min(max(120*30/100, 28), 44); got != 36 {
-		t.Errorf("clamp = %d", got)
+	// Widening the terminal never shrinks the board: both panes grow monotonically, and
+	// the left column stays within its cap.
+	a := newAppRig(t).a
+	left, main := 0, 0
+	for w := 80; w <= 300; w++ {
+		a.Resize(w, 40)
+		lay := a.layout()
+		if lay.leagues.W < left || lay.main.W < main {
+			t.Fatalf("w=%d: left %d (was %d), main %d (was %d)", w, lay.leagues.W, left, lay.main.W, main)
+		}
+		if lay.leagues.W < 26 || lay.leagues.W > 44 {
+			t.Fatalf("w=%d: left column %d is outside 26..44", w, lay.leagues.W)
+		}
+		left, main = lay.leagues.W, lay.main.W
 	}
 }
 
@@ -603,39 +581,15 @@ func TestAppSmallTerminalHidesListsWhileBoardHasFocus(t *testing.T) {
 	}
 }
 
-func TestAppKittySlotIsOffsetByThePaneOrigin(t *testing.T) {
+func TestAppBoardFillsThePaneInterior(t *testing.T) {
 	r := newAppRig(t)
 	a := r.a
 	r.pick("m-live")
 	r.press(key{Kind: keyEnter})
 	lay := a.layout()
-	c := a.Render(time.Now())
-	if c.mm == nil {
-		t.Fatal("the board's slot was dropped")
-	}
-	// the fake board puts the slot at row 2, col 3 of its canvas; the pane's inner rect starts one cell in
-	if c.mm.Row != lay.main.Y+1+2 || c.mm.Col != lay.main.X+1+3 {
-		t.Errorf("slot at %d,%d, want %d,%d", c.mm.Row, c.mm.Col, lay.main.Y+3, lay.main.X+4)
-	}
-	if c.mm.Cols != 10 || c.mm.Rows != 5 {
-		t.Errorf("slot size changed: %+v", c.mm)
-	}
-	text := appPlain(c)
+	text := appPlain(a.Render(time.Now()))
 	if want := fmt.Sprintf("board %dx%d", lay.main.W-2, lay.main.H-2); !strings.Contains(text, want) {
 		t.Errorf("the board is not drawn at the pane's inner size (%s)", want)
-	}
-	// Leaving the board or opening a popup removes the images; closing the popup brings them back.
-	r.typ("?")
-	if a.Render(time.Now()).mm != nil {
-		t.Error("slot kept under the help popup")
-	}
-	r.typ("x")
-	if a.Render(time.Now()).mm == nil {
-		t.Error("slot not restored after the popup")
-	}
-	r.press(key{Kind: keyEsc}, key{Kind: keyEsc})
-	if a.Render(time.Now()).mm != nil {
-		t.Error("slot stays after the board closed")
 	}
 }
 
@@ -645,16 +599,11 @@ func TestAppPreviewAndHints(t *testing.T) {
 	r.tabTo("Recent")
 	r.pick("m-done")
 	text := appPlain(a.Render(time.Now()))
-	for _, want := range []string{"MVK Team", "FUR Team", "Score  3 - 0", "KST", "replay game 1", "VODs   1 of 3"} {
+	for _, want := range []string{"MVK Team", "FUR Team", "Score  3 - 0", "KST", "replay game 1"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("preview lacks %q:\n%s", want, text)
 		}
 	}
-	r.typ("3")
-	if !strings.Contains(appPlain(a.Render(time.Now())), "VOD") {
-		t.Error("games pane does not mention the VOD")
-	}
-	r.pick("m-done")
 	hs := a.hints()
 	if len(hs) == 0 || hs[len(hs)-1].Key != "q" {
 		t.Errorf("hints = %v", hs)
@@ -700,7 +649,7 @@ func TestBuildCanvasReplayHeaderAndFooter(t *testing.T) {
 	ev.Match.Teams[0].Result, ev.Match.Teams[1].Result = nil, nil
 	st := replayState{Pos: 75 * time.Second, Total: 31*time.Minute + 5*time.Second, Speed: 2, Start: start}
 	tg := toggles{replay: &st, embed: true}
-	text := appPlain(buildCanvas(ev, windowResp{}, detailsResp{}, 75*time.Second, time.Now(), 100, 30, 0, tg, nil, mmView{}))
+	text := appPlain(buildCanvas(ev, windowResp{}, detailsResp{}, 75*time.Second, time.Now(), 100, 30, 0, tg, nil, boardView{}))
 	for _, want := range []string{"REPLAY", "[-]", "WORLDS · Finals"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("replay board lacks %q:\n%s", want, text)
@@ -720,7 +669,7 @@ func TestBuildCanvasReplayHeaderAndFooter(t *testing.T) {
 	if strings.Contains(bar, "quit") || strings.Contains(bar, "space") {
 		t.Errorf("embedded player bar repeats the key hints: %q", bar)
 	}
-	live := appPlain(buildCanvas(ev, windowResp{}, detailsResp{}, time.Minute, time.Now(), 100, 30, 2*time.Second, toggles{}, nil, mmView{}))
+	live := appPlain(buildCanvas(ev, windowResp{}, detailsResp{}, time.Minute, time.Now(), 100, 30, 2*time.Second, toggles{}, nil, boardView{}))
 	if !strings.Contains(live, "LIVE") || !strings.Contains(live, "live feed") || !strings.Contains(live, "[0]") {
 		t.Errorf("live board changed:\n%s", live)
 	}
@@ -763,19 +712,19 @@ func TestMatchLineShowsYearOnlyWhenItDiffers(t *testing.T) {
 }
 
 func TestAppTinyTerminalShowsNoticeAtRealSize(t *testing.T) {
-	for _, sz := range [][2]int{{33, 9}, {10, 3}, {1, 1}, {39, 30}, {80, 9}} {
+	for _, sz := range [][2]int{{33, 9}, {10, 3}, {1, 1}, {39, 30}, {80, 9}, {41, 11}} {
 		r := newAppRig(t)
 		r.a.Resize(sz[0], sz[1])
 		c := r.a.Render(time.Now())
 		if c.w != sz[0] || c.h != sz[1] {
 			t.Errorf("%v: canvas is %dx%d, want the real size", sz, c.w, c.h)
 		}
-		if sz[0] >= 33 && !strings.Contains(appPlain(c), "terminal too small (need ≥ 40×10)") {
+		if sz[0] >= 33 && !strings.Contains(appPlain(c), "terminal too small (need ≥ 40×12)") {
 			t.Errorf("%v: no notice:\n%s", sz, appPlain(c))
 		}
 	}
 	r := newAppRig(t)
-	r.a.Resize(40, 10)
+	r.a.Resize(40, 12)
 	if strings.Contains(appPlain(r.a.Render(time.Now())), "too small") {
 		t.Error("the minimum size itself is shown the notice")
 	}
@@ -817,5 +766,208 @@ func TestAppHintBarKeepsHelpAndQuit(t *testing.T) {
 	r.typ(",")
 	if bar := strings.Split(appPlain(r.a.Render(time.Now())), "\n")[19]; !strings.Contains(bar, "↑/↓ move  enter change  esc close") {
 		t.Errorf("options popup bar = %q", bar)
+	}
+}
+
+func TestAppHelpPopupScrollsWhenTallerThanTheScreen(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	a.Resize(80, 24)
+	r.pick("m-live")
+	r.press(key{Kind: keyEnter}) // a live board adds its own help section
+	body, rows := len(a.helpLines()), a.H-3
+	if body <= rows {
+		t.Fatalf("the help body is %d lines and the popup shows %d: nothing to scroll", body, rows)
+	}
+	r.typ("?")
+	screen := func() []string { return strings.Split(appPlain(a.Render(time.Now())), "\n") }
+	if text := strings.Join(screen(), "\n"); !strings.Contains(text, fmt.Sprintf("… %d of %d", rows-1, body)) {
+		t.Errorf("the help window does not mark the lines below it:\n%s", text)
+	}
+	if bar := screen()[a.H-1]; !strings.Contains(bar, "esc close") {
+		t.Errorf("the help popup covers the hint bar: %q", bar)
+	}
+	for i := 0; i < body; i++ {
+		r.press(key{Kind: keyDown})
+	}
+	if last, text := appPlainLine(a.helpLines()[body-1]), strings.Join(screen(), "\n"); !strings.Contains(text, last) {
+		t.Errorf("scrolling down never reveals the last help line %q:\n%s", last, text)
+	}
+	for i := 0; i < body; i++ {
+		r.press(key{Kind: keyUp})
+	}
+	if text := strings.Join(screen(), "\n"); strings.Contains(text, appPlainLine(a.helpLines()[body-1])) {
+		t.Error("scrolling up does not return to the first lines")
+	}
+	r.typ("x")
+	if a.help {
+		t.Error("another key does not close the help")
+	}
+}
+
+func TestAppOptionsMenuWidthIsStableAcrossTheSelection(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	r.typ(",")
+	screen := rect{0, 0, a.W, a.H}
+	first := a.menu.inner(screen)
+	for i := 0; i < len(a.menu.Items); i++ {
+		r.press(key{Kind: keyDown})
+		if in := a.menu.inner(screen); in.X != first.X || in.W != first.W {
+			t.Fatalf("row %d: popup at x=%d w=%d, want x=%d w=%d", i+1, in.X, in.W, first.X, first.W)
+		}
+	}
+}
+
+func TestAppLoadMoreErrorShowsAMessage(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	r.tabTo("Recent")
+	before := len(a.curEvents())
+	a.deps.page = func(lid, token string) (leaguePage, error) { return leaguePage{}, errors.New("offline") }
+	a.mv.Sel = before - 1
+	r.press(key{Kind: keyPgDn})
+	if !strings.Contains(a.msg, "offline") || !strings.Contains(appPlain(a.Render(time.Now())), "offline") {
+		t.Errorf("a failed load-more is silent: msg %q", a.msg)
+	}
+	if got := len(a.curEvents()); got != before {
+		t.Errorf("a failed page changed the rows: %d -> %d", before, got)
+	}
+	if d := a.curData(); d.err != "" || !d.loaded || d.busy {
+		t.Errorf("a failed page marked the league: err %q loaded %v busy %v", d.err, d.loaded, d.busy)
+	}
+}
+
+func TestAppReloadKeepsTheSelectedMatch(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	r.tabTo("Recent")
+	r.pick("m-old")
+	if a.mv.Sel != 1 {
+		t.Fatalf("setup: sel %d", a.mv.Sel)
+	}
+	r.typ("r")
+	if ev := a.selEvent(); ev == nil || ev.Match.ID != "m-old" {
+		t.Errorf("r dropped the selection: %v", ev)
+	}
+}
+
+func TestAppBoardTitleFollowsTheLanguage(t *testing.T) {
+	old := currentLang
+	defer func() { setLanguage(old) }()
+	r := newAppRig(t)
+	a := r.a
+	r.pick("m-live")
+	r.press(key{Kind: keyEnter})
+	if got := a.boardTitle(); !strings.Contains(got, "Live") {
+		t.Fatalf("title = %q", got)
+	}
+	setLanguage(langKO)
+	if got := a.boardTitle(); !strings.HasPrefix(got, "라이브") {
+		t.Errorf("title after the language switch = %q", got)
+	}
+	if text := appPlain(a.Render(time.Now())); !strings.Contains(text, "라이브 · T1 vs G2") {
+		t.Errorf("the pane title stayed in the old language:\n%s", text)
+	}
+}
+
+func TestAppZoomOnlyFromTheBoardPane(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	r.pick("m-live")
+	r.press(key{Kind: keyEnter})
+	r.typ("2") // the matches list
+	r.typ("f")
+	if a.zoom || a.focus != fMatches {
+		t.Errorf("f from a list: zoom %v focus %v", a.zoom, a.focus)
+	}
+	r.typ("0") // the board
+	r.typ("f")
+	if !a.zoom || a.focus != fMain {
+		t.Errorf("f from the board: zoom %v focus %v", a.zoom, a.focus)
+	}
+}
+
+func TestAppEmptyLeagueListSaysSo(t *testing.T) {
+	a := newApp(appDeps{leagues: func() ([]leagueRow, error) { return nil, nil }}, defaultAppOptions())
+	a.inline = true
+	a.Resize(80, 24)
+	a.start()
+	if text := appPlain(a.Render(time.Now())); !strings.Contains(text, tr("no_leagues")) {
+		t.Errorf("an empty league list still says loading:\n%s", text)
+	}
+}
+
+func TestAppHintBarGroupsBoardToggles(t *testing.T) {
+	old := currentLang
+	defer func() { setLanguage(old) }()
+	for _, lang := range []langID{langEN, langKO} {
+		setLanguage(lang)
+		r := newAppRig(t)
+		a := r.a
+		a.Resize(80, 24)
+		r.pick("m-live")
+		r.press(key{Kind: keyEnter})
+		bar := strings.Split(appPlain(a.Render(time.Now())), "\n")[a.H-1]
+		for _, want := range []string{
+			"f " + tr("zoom"), "b s o " + tr("toggles"),
+			"esc " + tr("back"), "? " + tr("help"), "q " + tr("quit"),
+		} {
+			if !strings.Contains(bar, want) {
+				t.Errorf("%v at 80x24: bar %q lacks %q", lang, bar, want)
+			}
+		}
+	}
+}
+
+func TestAppHintBarShowsBackOnlyWhenEscActs(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	a.Resize(80, 24)
+	if bar := strings.Split(appPlain(a.Render(time.Now())), "\n")[a.H-1]; strings.Contains(bar, "esc") {
+		t.Errorf("no board open, leagues focused: %q advertises esc", bar)
+	}
+	r.pick("m-live")
+	r.press(key{Kind: keyEnter})
+	r.typ("2") // matches focused, esc closes the board
+	if bar := strings.Split(appPlain(a.Render(time.Now())), "\n")[a.H-1]; !strings.Contains(bar, "esc back") {
+		t.Errorf("board open, matches focused: %q lacks the esc hint", bar)
+	}
+	r.press(key{Kind: keyEsc})
+	if bar := strings.Split(appPlain(a.Render(time.Now())), "\n")[a.H-1]; strings.Contains(bar, "esc") {
+		t.Errorf("board closed: %q advertises esc", bar)
+	}
+}
+
+func TestAppEnterOnTheRowAlreadyLoadingStartsOneLoad(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	r.pick("m-live")
+	// what a slow board load leaves behind: the spinner plus the row it is building
+	a.loading, a.opening = tr("opening_live"), "m-live:0"
+	n := len(r.opened)
+	r.press(key{Kind: keyEnter}, key{Kind: keyEnter})
+	if got := len(r.opened); got != n {
+		t.Errorf("Enter auto-repeat on the loading row started %v", r.opened[n:])
+	}
+	// another row still switches to its own load
+	r.tabTo("Recent")
+	r.pick("m-done")
+	r.press(key{Kind: keyEnter})
+	if got := r.opened[n:]; len(got) != 1 || got[0] != "replay:m-done:1" {
+		t.Errorf("a different row opened %v, want the replay", got)
+	}
+}
+
+func TestAppBoardBuiltDuringQuitIsClosed(t *testing.T) {
+	r := newAppRig(t)
+	a := r.a
+	closed := 0
+	close(a.done)
+	if f := a.boardResult(1, &appFakeBoard{closed: &closed}, nil); f != nil {
+		t.Error("a board built during quit is still applied")
+	}
+	if closed != 1 {
+		t.Errorf("the board was closed %d times, want once", closed)
 	}
 }

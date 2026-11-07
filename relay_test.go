@@ -1,8 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"image"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,48 +10,17 @@ import (
 	"unicode/utf8"
 )
 
-// offlineMap keeps the minimap background from starting a download during tests.
-func offlineMap(t *testing.T) {
-	t.Helper()
-	mmBg.Lock()
-	old := mmBg.img
-	mmBg.img = image.NewRGBA(image.Rect(0, 0, 64, 64))
-	mmBg.Unlock()
-	t.Cleanup(func() {
-		mmBg.Lock()
-		mmBg.img, mmBg.cache = old, nil
-		mmBg.Unlock()
-	})
-}
-
 func TestCanvasFitsTerminal(t *testing.T) {
-	offlineMap(t)
 	now := time.Now()
-	for _, mode := range []string{mmModeText, mmModeBlocks, mmModeKitty} {
-		view := mmView{Mode: mode, Status: "tracking", CellW: 8, CellH: 16}
-		for _, w := range []int{50, 80, 104, 200} {
-			for h := 12; h <= 60; h++ {
-				for flags := 0; flags < 16; flags++ {
-					tg := toggles{view: flags & 3, spark: flags&4 != 0, omap: flags&8 != 0, mm: true}
-					c := demoCanvasAt(w, h, now, 2*time.Second, detailsResp{}, tg, nil, view)
-					if c.h > h {
-						t.Fatalf("mode %s w=%d h=%d tg=%+v: canvas has %d rows", mode, w, h, tg, c.h)
-					}
-					if s := c.mm; s != nil && s.Row+s.Rows > c.h-2 {
-						t.Fatalf("mode %s w=%d h=%d tg=%+v: kitty slot rows %d..%d overlap the footer of %d rows", mode, w, h, tg, s.Row, s.Row+s.Rows, c.h)
-					}
+	for _, w := range []int{50, 80, 104, 200, 300} {
+		for h := 12; h <= 60; h++ {
+			for flags := 0; flags < 16; flags++ {
+				tg := toggles{view: flags & 3, spark: flags&4 != 0, omap: flags&8 != 0}
+				if c := demoCanvasAt(w, h, now, 2*time.Second, detailsResp{}, tg, nil, boardView{}); c.h > h {
+					t.Fatalf("w=%d h=%d tg=%+v: canvas has %d rows", w, h, tg, c.h)
 				}
 			}
 		}
-	}
-}
-
-func TestMinimapHintWhenNoRoom(t *testing.T) {
-	offlineMap(t)
-	view := mmView{Mode: mmModeText, Status: "x"}
-	c := demoCanvasAt(104, 17, time.Now(), 2*time.Second, detailsResp{}, toggles{mm: true}, nil, view)
-	if got := canvasString(c); !strings.Contains(got, "minimap: enlarge terminal") {
-		t.Fatalf("expected the enlarge hint at h=17:\n%s", got)
 	}
 }
 
@@ -115,11 +83,9 @@ func (s *screen) matches(t *testing.T, c *canvas, what string) {
 // Styles accumulate in the terminal, so the diff renderer must reset between differently
 // styled cells; a full repaint and a diff chain must show the same screen.
 func TestRenderDiffNoStyleLeak(t *testing.T) {
-	offlineMap(t)
 	now := time.Now()
-	view := mmView{Mode: mmModeText, Status: "x"}
-	a := demoCanvasAt(104, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, view)
-	b := demoCanvasAt(104, 40, now.Add(time.Second), 2*time.Second, detailsResp{}, toggles{view: 1, spark: true, omap: true, mm: true}, nil, view)
+	a := demoCanvasAt(104, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, boardView{})
+	b := demoCanvasAt(104, 40, now.Add(time.Second), 2*time.Second, detailsResp{}, toggles{view: 1, spark: true, omap: true}, nil, boardView{})
 
 	full := &screen{cells: map[[2]int]cell{}, w: 104, h: 40}
 	full.feed(renderDiff(nil, b))
@@ -129,125 +95,6 @@ func TestRenderDiffNoStyleLeak(t *testing.T) {
 	chain.feed(renderDiff(nil, a))
 	chain.feed(renderDiff(a, b))
 	chain.matches(t, b, "diff after full repaint")
-}
-
-// syncPlayout builds a playout whose feed publishes frames up to feed time feedEdge
-// (seconds since spawn) and whose minimap holds 2 fps frames starting at video feed time
-// videoFrom up to videoLead past the newest feed frame. With locked, the HUD clock of
-// every video frame was read, so the estimator knows the video-to-feed offset.
-func syncPlayout(feedEdge, videoFrom, videoLead time.Duration, locked bool) *relayPlayout {
-	ff := &fakeFeed{clock: t0.Add(feedEdge), gid: "g"}
-	f := ff.newFeed(2 * time.Second)
-	inner := f.window
-	f.window = func(gid, start string) (windowResp, error) {
-		w, err := inner(gid, start)
-		_ = json.Unmarshal([]byte(`{"participantMetadata":[{"participantId":1}]}`), &w.GameMetadata.BlueTeamMetadata)
-		return w, err
-	}
-	f.FetchOnce()
-	lf, _ := f.Latest()
-	videoEdge := lf.Sub(t0) + videoLead
-	mm := newMinimap(minimapCfg{})
-	mm.closed = true // Tick must not launch a real pipeline
-	mm.cancel = func() {}
-	mm.sy = newMMSync(t0, mmFPS, nil)
-	now := time.Unix(5000, 0)
-	for i := 0; videoFrom+mmFrameTime(i) <= videoEdge; i++ {
-		mm.push(mmResult{idx: i, layout: "lck", visible: true, dets: det(1)}, now)
-		if locked { // the HUD shows the feed clock minus the prior skew
-			g := int((videoFrom + mmFrameTime(i) - feedPriorSkew).Seconds())
-			mm.sy.ObserveHUD(i, mmHUD{ClockSec: g, ClockOK: true})
-		}
-	}
-	mm.arrived = time.Now() // the stream is alive
-	return &relayPlayout{fd: f, mm: mm}
-}
-
-func TestPlayoutFallsBackToIndependentModeWithoutSync(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, -50*time.Second, false)
-	s, v := pl.Tick(time.Unix(5000, 0), true)
-	if strings.Contains(v.Status, "sync ✓") {
-		t.Fatalf("claims sync without a lock: %q", v.Status)
-	}
-	if len(s.W.Frames) != 1 {
-		t.Fatal("the scoreboard must keep playing in independent mode")
-	}
-}
-
-func TestPlayoutVideoOffIsFeedOnly(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, 0, true)
-	s, v := pl.Tick(time.Unix(5000, 0), false)
-	if len(s.W.Frames) != 1 || v.Status != "waiting for a live game" || pl.mm.Sync() != nil {
-		t.Fatalf("frames %d status %q sync %v", len(s.W.Frames), v.Status, pl.mm.Sync())
-	}
-}
-
-func TestPlayoutSharesTimeWhicheverSourceIsSlower(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		videoLead time.Duration // video's newest frame relative to the feed's
-	}{
-		{"feed behind video", 70 * time.Second},
-		{"video behind feed", -3 * time.Second},
-	} {
-		pl := syncPlayout(1190*time.Second, 1000*time.Second, tc.videoLead, true)
-		lf, _ := pl.fd.Latest()
-		lv, _ := pl.mm.VideoLatest()
-		vf, _ := pl.mm.Sync().FeedTime(lv)
-		limit := lf
-		if vf.Before(limit) {
-			limit = vf
-		}
-		now := time.Unix(5000, 0)
-		for i := 0; i < 30; i++ { // 15 s: the sources deliver nothing new, the clock must hold
-			now = now.Add(500 * time.Millisecond)
-			pl.mm.arrived = time.Now() // the stream is alive, it just has nothing newer
-			s, v := pl.Tick(now, true)
-			if len(s.W.Frames) != 1 || !strings.Contains(v.Status, "sync ✓") {
-				t.Fatalf("%s tick %d: frames %d status %q", tc.name, i, len(s.W.Frames), v.Status)
-			}
-			T := t0.Add(s.Game + pl.mm.Sync().Skew())
-			if T.After(limit.Add(time.Second)) {
-				t.Fatalf("%s tick %d: %s is past the slower source %s", tc.name, i, T.Sub(t0), limit.Sub(t0))
-			}
-			if want := limit.Add(-syncMargin); i == 0 && (T.Before(want.Add(-time.Second)) || T.After(want.Add(time.Second))) {
-				t.Fatalf("%s: started at %s, want about %s", tc.name, T.Sub(t0), want.Sub(t0))
-			}
-		}
-	}
-}
-
-func TestPlayoutVideoStallShowsStatusAndKeepsClockRunning(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, 70*time.Second, true)
-	now := time.Unix(5000, 0)
-	s0, v0 := pl.Tick(now, true)
-	if !strings.Contains(v0.Status, "sync ✓") {
-		t.Fatalf("not synced: %q", v0.Status)
-	}
-	pl.mm.arrived = time.Now().Add(-mmStallAfter - time.Second) // no frame for a while
-	now = now.Add(time.Second)
-	s1, v1 := pl.Tick(now, true)
-	if !strings.HasPrefix(v1.Status, "video stalled") {
-		t.Fatalf("status %q", v1.Status)
-	}
-	if len(s1.W.Frames) != 1 || s1.Game < s0.Game {
-		t.Fatalf("scoreboard frames %d, header %s -> %s", len(s1.W.Frames), s0.Game, s1.Game)
-	}
-	pl.mm.arrived = time.Now() // frames return
-	if _, v := pl.Tick(now.Add(500*time.Millisecond), true); !strings.Contains(v.Status, "sync ✓") {
-		t.Fatalf("did not resume: %q", v.Status)
-	}
-}
-
-func TestPlayoutHandoverDoesNotStepBack(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, 70*time.Second, true)
-	now := time.Unix(5000, 0)
-	pl.fd.Snapshot(now) // the feed-only playout the viewer was watching
-	at, _ := pl.fd.Position()
-	pl.Tick(now, true)
-	if pl.sc.t.Before(at) {
-		t.Fatalf("clock started %s before the feed-only position", at.Sub(pl.sc.t))
-	}
 }
 
 func TestPlayoutHeaderNeverStepsBackBySmallCorrections(t *testing.T) {
@@ -266,79 +113,6 @@ func TestPlayoutHeaderNeverStepsBackBySmallCorrections(t *testing.T) {
 	}
 }
 
-func TestPlayoutHandoverToBehindVideoHoldsInsteadOfStepBack(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, -10*time.Second, true)
-	pl.gid, pl.aligned = "g", true // the video has been followed before: this is a handover after a restart
-	now := time.Unix(5000, 0)
-	lf, _ := pl.fd.Latest()
-	at := lf.Add(-4 * time.Second) // the feed-only playout is ahead of what the video can show
-	pl.fd.mu.Lock()
-	pl.fd.lastDisp = at
-	pl.fd.mu.Unlock()
-	shown := pl.fd.SnapshotAt(now, at)
-	pl.holdGame(shown.Game)
-	s, _ := pl.Tick(now.Add(500*time.Millisecond), true)
-	if !pl.sc.on || pl.sc.t.Before(at) {
-		t.Fatalf("clock on=%v stepped back by %s", pl.sc.on, at.Sub(pl.sc.t))
-	}
-	if s.Game < shown.Game {
-		t.Fatalf("header stepped back from %s to %s", shown.Game, s.Game)
-	}
-}
-
-func TestPlayoutPipelineRestartKeepsHeaderWithinGame(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, 0, true)
-	now := time.Unix(5000, 0)
-	pl.Tick(now, true)
-	high := pl.game
-	pl.sy = nil // the pipeline restarted: a fresh estimator takes over
-	pl.Tick(now.Add(500*time.Millisecond), true)
-	if pl.game < high {
-		t.Fatalf("header %s fell below %s after the restart", pl.game, high)
-	}
-	pl.fd.mu.Lock()
-	pl.fd.gid = "next"
-	pl.fd.mu.Unlock()
-	pl.Tick(now.Add(time.Second), true)
-	if pl.gid != "next" || pl.game > high {
-		t.Fatalf("a new game must reset the header: gid %q game %s", pl.gid, pl.game)
-	}
-}
-
-func TestPlayoutFirstHandoverAlignsToBehindVideo(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, -10*time.Second, true)
-	now := time.Unix(5000, 0)
-	lf, _ := pl.fd.Latest()
-	at := lf.Add(-4 * time.Second)
-	pl.fd.mu.Lock()
-	pl.fd.lastDisp = at
-	pl.fd.mu.Unlock()
-	pl.Tick(now, true)
-	if !pl.sc.on || !pl.sc.t.Before(at) {
-		t.Fatalf("the opening alignment must follow the video (on=%v t=%v)", pl.sc.on, pl.sc.t)
-	}
-}
-
-func TestPlayoutOpeningAlignmentMovesHeaderWithScoreboard(t *testing.T) {
-	pl := syncPlayout(1190*time.Second, 1000*time.Second, -6*time.Second, true)
-	now := time.Unix(5000, 0)
-	lf, _ := pl.fd.Latest()
-	at := lf.Add(-4 * time.Second)
-	pl.fd.mu.Lock()
-	pl.fd.lastDisp = at
-	pl.fd.mu.Unlock()
-	shown := pl.fd.SnapshotAt(now, at)
-	pl.gid = "g"
-	pl.holdGame(shown.Game) // the header the viewer saw from the feed-only playout
-	pl.Tick(now, true)
-	if !pl.sc.t.Before(at) {
-		t.Fatalf("clock did not step back (t=%v)", pl.sc.t)
-	}
-	if pl.game >= shown.Game {
-		t.Fatalf("header held at %s although the scoreboard stepped back", pl.game)
-	}
-}
-
 func TestPlayerRowShowsRespawnCountdownInTheHPColumn(t *testing.T) {
 	p := participant{ParticipantID: 3, Level: 9, Kills: 1, Deaths: 2, TotalGold: 9000, CurrentHealth: 0, MaxHealth: 2800}
 	m := pmeta{"Name", "Champ"}
@@ -347,15 +121,15 @@ func TestPlayerRowShowsRespawnCountdownInTheHPColumn(t *testing.T) {
 		alive := playerRow(p, m, c, cCyan, nil)
 		for _, tc := range []struct {
 			name string
-			lf   mmLife
+			lf   champLife
 			want string
 		}{
-			{"exact", mmLife{Dead: true, Secs: 22.3, Exact: true}, "☠ 23s"},
-			{"estimate", mmLife{Dead: true, Secs: 22.3}, "☠ ~23s"},
-			{"overdue", mmLife{Dead: true}, "☠ ~0s"},
-			{"three digits", mmLife{Dead: true, Secs: 99.5}, "☠ ~100s"},
+			{"exact", champLife{Dead: true, Secs: 22.3, Exact: true}, "☠ 23s"},
+			{"estimate", champLife{Dead: true, Secs: 22.3}, "☠ ~23s"},
+			{"overdue", champLife{Dead: true}, "☠ ~0s"},
+			{"three digits", champLife{Dead: true, Secs: 99.5}, "☠ ~100s"},
 		} {
-			row := playerRow(p, m, c, cCyan, mmLives{3: tc.lf})
+			row := playerRow(p, m, c, cCyan, champLives{3: tc.lf})
 			if row.vis() != alive.vis() {
 				t.Errorf("budget %d %s: row is %d cells wide, the bar row %d", budget, tc.name, row.vis(), alive.vis())
 			}
@@ -363,7 +137,7 @@ func TestPlayerRowShowsRespawnCountdownInTheHPColumn(t *testing.T) {
 				t.Errorf("budget %d %s: %q in row = %v with hpbar %d: %q", budget, tc.name, tc.want, has, c.hpbar, appPlainLine(row))
 			}
 		}
-		if row := playerRow(p, m, c, cCyan, mmLives{3: {AliveFor: 5}}); appPlainLine(row) != appPlainLine(alive) {
+		if row := playerRow(p, m, c, cCyan, champLives{3: {}}); appPlainLine(row) != appPlainLine(alive) {
 			t.Errorf("budget %d: a champion the feed does not call dead lost its bar: %q", budget, appPlainLine(row))
 		}
 	}
@@ -371,10 +145,10 @@ func TestPlayerRowShowsRespawnCountdownInTheHPColumn(t *testing.T) {
 
 func TestBoardWidthDoesNotChangeWhileChampionsAreDead(t *testing.T) {
 	now := time.Now()
-	lives := mmLives{1: {Dead: true, Secs: 22.3, Exact: true}, 2: {Dead: true, Secs: 4}, 3: {Dead: true, Secs: 80.2}}
+	lives := champLives{1: {Dead: true, Secs: 22.3, Exact: true}, 2: {Dead: true, Secs: 4}, 3: {Dead: true, Secs: 80.2}}
 	for _, w := range []int{50, 60, 80, 104, 140, 200} {
-		plain := appPlain(demoCanvasAt(w, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, mmView{}))
-		dead := appPlain(demoCanvasAt(w, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, mmView{Lives: lives}))
+		plain := appPlain(demoCanvasAt(w, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, boardView{}))
+		dead := appPlain(demoCanvasAt(w, 40, now, 2*time.Second, detailsResp{}, toggles{}, nil, boardView{Lives: lives}))
 		a, b := strings.Split(plain, "\n"), strings.Split(dead, "\n")
 		if len(a) != len(b) {
 			t.Fatalf("w=%d: %d rows with the countdowns, %d without", w, len(b), len(a))
@@ -390,27 +164,45 @@ func TestBoardWidthDoesNotChangeWhileChampionsAreDead(t *testing.T) {
 	}
 }
 
-func TestPlayoutHandsTheSameLivesToBoardAndMinimap(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		video bool
-	}{{"synced", true}, {"video off", false}} {
-		pl := syncPlayout(1190*time.Second, 1000*time.Second, 0, true)
-		pl.fd.mu.Lock()
-		for i := range pl.fd.frames { // blue 1 is dead in every buffered frame, blue 2 is fine
-			pl.fd.frames[i].v.BlueTeam.Participants = []participant{
-				{ParticipantID: 1, Level: 6, Deaths: 1, MaxHealth: 2000},
-				{ParticipantID: 2, Level: 6, CurrentHealth: 1500, MaxHealth: 2000},
-			}
-		}
-		pl.fd.mu.Unlock()
-		snap, view := pl.Tick(time.Unix(5000, 0), tc.video)
-		for name, lives := range map[string]mmLives{"snapshot": snap.Lives, "view": view.Lives} {
-			if l := lives[1]; !l.Dead || l.Exact {
-				t.Errorf("%s %s: blue 1 = %+v, want dead with an estimated respawn", tc.name, name, l)
-			}
-			if l := lives[2]; l.Dead {
-				t.Errorf("%s %s: blue 2 = %+v, want alive", tc.name, name, l)
+// Every board row closes with its frame: whatever the width, view, panel toggle or
+// language, a long line is cut instead of pushing the right border off the canvas. An
+// embedded board is cropped out of the framed one, so its rows end one cell short of the
+// border and must still end in the blank that precedes it.
+func TestBoardRowsKeepTheirFrame(t *testing.T) {
+	now := time.Now()
+	old := currentLang
+	defer func() { setLanguage(old) }()
+	lives := champLives{6: {Dead: true, Secs: 23}}
+	sizes := [][2]int{{40, 12}, {50, 12}, {60, 20}, {80, 24}, {100, 30}, {104, 30}, {120, 40}, {160, 50}, {220, 60}, {300, 85}}
+	for _, lang := range []langID{langEN, langKO} {
+		setLanguage(lang)
+		for _, sz := range sizes {
+			for _, embed := range []bool{false, true} {
+				for vw := 0; vw < 3; vw++ {
+					for flags := 0; flags < 4; flags++ {
+						tg := toggles{view: vw, spark: flags&1 != 0, omap: flags&2 != 0, embed: embed}
+						c := demoCanvasAt(sz[0], sz[1], now, 2*time.Second, detailsResp{}, tg, nil, boardView{Lives: lives})
+						what := fmt.Sprintf("lang %d %dx%d embed=%v view=%d s=%v o=%v", lang, sz[0], sz[1], embed, vw, tg.spark, tg.omap)
+						if c.w != sz[0] {
+							t.Fatalf("%s: canvas is %d cells wide", what, c.w)
+						}
+						for y, row := range c.buf {
+							got := row[c.w-1].ch
+							want := ' '
+							if !embed {
+								want = '║'
+								if y == 0 {
+									want = '╗'
+								} else if y == c.h-1 {
+									want = '╝'
+								}
+							}
+							if got != want {
+								t.Fatalf("%s: row %d ends in %q, want %q", what, y, got, want)
+							}
+						}
+					}
+				}
 			}
 		}
 	}

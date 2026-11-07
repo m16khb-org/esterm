@@ -57,10 +57,10 @@ func (ff *fakeFeed) advance(d time.Duration) {
 func (ff *fakeFeed) newFeed(poll time.Duration) *feed {
 	f := newFeed("", poll)
 	f.now = ff.now
-	f.liveEvent = func(string, string) (event, string, bool) {
+	f.liveEvent = func(string, string) (event, string, bool, error) {
 		ff.mu.Lock()
 		defer ff.mu.Unlock()
-		return event{ID: "e"}, ff.gid, true
+		return event{ID: "e"}, ff.gid, true, nil
 	}
 	f.spawnAt = func(string) time.Time { return t0 }
 	f.window = func(gid, start string) (windowResp, error) {
@@ -172,6 +172,36 @@ func TestProbeStepsBackPastRejectedWindow(t *testing.T) {
 	}
 }
 
+// The probe sweep fetches details only for the window that has frames: the empty probe
+// windows' details would be discarded, so fetching them only doubles the request storm.
+func TestProbeFetchesDetailsOnlyForTheWinningWindow(t *testing.T) {
+	empty := &fakeFeed{clock: t0.Add(20 * time.Minute), gid: "g", shape: func(*frame, time.Time) bool { return false }}
+	f := empty.newFeed(2 * time.Second)
+	var none atomic.Int32
+	inner := f.details
+	f.details = func(g, s string) (detailsResp, error) { none.Add(1); return inner(g, s) }
+	f.FetchOnce()
+	if n := len(empty.starts); n != feedProbeMax {
+		t.Fatalf("window requests = %d, want the %d probe windows", n, feedProbeMax)
+	}
+	if none.Load() != 0 {
+		t.Fatalf("details requests on an empty feed = %d, want none", none.Load())
+	}
+
+	late := &fakeFeed{clock: t0.Add(20 * time.Minute), lagMin: 30 * time.Second, gid: "g"}
+	f2 := late.newFeed(2 * time.Second)
+	var one atomic.Int32
+	inner2 := f2.details
+	f2.details = func(g, s string) (detailsResp, error) { one.Add(1); return inner2(g, s) }
+	f2.FetchOnce()
+	if n := len(late.starts); n != 3 {
+		t.Fatalf("window requests = %d, want the 3 probed windows", n)
+	}
+	if one.Load() != 1 {
+		t.Fatalf("details requests = %d, want only the winning window's", one.Load())
+	}
+}
+
 // Real windows end anywhere in their last second (frame spacing is irregular), so the
 // follower must cross into the next window instead of re-requesting the current one.
 func TestFollowCrossesWindowWhenLastFrameEndsEarly(t *testing.T) {
@@ -273,7 +303,7 @@ func TestDiscoveryIsWallClockPaced(t *testing.T) {
 	calls := 0
 	f := ff.newFeed(2 * time.Second)
 	inner := f.liveEvent
-	f.liveEvent = func(l, m string) (event, string, bool) { calls++; return inner(l, m) }
+	f.liveEvent = func(l, m string) (event, string, bool, error) { calls++; return inner(l, m) }
 	for i := 0; i < 20; i++ { // 40 s
 		f.FetchOnce()
 		ff.advance(2 * time.Second)
@@ -283,20 +313,64 @@ func TestDiscoveryIsWallClockPaced(t *testing.T) {
 	}
 }
 
-func TestSnapshotAtPlaysFrameOfFeedTime(t *testing.T) {
+// A failed getLive says nothing about the game: the board must keep its buffers, header and
+// game id. Only a successful answer without an in-progress game clears them.
+func TestFailedDiscoveryKeepsTheBoard(t *testing.T) {
 	ff := &fakeFeed{clock: t0.Add(20 * time.Minute), lagMin: 3 * time.Second, gid: "g"}
 	f := ff.newFeed(2 * time.Second)
 	f.FetchOnce()
-	latest, ok := f.Latest()
-	if !ok {
+	f.liveEvent = func(string, string) (event, string, bool, error) {
+		return event{}, "", false, &httpStatusError{Code: http.StatusBadGateway, Body: "offline"}
+	}
+	ff.advance(feedDiscoverEvery)
+	f.FetchOnce()
+	if s := f.Snapshot(ff.now()); s.GID != "g" || s.Ev.ID != "e" || len(s.W.Frames) != 1 {
+		t.Fatalf("failed discovery cleared the board: gid=%q event=%q frames=%d", s.GID, s.Ev.ID, len(s.W.Frames))
+	}
+
+	f.liveEvent = func(string, string) (event, string, bool, error) { return event{}, "", false, nil }
+	ff.advance(feedDiscoverEvery)
+	f.FetchOnce()
+	if s := f.Snapshot(ff.now()); s.GID != "" || s.Ev.ID != "" || len(s.W.Frames) != 0 {
+		t.Fatalf("an empty live answer must clear the board: gid=%q event=%q frames=%d", s.GID, s.Ev.ID, len(s.W.Frames))
+	}
+}
+
+// snapAt is the snapshot of feed time t, built as the playout builds it.
+func snapAt(f *feed, now, t time.Time) feedSnap {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapLocked(now, t)
+}
+
+// newestFrame is the timestamp of f's newest buffered frame.
+func newestFrame(t *testing.T, f *feed) time.Time {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.frames) == 0 {
 		t.Fatal("no frames")
 	}
+	return f.frames[len(f.frames)-1].ts
+}
+
+func pausesOf(f *feed) []feedPause {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]feedPause(nil), f.pauses...)
+}
+
+func TestSnapshotPlaysFrameOfFeedTime(t *testing.T) {
+	ff := &fakeFeed{clock: t0.Add(20 * time.Minute), lagMin: 3 * time.Second, gid: "g"}
+	f := ff.newFeed(2 * time.Second)
+	f.FetchOnce()
+	latest := newestFrame(t, f)
 	// The newest frame is published lagMin behind the clock.
 	if want := t0.Add(20*time.Minute - 3*time.Second); latest.Before(want.Add(-time.Second)) || latest.After(want) {
 		t.Fatalf("latest %s, want about %s", latest, want)
 	}
 	want := latest.Add(-3 * time.Second)
-	s := f.SnapshotAt(ff.now(), want)
+	s := snapAt(f, ff.now(), want)
 	if len(s.W.Frames) != 1 {
 		t.Fatalf("frames %d", len(s.W.Frames))
 	}
@@ -304,15 +378,10 @@ func TestSnapshotAtPlaysFrameOfFeedTime(t *testing.T) {
 	if d := want.Sub(ts); d < 0 || d > 500*time.Millisecond {
 		t.Fatalf("played frame %s for requested %s", ts, want)
 	}
-	// Without a learned skew the header clock uses the prior.
-	if got := ts.Sub(t0) - feedPriorSkew; got != s.Game {
+	if got := ts.Sub(t0) - feedSkew; got != s.Game {
 		t.Fatalf("Game %s does not match frame time %s", s.Game, got)
 	}
-	f.SetSkew(2 * time.Second)
-	if s2 := f.SnapshotAt(ff.now(), want); s2.Game != ts.Sub(t0)-2*time.Second {
-		t.Fatalf("learned skew not applied: %s", s2.Game)
-	}
-	if s2 := f.SnapshotAt(ff.now(), latest); s2.Game-s.Game < 2*time.Second {
+	if s2 := snapAt(f, ff.now(), latest); s2.Game-s.Game < 2*time.Second {
 		t.Fatalf("game time did not follow: %s -> %s", s.Game, s2.Game)
 	}
 }
@@ -329,7 +398,7 @@ func TestSnapshotCarriesLivesFromTheBufferedFrames(t *testing.T) {
 	f := ff.newFeed(2 * time.Second)
 	f.FetchOnce()
 	// Level 6 at game minute 1.6: 16 s of death timer from half a second after the first dead frame, 11.5 s of it left at 105 s.
-	l := f.SnapshotAt(ff.now(), t0.Add(105*time.Second)).Lives[1]
+	l := snapAt(f, ff.now(), t0.Add(105*time.Second)).Lives[1]
 	if !l.Dead || l.Exact || math.Abs(l.Secs-11.5) > 0.01 {
 		t.Fatalf("lives at 105 s: %+v, want dead with an 11.5 s estimate", l)
 	}
@@ -339,7 +408,7 @@ func TestSnapshotCarriesLivesFromTheBufferedFrames(t *testing.T) {
 	f.mu.Lock()
 	f.spawn = time.Time{} // the game's start is not known: only differences count
 	f.mu.Unlock()
-	if l := f.SnapshotAt(ff.now(), t0.Add(105*time.Second)).Lives[1]; math.Abs(l.Secs-11.5) > 0.01 {
+	if l := snapAt(f, ff.now(), t0.Add(105*time.Second)).Lives[1]; math.Abs(l.Secs-11.5) > 0.01 {
 		t.Fatalf("without a spawn time: %+v, want the same 11.5 s", l)
 	}
 }
@@ -348,7 +417,7 @@ func TestSnapshotGameBeforeClockStartsIsZero(t *testing.T) {
 	ff := &fakeFeed{clock: t0.Add(10 * time.Second), lagMin: 0, gid: "g"}
 	f := ff.newFeed(2 * time.Second)
 	f.FetchOnce()
-	if s := f.SnapshotAt(ff.now(), t0); s.Game < 0 {
+	if s := snapAt(f, ff.now(), t0); s.Game < 0 {
 		t.Fatalf("a frame is playing, game %s", s.Game)
 	}
 	if s := f.Meta(); len(s.W.Frames) != 0 || s.Game != -1 || s.GID != "g" {
@@ -385,13 +454,13 @@ func TestPauseFreezesGameClockAndShiftsLater(t *testing.T) {
 		ff.advance(2 * time.Second)
 		f.FetchOnce()
 	}
-	ps := f.Pauses()
+	ps := pausesOf(f)
 	if len(ps) != 1 || !ps[0].Start.Equal(t0.Add(at)) || ps[0].Dur < dur-time.Second || ps[0].Dur > dur+time.Second {
 		t.Fatalf("pauses %+v", ps)
 	}
-	game := func(off time.Duration) time.Duration { return f.SnapshotAt(ff.now(), t0.Add(off)).Game }
+	game := func(off time.Duration) time.Duration { return snapAt(f, ff.now(), t0.Add(off)).Game }
 	before := game(at)
-	if before != at-feedPriorSkew {
+	if before != at-feedSkew {
 		t.Fatalf("game at pause start %s", before)
 	}
 	if g := game(at + dur - time.Second); g != before {
@@ -402,68 +471,23 @@ func TestPauseFreezesGameClockAndShiftsLater(t *testing.T) {
 	}
 }
 
-func TestKillsListsSingleIncreases(t *testing.T) {
-	ff := pausedFeed(t0.Add(35*time.Second), time.Hour, 0)
+// A pause is deliberate feed silence, not arrival jitter: sampling it as playout lag kept
+// the board on the paused frame for the whole pause after the game resumed (8 lag slots of
+// 2 s polls), then made it jump forward by the stop.
+func TestPauseDoesNotInflatePlayoutDelay(t *testing.T) {
+	ff := pausedFeed(t0.Add(30*time.Second), 60*time.Second, 60*time.Second) // paused frame at 60 s, resume at 120 s
 	f := ff.newFeed(2 * time.Second)
 	f.FetchOnce()
-	for ff.now().Before(t0.Add(150 * time.Second)) {
+	for ff.now().Before(t0.Add(130 * time.Second)) {
 		ff.advance(2 * time.Second)
 		f.FetchOnce()
 	}
-	ks := f.Kills()
-	if len(ks) < 3 {
-		t.Fatalf("kills %+v", ks)
+	s := f.Snapshot(ff.now())
+	if len(s.W.Frames) != 1 {
+		t.Fatalf("frames %d, want the live frame", len(s.W.Frames))
 	}
-	for i, k := range ks {
-		if k.Team != 0 || k.Count != i+2 || !k.T.Equal(t0.Add(time.Duration(10+30*(i+1))*time.Second)) {
-			t.Fatalf("kill %d: %+v", i, k)
-		}
-	}
-}
-
-func TestNeedBackfillsOlderWindowsAndNeverShowsALaterFrame(t *testing.T) {
-	ff := &fakeFeed{clock: t0.Add(100 * time.Second), gid: "g"}
-	f := ff.newFeed(2 * time.Second)
-	f.FetchOnce()
-	want := t0.Add(52 * time.Second)
-	if s := f.SnapshotAt(ff.now(), want); len(s.W.Frames) != 0 || s.Game != -1 || s.GID != "g" {
-		t.Fatalf("before the buffer a later frame was shown: %d frames", len(s.W.Frames))
-	}
-	f.Need(want)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		s := f.SnapshotAt(ff.now(), want)
-		if len(s.W.Frames) == 1 {
-			if ts := parseTime(s.W.Frames[0].RFC460Timestamp); ts.After(want) || want.Sub(ts) > time.Second {
-				t.Fatalf("frame %s for %s", ts.Sub(t0), want.Sub(t0))
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("backfill did not deliver")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func TestKillsSinceIsIncremental(t *testing.T) {
-	ff := pausedFeed(t0.Add(35*time.Second), time.Hour, 0)
-	f := ff.newFeed(2 * time.Second)
-	f.FetchOnce()
-	n := 0
-	var got []feedKill
-	for ff.now().Before(t0.Add(150 * time.Second)) {
-		ff.advance(2 * time.Second)
-		f.FetchOnce()
-		var ks []feedKill
-		ks, n = f.KillsSince(n)
-		got = append(got, ks...)
-	}
-	if all := f.Kills(); len(all) != len(got) || len(got) < 3 {
-		t.Fatalf("incremental %d kills, total %d", len(got), len(all))
-	}
-	if ks, m := f.KillsSince(n); len(ks) != 0 || m != n {
-		t.Fatalf("repeat returned %d new kills", len(ks))
+	if ts := parseTime(s.W.Frames[0].RFC460Timestamp); ts.Before(t0.Add(120 * time.Second)) {
+		t.Fatalf("board still shows %s, 10 s after the game resumed at 2:00", ts.Sub(t0))
 	}
 }
 
@@ -481,72 +505,13 @@ func TestFinishedGameKeepsItsLastFrame(t *testing.T) {
 		}}
 	f := ff.newFeed(2 * time.Second)
 	f.FetchOnce()
-	last, ok := f.Latest()
-	if !ok {
-		t.Fatal("no frames before the game ended")
-	}
+	last := newestFrame(t, f)
 	for i := 0; i < 5; i++ {
 		ff.advance(feedResync + time.Minute) // far beyond the resync horizon
 		f.FetchOnce()
-		if got, ok := f.Latest(); !ok || !got.Equal(last) {
-			t.Fatalf("round %d: latest %v ok=%v, want the final frame %v", i, got, ok, last)
+		if got := newestFrame(t, f); !got.Equal(last) {
+			t.Fatalf("round %d: latest %v, want the final frame %v", i, got, last)
 		}
-	}
-}
-
-// waitBackfill blocks until no background backfill is running.
-func waitBackfill(f *feed) {
-	for {
-		f.mu.Lock()
-		busy := f.fetching
-		f.mu.Unlock()
-		if !busy {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
-func requestsOver(t *testing.T, need func(f *feed) time.Time, shape func(*frame, time.Time) bool) int {
-	t.Helper()
-	ff := &fakeFeed{clock: t0.Add(20 * time.Minute), lagMin: 3 * time.Second, gid: "g", shape: shape}
-	f := ff.newFeed(2 * time.Second)
-	f.FetchOnce()
-	ff.starts = nil
-	for i := 0; i < 240; i++ { // 2 min of render ticks
-		ff.advance(500 * time.Millisecond)
-		if i%4 == 3 {
-			f.FetchOnce()
-		}
-		f.Need(need(f))
-		waitBackfill(f)
-	}
-	return len(ff.starts)
-}
-
-func TestNeedDoesNotStormWhenNothingOlderExists(t *testing.T) {
-	// The game's first frame is the one the buffer starts with, so no window holds older data.
-	g0 := t0.Add(20*time.Minute - 15*time.Second)
-	live := requestsOver(t, func(f *feed) time.Time { return t0 }, nil)
-	n := requestsOver(t, func(f *feed) time.Time {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		return f.frames[0].ts.Add(-5 * time.Second)
-	}, func(fr *frame, ts time.Time) bool { return !ts.Before(g0) })
-	if n > live+8 { // the live-edge polls plus a handful of backed-off backfills
-		t.Fatalf("%d window requests in 2 min, %d without backfill", n, live)
-	}
-}
-
-func TestNeedSkipsTimeOlderThanTheBufferKeeps(t *testing.T) {
-	live := requestsOver(t, func(f *feed) time.Time { return t0 }, nil)
-	n := requestsOver(t, func(f *feed) time.Time {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		return f.frames[len(f.frames)-1].ts.Add(-feedKeep - time.Minute)
-	}, nil)
-	if n != live {
-		t.Fatalf("%d window requests in 2 min, want the %d live-edge polls", n, live)
 	}
 }
 
@@ -597,19 +562,16 @@ func TestDetailsFetchedOncePerWindowUnlessViewNeedsThem(t *testing.T) {
 	}
 }
 
-func TestAbsorbFindsKillsAndPausesInTheNewTail(t *testing.T) {
+func TestAbsorbFindsPausesInTheNewTail(t *testing.T) {
 	f := newFeed("", time.Second)
-	mk := func(sec float64, kills int, state string) frame {
+	mk := func(sec float64, state string) frame {
 		fr := mkFrame(t0.Add(time.Duration(sec*float64(time.Second))), 0)
-		fr.BlueTeam.TotalKills, fr.GameState = kills, state
+		fr.GameState = state
 		return fr
 	}
-	f.absorbLocked(windowResp{Frames: []frame{mk(0, 0, "in_game"), mk(1, 0, "in_game")}}, detailsResp{})
-	f.absorbLocked(windowResp{Frames: []frame{mk(1, 0, "in_game"), mk(2, 1, "in_game"), mk(3, 1, "paused")}}, detailsResp{})
-	f.absorbLocked(windowResp{Frames: []frame{mk(8, 1, "in_game")}}, detailsResp{})
-	if len(f.kills) != 1 || f.kills[0].Count != 1 {
-		t.Fatalf("kills %v", f.kills)
-	}
+	f.absorbLocked(windowResp{Frames: []frame{mk(0, "in_game"), mk(1, "in_game")}}, detailsResp{})
+	f.absorbLocked(windowResp{Frames: []frame{mk(1, "in_game"), mk(2, "in_game"), mk(3, "paused")}}, detailsResp{})
+	f.absorbLocked(windowResp{Frames: []frame{mk(8, "in_game")}}, detailsResp{})
 	if len(f.pauses) != 1 || f.pauses[0].Dur != 5*time.Second {
 		t.Fatalf("pauses %v", f.pauses)
 	}

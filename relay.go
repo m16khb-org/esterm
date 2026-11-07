@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -32,7 +33,7 @@ const (
 // real size instead of a squeezed or wrapped layout.
 const (
 	minTermW  = 40
-	minTermH  = 10
+	minTermH  = 12
 	minBoardW = 50 // the standalone relay/replay boards
 )
 
@@ -101,18 +102,19 @@ type cell struct {
 type canvas struct {
 	w, h int
 	buf  [][]cell
-	mm   *mmSlot // kitty image slot of the minimap panel, if any
 }
 
+// newCanvas allocates the rows from one flat array: a full board builds three canvases per
+// tick, and h+1 allocations were most of the garbage. The row slices are capped so an
+// append can never spill into the next row.
 func newCanvas(w, h int) *canvas {
+	flat := make([]cell, w*h)
+	for i := range flat {
+		flat[i].ch = ' '
+	}
 	buf := make([][]cell, h)
-	space := cell{ch: ' '}
 	for i := range buf {
-		row := make([]cell, w)
-		for j := range row {
-			row[j] = space
-		}
-		buf[i] = row
+		buf[i] = flat[i*w : (i+1)*w : (i+1)*w]
 	}
 	return &canvas{w: w, h: h, buf: buf}
 }
@@ -349,7 +351,7 @@ func hpSeg(cur, max int) seg {
 // deadSeg is the HP cell of a dead champion: the respawn countdown instead of the bar. A
 // countdown that is the death timer's estimate, not the feed's own respawn, starts with ~.
 // It is at most 7 cells wide, so it fits the 8-cell bar it replaces.
-func deadSeg(lf mmLife) seg {
+func deadSeg(lf champLife) seg {
 	est := "~"
 	if lf.Exact {
 		est = ""
@@ -427,7 +429,7 @@ type pfield struct {
 	left        bool
 }
 
-func playerRow(p participant, m pmeta, c cols, tc string, lives mmLives) line {
+func playerRow(p participant, m pmeta, c cols, tc string, lives champLives) line {
 	fs := []pfield{}
 	if c.name > 0 {
 		fs = append(fs, pfield{m.name, tc, c.name, true})
@@ -504,7 +506,10 @@ func topBorderL(t int) line { return line{S("╔" + strings.Repeat("═", t-2) +
 func botBorderL(t int) line { return line{S("╚" + strings.Repeat("═", t-2) + "╝")} }
 func blankL(t int) line     { return borderedL(line{}, t) }
 
+// borderedL frames content in the board's side borders and pads it to t cells. Content that
+// would overflow is cut with "…", so no row can ever lose its right border.
 func borderedL(content line, t int) line {
+	content = truncLine(content, t-4)
 	out := line{S("║ ")}
 	out = append(out, content...)
 	if pad := (t - 4) - content.vis(); pad > 0 {
@@ -534,35 +539,60 @@ func statBarLine(label string, leftVal, rightVal int, leftDisp, rightDisp string
 	return out
 }
 
+// panelHint is the one line a toggled-on panel gets when it has no room: how many rows it
+// still needs. A panel that disappears silently reads as a broken key.
+func panelHint(name string, need, have int) line {
+	n := need - have
+	key := "panel_needs_rows"
+	if n == 1 {
+		key = "panel_needs_row"
+	}
+	return line{C(fmt.Sprintf(tr(key), name, n), cDim)}
+}
+
+// objItem is one objective count: "DRG 2 ★SOUL ── 4 ★SOUL". The soul badges are decoration
+// and go first when the row runs out of width; the numbers never do.
+func objItem(label string, lv, rv int, soulL, soulR string, badges bool) line {
+	if !badges {
+		soulL, soulR = "", ""
+	}
+	return line{C(label, cDim), S(" "), C(fmt.Sprintf("%d%s", lv, soulL), cCyan),
+		S(" ── "), C(fmt.Sprintf("%d%s", rv, soulR), cRed)}
+}
+
+// objectivesRow fits the objective counts greedily at item boundaries: a count is dropped
+// whole (soul badges first) instead of being cut in the middle of a number.
 func objectivesRow(b, r teamStats, t int) line {
 	type o struct {
 		label  string
 		lv, rv int
+		soulL  string
+		soulR  string
 	}
 	all := []o{
-		{"DRG", len(b.Dragons), len(r.Dragons)},
-		{"BRN", b.Barons, r.Barons},
-		{"TWR", b.Towers, r.Towers},
-		{"INB", b.Inhibitors, r.Inhibitors},
+		{"DRG", len(b.Dragons), len(r.Dragons), soulStr(b.Dragons), soulStr(r.Dragons)},
+		{"BRN", b.Barons, r.Barons, "", ""},
+		{"TWR", b.Towers, r.Towers, "", ""},
+		{"INB", b.Inhibitors, r.Inhibitors, "", ""},
 	}
-	budget := t - 4
-	if budget < 58 {
-		all = all[:3]
-	}
-	if budget < 44 {
-		all = all[:2]
-	}
+	W := t - 4
 	var l line
-	for i, o := range all {
-		if i > 0 {
-			l = append(l, S("     "))
+	for _, o := range all {
+		sep := 0
+		if len(l) > 0 {
+			sep = 5
 		}
-		lvs, rvs := fmt.Sprintf("%d", o.lv), fmt.Sprintf("%d", o.rv)
-		if o.label == "DRG" {
-			lvs += soulStr(b.Dragons)
-			rvs += soulStr(r.Dragons)
+		it := objItem(o.label, o.lv, o.rv, o.soulL, o.soulR, true)
+		if l.vis()+sep+it.vis() > W {
+			it = objItem(o.label, o.lv, o.rv, o.soulL, o.soulR, false)
 		}
-		l = append(l, C(o.label, cDim), S(" "), C(lvs, cCyan), S(" ── "), C(rvs, cRed))
+		if len(l) > 0 && l.vis()+sep+it.vis() > W {
+			break
+		}
+		if sep > 0 {
+			l = append(l, S(strings.Repeat(" ", sep)))
+		}
+		l = append(l, it...)
 	}
 	return l
 }
@@ -571,15 +601,15 @@ func objectivesRow(b, r teamStats, t int) line {
 
 // buildCanvas draws the board at t×h. Embedded boards (tg.embed) live inside the app's own
 // pane: they lose the outer double border and the footer and use the whole area.
-func buildCanvas(ev event, w windowResp, det detailsResp, game time.Duration, now time.Time, t, h int, interval time.Duration, tg toggles, series []goldPt, mm mmView) *canvas {
+func buildCanvas(ev event, w windowResp, det detailsResp, game time.Duration, now time.Time, t, h int, interval time.Duration, tg toggles, series []goldPt, bv boardView) *canvas {
 	if !tg.embed {
-		return buildFramed(ev, w, det, game, now, t, h, interval, tg, series, mm)
+		return buildFramed(ev, w, det, game, now, t, h, interval, tg, series, bv)
 	}
 	hh := h
 	if hh > 0 {
 		hh += 2
 	}
-	fc := buildFramed(ev, w, det, game, now, t+2, hh, interval, tg, series, mm)
+	fc := buildFramed(ev, w, det, game, now, t+2, hh, interval, tg, series, bv)
 	if fc.h < 2 || fc.w < 3 {
 		return fc
 	}
@@ -587,23 +617,16 @@ func buildCanvas(ev event, w windowResp, det detailsResp, game time.Duration, no
 	for y := range c.buf {
 		copy(c.buf[y], fc.buf[y+1][1:fc.w-1])
 	}
-	if s := fc.mm; s != nil {
-		ns := *s
-		ns.Row--
-		ns.Col--
-		c.mm = &ns
-	}
 	return c
 }
 
-func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, now time.Time, t, h int, interval time.Duration, tg toggles, series []goldPt, mm mmView) *canvas {
+func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, now time.Time, t, h int, interval time.Duration, tg toggles, series []goldPt, bv boardView) *canvas {
 	W := t - 4
 	compact := h > 0 && h <= 28
 	wide := t >= 104
 	pulse := now.Second()%2 == 0
 
 	var rows []line
-	var slot *mmSlot
 	rows = append(rows, topBorderL(t))
 	bl := func() {
 		if !compact {
@@ -643,7 +666,8 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 	if t >= 88 {
 		hdR = append(hdR, C("  patch "+shortPatch(w.GameMetadata.PatchVersion), cDim))
 	}
-	rows = append(rows, borderedL(joinLR(hdL, hdR, W), t))
+	// The block name truncates: the clock and the right border always survive.
+	rows = append(rows, borderedL(joinLR(truncLine(hdL, max(1, W-hdR.vis()-1)), hdR, W), t))
 	bl()
 
 	lname, rname := "TBD", "TBD"
@@ -692,11 +716,11 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 		r := f.RedTeam
 		rows = append(rows, borderedL(statBarLine(tr("kills"), b.TotalKills, r.TotalKills,
 			fmt.Sprintf("%d", b.TotalKills), fmt.Sprintf("%d", r.TotalKills), W), t))
-		rows = append(rows, borderedL(statBarLine("GOLD ", b.TotalGold, r.TotalGold,
+		rows = append(rows, borderedL(statBarLine(tr("gold"), b.TotalGold, r.TotalGold,
 			gold(b.TotalGold), gold(r.TotalGold), W), t))
 		bl()
 		rows = append(rows, borderedL(objectivesRow(b, r, t), t))
-		if tl := objTimerRow(mm.Obj, t); tl != nil {
+		if tl := objTimerRow(bv.Obj, t); tl != nil {
 			rows = append(rows, borderedL(tl, t))
 		}
 		bl()
@@ -724,41 +748,30 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 			if pl := objMapPanel(b, r, t); len(pl) <= room() {
 				rows = append(rows, pl...)
 				bl()
+			} else {
+				rows = append(rows, borderedL(panelHint(tr("obj"), len(pl), room()), t))
 			}
 		}
-		if tg.spark && room() >= 1 {
-			rows = append(rows, borderedL(sparkline(series, W), t))
-			bl()
-		}
-		if tg.mm {
-			ph := 17
-			if mm.Mode != mmModeText {
-				ph = 25
-			}
-			if compact {
-				ph = 13
-				if mm.Mode != mmModeText {
-					ph = 17
-				}
-			}
-			switch avail := room(); {
-			case avail >= mmMinRows:
-				panel, sl := mmPanelView(mm, t, min(ph, avail))
-				if sl != nil {
-					sl.Row += len(rows)
-				}
-				slot = sl
-				rows = append(rows, panel...)
+		if tg.spark {
+			if room() >= 1 {
+				rows = append(rows, borderedL(sparkline(series, W), t))
 				bl()
-			case avail >= 1:
-				rows = append(rows, borderedL(line{C("minimap: enlarge terminal", cDim)}, t))
-				bl()
+			} else {
+				rows = append(rows, borderedL(panelHint(tr("spark"), 1, room()), t))
 			}
 		}
-
 		bm := metaMap(w.GameMetadata.BlueTeamMetadata)
 		rm := metaMap(w.GameMetadata.RedTeamMetadata)
 		dm := detFrom(det)
+
+		// The table is built aside so a short board can report the players it dropped
+		// instead of ending in the middle of a team.
+		var tbl []line
+		var cnt []int
+		add := func(l line, players int) {
+			tbl = append(tbl, l)
+			cnt = append(cnt, players)
+		}
 
 		switch {
 		case tg.view != 0:
@@ -769,60 +782,85 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 			} else {
 				hdr, row = runesPlayerHeader(W), runesPlayerRow
 			}
-			rows = append(rows, borderedL(hdr, t))
+			add(borderedL(hdr, t), 0)
 			for _, p := range b.Participants {
 				m := bm[p.ParticipantID]
-				rows = append(rows, borderedL(row(m.name, m.champ, dm[p.ParticipantID], cCyan, W), t))
+				add(borderedL(row(m.name, m.champ, dm[p.ParticipantID], cCyan, W), t), 1)
 			}
 			if !compact {
-				rows = append(rows, borderedL(line{C(strings.Repeat("─", W), cGray)}, t))
+				add(borderedL(line{C(strings.Repeat("─", W), cGray)}, t), 0)
 			}
 			for _, p := range r.Participants {
 				m := rm[p.ParticipantID]
-				rows = append(rows, borderedL(row(m.name, m.champ, dm[p.ParticipantID], cRed, W), t))
+				add(borderedL(row(m.name, m.champ, dm[p.ParticipantID], cRed, W), t), 1)
 			}
 		case wide:
 			side := (W - 3) / 2
 			cL := pickCols(side)
 			cR := pickCols(W - 3 - side)
-			rows = append(rows, sideLine(playerHeader(cL), playerHeader(cR), side, t))
+			add(sideLine(playerHeader(cL), playerHeader(cR), side, t), 0)
 			n := len(b.Participants)
 			if len(r.Participants) > n {
 				n = len(r.Participants)
 			}
 			for i := 0; i < n; i++ {
 				var lp, rp line
+				players := 0
 				if i < len(b.Participants) {
-					lp = playerRow(b.Participants[i], bm[b.Participants[i].ParticipantID], cL, cCyan, mm.Lives)
+					lp = playerRow(b.Participants[i], bm[b.Participants[i].ParticipantID], cL, cCyan, bv.Lives)
+					players++
 				}
 				if i < len(r.Participants) {
-					rp = playerRow(r.Participants[i], rm[r.Participants[i].ParticipantID], cR, cRed, mm.Lives)
+					rp = playerRow(r.Participants[i], rm[r.Participants[i].ParticipantID], cR, cRed, bv.Lives)
+					players++
 				}
-				rows = append(rows, sideLine(lp, rp, side, t))
+				add(sideLine(lp, rp, side, t), players)
 			}
 		default:
 			c := pickCols(W)
-			rows = append(rows, borderedL(playerHeader(c), t))
+			add(borderedL(playerHeader(c), t), 0)
 			for i := range b.Participants {
-				rows = append(rows, borderedL(playerRow(b.Participants[i], bm[b.Participants[i].ParticipantID], c, cCyan, mm.Lives), t))
+				add(borderedL(playerRow(b.Participants[i], bm[b.Participants[i].ParticipantID], c, cCyan, bv.Lives), t), 1)
 			}
 			if !compact {
-				rows = append(rows, borderedL(line{C(strings.Repeat("─", W), cGray)}, t))
+				add(borderedL(line{C(strings.Repeat("─", W), cGray)}, t), 0)
 			}
 			for i := range r.Participants {
-				rows = append(rows, borderedL(playerRow(r.Participants[i], rm[r.Participants[i].ParticipantID], c, cRed, mm.Lives), t))
+				add(borderedL(playerRow(r.Participants[i], rm[r.Participants[i].ParticipantID], c, cRed, bv.Lives), t), 1)
 			}
 		}
+		if h > 0 {
+			tail := 2 // footer + bottom border
+			if tg.embed {
+				tail = 1
+			} else if !compact {
+				tail++ // the blank above the footer
+			}
+			fit := h - tail
+			more := 0
+			for len(rows)+len(tbl) > fit && len(tbl) > 0 {
+				more += cnt[len(cnt)-1]
+				tbl, cnt = tbl[:len(tbl)-1], cnt[:len(cnt)-1]
+			}
+			// The notice takes a row of its own, so a table cut to the last row loses one more.
+			for more > 0 && len(rows)+len(tbl)+1 > fit && len(tbl) > 0 {
+				more += cnt[len(cnt)-1]
+				tbl, cnt = tbl[:len(tbl)-1], cnt[:len(cnt)-1]
+			}
+			if more > 0 {
+				key := "more_players"
+				if more == 1 {
+					key = "more_player"
+				}
+				tbl = append(tbl, borderedL(line{C(fmt.Sprintf(tr(key), more), cDim)}, t))
+			}
+		}
+		rows = append(rows, tbl...)
 	} else {
 		rows = append(rows, borderedL(joinLR(line{}, line{C("◷  waiting for in-game data…", cYel)}, W), t))
 	}
 
-	c := finishCanvas(rows, t, h, now, compact, interval, tg)
-	if slot != nil && slot.Row+slot.Rows > c.h-2 {
-		slot = nil // the image would overlap the footer or fall off the screen
-	}
-	c.mm = slot
-	return c
+	return finishCanvas(rows, t, h, now, compact, interval, tg)
 }
 
 // finishCanvas appends the footer and fits the board to h rows (h <= 0: unbounded) by
@@ -851,21 +889,29 @@ func finishCanvas(rows []line, t, h int, now time.Time, compact bool, interval t
 	case 2:
 		mode, next = "runes", "stats"
 	}
-	// Longest key hint that still fits next to the clock; narrow terminals get the short forms.
+	// Longest key hint that still fits next to the clock; narrow terminals get the short
+	// forms, and the clock itself shortens so "q quit" and the border always survive.
 	var fR line
 	hints := []string{
-		fmt.Sprintf("b:%s→%s · s spark · o obj · m map · v video · q quit", mode, next),
-		"b s o m v · q quit",
+		fmt.Sprintf("b:%s→%s · s spark · o obj · q quit", mode, next),
+		"b s o · q quit",
 		"q quit",
 	}
-	for _, hint := range hints {
+	shortL := line{C("◷", cGreen), S(" " + now.In(kst).Format("15:04") + " KST")}
+	for i, hint := range hints {
 		fR = line{C(fmt.Sprintf("↻ %s", interval), cDim), S("  "), C(hint, cDim)}
 		if tg.replay != nil {
 			fR = line{C(hint, cDim)}
 		}
+		if i == len(hints)-1 && tg.replay == nil {
+			fL = shortL
+		}
 		if fL.vis()+1+fR.vis() <= W {
 			break
 		}
+	}
+	if fL.vis()+1+fR.vis() > W {
+		fL = truncLine(fL, max(1, W-1-fR.vis())) // a replay footer has no short form
 	}
 	body := rows
 	rows = append(rows, borderedL(joinLR(fL, fR, W), t), botBorderL(t))
@@ -882,14 +928,17 @@ func finishCanvas(rows []line, t, h int, now time.Time, compact bool, interval t
 
 // ---------------- data fetch ----------------
 
-func fetchLiveEvent(lid, matchID string) (event, string, bool) {
+// fetchLiveEvent returns the in-progress event (of league lid, of match matchID when set)
+// and its running game. The error is kept apart: a failed lookup says nothing about the
+// game, so callers keeping board state must not read it as "none".
+func fetchLiveEvent(lid, matchID string) (event, string, bool, error) {
 	url := gwBase + "/getLive?hl=en-US"
 	if lid != "" {
 		url += "&leagueId=" + lid
 	}
 	var lr scheduleResp
 	if err := getJSON(url, &lr); err != nil {
-		return event{}, "", false
+		return event{}, "", false, err
 	}
 	for _, ev := range lr.Data.Schedule.Events {
 		if ev.State != "inProgress" || ev.Match == nil || (matchID != "" && ev.Match.ID != matchID) {
@@ -897,12 +946,12 @@ func fetchLiveEvent(lid, matchID string) (event, string, bool) {
 		}
 		for _, g := range ev.Match.Games {
 			if g.State == "inProgress" {
-				return ev, g.ID, true
+				return ev, g.ID, true, nil
 			}
 		}
-		return ev, "", true
+		return ev, "", true, nil
 	}
-	return event{}, "", false
+	return event{}, "", false, nil
 }
 
 func fetchSpawn(gameID string) time.Time {
@@ -916,27 +965,36 @@ func fetchSpawn(gameID string) time.Time {
 // ---------------- command ----------------
 
 // enterFullscreen switches to the alternate screen with raw single-key input. SIGINT,
-// SIGTERM and SIGHUP (the terminal window closing) run stop (it must kill child processes) before the terminal is restored and the
-// process exits. leave restores the terminal and is safe to call more than once.
-func enterFullscreen(stop func()) (keys <-chan key, leave func()) {
-	return enterFullscreenMode(stop, false)
+// SIGTERM and SIGHUP (the terminal window closing) restore the terminal and exit. leave
+// restores the terminal and is safe to call more than once. Without a terminal on stdin
+// and stdout nobody could see the screen or press q: the process exits with an error.
+func enterFullscreen() (keys <-chan key, leave func()) {
+	return enterFullscreenMode(false)
 }
 
 // enterFullscreenMouse is enterFullscreen plus click and wheel reporting (SGR 1006), so
 // the app can focus panes and select rows with the mouse. The standalone boards keep
 // text selection and scrollback by using the plain variant.
-func enterFullscreenMouse(stop func()) (keys <-chan key, leave func()) {
-	return enterFullscreenMode(stop, true)
+func enterFullscreenMouse() (keys <-chan key, leave func()) {
+	return enterFullscreenMode(true)
 }
 
-func enterFullscreenMode(stop func(), mouse bool) (keys <-chan key, leave func()) {
+func enterFullscreenMode(mouse bool) (keys <-chan key, leave func()) {
 	mouseOn, mouseOff := "", ""
 	if mouse {
 		mouseOn, mouseOff = "\033[?1000h\033[?1006h", "\033[?1006l\033[?1000l"
 	}
-	fmt.Print("\033[?1049h\033[?25l" + mouseOn)
 	fd := int(os.Stdin.Fd())
-	oldTerm, _ := makeRaw(fd)
+	if !isTTY(os.Stdin) || !isTTY(os.Stdout) {
+		fmt.Fprintln(os.Stderr, "error: this screen needs a terminal on stdin and stdout (one frame without it: lolterm lol relay -1)")
+		os.Exit(1)
+	}
+	oldTerm, raw := makeRaw(fd)
+	if !raw {
+		fmt.Fprintln(os.Stderr, "error: cannot switch the terminal to raw key input")
+		os.Exit(1)
+	}
+	fmt.Print("\033[?1049h\033[?25l" + mouseOn)
 	ctx, cancel := context.WithCancel(context.Background())
 	var once sync.Once
 	leave = func() {
@@ -946,20 +1004,34 @@ func enterFullscreenMode(stop func(), mouse bool) (keys <-chan key, leave func()
 			fmt.Print(mouseOff + "\033[?25h\033[?1049l")
 		})
 	}
+	leaveTerm.Store(leave)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		<-sig
-		stop()
 		leave()
 		os.Exit(0)
 	}()
 	return startKeys(ctx), leave
 }
 
-// boardKey applies the view toggles every board shares (b views, s spark, o objectives,
-// m minimap panel, v broadcast video) and reports whether k was one of them; tab also
-// cycles the views when tab is set.
+// leaveTerm holds the leave func of the running full-screen screen (unset outside one).
+var leaveTerm atomic.Value
+
+// crashGuard, deferred in a background goroutine, restores the terminal before a panic
+// there ends the process: the main goroutine's deferred cleanup does not run then, and
+// the shell would be left in raw mode on the alternate screen.
+func crashGuard() {
+	if r := recover(); r != nil {
+		if leave, _ := leaveTerm.Load().(func()); leave != nil {
+			leave()
+		}
+		panic(r)
+	}
+}
+
+// boardKey applies the view toggles every board shares (b views, s spark, o objectives)
+// and reports whether k was one of them; tab also cycles the views when tab is set.
 func boardKey(tg *toggles, k key, tab bool) bool {
 	switch {
 	case k.Kind == keyTab && tab:
@@ -972,40 +1044,28 @@ func boardKey(tg *toggles, k key, tab bool) bool {
 		tg.spark = !tg.spark
 	case k.Rune == 'o' || k.Rune == 'O':
 		tg.omap = !tg.omap
-	case k.Rune == 'm' || k.Rune == 'M':
-		tg.mm = !tg.mm || !tg.video // m starts the video when it is off
-		tg.video = true
-	case k.Rune == 'v' || k.Rune == 'V':
-		tg.video = !tg.video
-		tg.mm = tg.video
 	default:
 		return false
 	}
 	return true
 }
 
-// relayPlayout decides what one render tick shows from the feed and the broadcast
-// minimap. Once video sync has locked, scoreboard, header clock and minimap all play out
-// one shared feed time that never moves back; before that the feed plays out on its own
-// adaptive delay and the minimap on its own buffer.
+// boardTick is the render cadence: the feed plays a frame out every 0.5 s.
+const boardTick = 500 * time.Millisecond
+
+// relayPlayout decides what one render tick of a live board shows from the feed.
 type relayPlayout struct {
-	fd        *feed
-	mm        *minimap
-	sc        playClock
-	sy        *mmSync // estimator the playout clock currently follows
-	gid       string  // game the shown position belongs to
-	aligned   bool    // the shown position has followed the video clock in this game
-	killsSeen int     // feed kills already handed to sy
-	game      time.Duration
-	hidePanel bool // the minimap panel is off: the video pipeline skips tracking
+	fd   *feed
+	gid  string // game the shown position belongs to
+	game time.Duration
 }
 
 // holdBack is the largest step back of the header clock that is held instead of shown;
 // a bigger one is a genuine resync of a different clock.
 const holdBack = 30 * time.Second
 
-// holdGame keeps the header clock from stepping back (a learned skew, a re-estimated
-// offset, a pipeline restart): it stands still until the new reading catches up.
+// holdGame keeps the header clock from stepping back (a pause learned late, a re-probed
+// live edge): it stands still until the new reading catches up.
 func (p *relayPlayout) holdGame(g time.Duration) time.Duration {
 	if g >= 0 && g < p.game && p.game-g < holdBack {
 		return p.game
@@ -1016,120 +1076,31 @@ func (p *relayPlayout) holdGame(g time.Duration) time.Duration {
 	return g
 }
 
-// Tick starts or stops the video pipeline as needed and returns the feed state and the
-// minimap view to draw at now. Mode and cell size of the view are the caller's to fill in.
-func (p *relayPlayout) Tick(now time.Time, video bool) (feedSnap, mmView) {
-	m := p.fd.Meta()
-	if m.GID != p.gid {
-		p.gid, p.game, p.aligned = m.GID, 0, false
-		p.sc.Reset()
+// Tick returns the feed state to draw at now.
+func (p *relayPlayout) Tick(now time.Time) feedSnap {
+	if gid := p.fd.Meta().GID; gid != p.gid {
+		p.gid, p.game = gid, 0
 	}
-	ready := m.GID != "" && !m.Spawn.IsZero() && len(m.W.GameMetadata.BlueTeamMetadata.Participants) > 0
-	switch {
-	case !video:
-		p.mm.Stop()
-	case ready:
-		p.mm.Start(m.GID, eventID(m.Ev), m.W, m.Spawn, p.fd.Pauses)
-	}
-	p.mm.SetPanel(!p.hidePanel)
-	if sy := p.mm.Sync(); sy != p.sy {
-		p.sy = sy // a new pipeline: its offset and skew start from scratch, the shown position stays
-		p.killsSeen = 0
-		p.fd.SetSkew(0)
-	}
-	lf, feedOK := p.fd.Latest()
-	if p.sy != nil && feedOK {
-		var ks []feedKill
-		ks, p.killsSeen = p.fd.KillsSince(p.killsSeen)
-		p.sy.ObserveFeedKills(ks)
-		if t, ok := p.fd.GameStart(); ok {
-			p.sy.ObserveGameStart(t)
-		}
-		p.sy.ObserveFeedLatest(lf)
-	}
-	// Once running, the shared clock outlives a passing loss of sync (stream restart,
-	// stalled video): it keeps advancing on the feed alone instead of jumping to another
-	// clock and back.
-	if video && ready && feedOK && p.sy != nil && (p.sc.on || p.sy.Locked()) {
-		return p.syncedTick(now, lf)
-	}
-	p.sc.Reset()
 	snap := p.fd.Snapshot(now)
 	snap.Game = p.holdGame(snap.Game)
-	view := mmView{Status: "waiting for a live game"}
-	if video && ready {
-		view = p.mm.Snapshot(now, snap.Lives)
-	}
-	view.Lives = snap.Lives
-	view.Obj = snap.Obj
-	return snap, view
+	return snap
 }
 
-// syncedTick plays scoreboard, header and minimap out at the shared clock; lf is the
-// feed's newest frame.
-func (p *relayPlayout) syncedTick(now, lf time.Time) (feedSnap, mmView) {
-	locked := p.sy.Locked()
-	stall, stalled := p.mm.Stalled()
-	p.fd.SetSkew(p.sy.Skew())
-	edge := lf
-	if locked && !stalled {
-		if lv, ok := p.mm.VideoLatest(); ok {
-			if ft, ok := p.sy.FeedTime(lv); ok && ft.Before(edge) {
-				edge = ft
-			}
-		}
-	}
-	if !p.sc.on {
-		// Hand over from the feed's own playout. The first time in a game the clock starts
-		// at the video-aligned position when the video cannot show the viewer's position
-		// yet: it is the opening alignment, the scoreboard steps back once. After that
-		// (video toggled off and on, pipeline restarted) the clock starts at the position
-		// the viewer sees and stands still until the video catches up; only a position
-		// far ahead of anything the video can show is a genuine resync.
-		if pos, ok := p.fd.Position(); ok {
-			if (p.aligned && pos.Sub(edge) < holdBack) || !pos.After(edge) {
-				p.sc.Start(now, pos)
-			}
-		}
-	}
-	if !p.aligned {
-		p.game = 0 // the opening alignment moves scoreboard and header together; holding the header would show a clock ahead of the scoreboard
-	}
-	p.aligned = true
-	T := p.sc.Advance(now, edge)
-	p.fd.Need(T)
-	snap := p.fd.SnapshotAt(now, T)
-	snap.Game = p.holdGame(snap.Game)
-	var view mmView
-	switch {
-	case stalled:
-		view = stall
-	case !locked:
-		view = p.mm.Snapshot(now, snap.Lives)
-	default:
-		vt, _ := p.sy.VideoTime(T)
-		view = p.mm.SnapshotAt(vt, snap.Lives)
-	}
-	view.Lives = snap.Lives
-	view.Obj = snap.Obj
-	return snap, view
-}
+// view is what a feed snapshot adds to the board besides the frame itself.
+func (s feedSnap) view() boardView { return boardView{Lives: s.Lives, Obj: s.Obj} }
 
 func cmdRelay(args []string) {
 	fs := flag.NewFlagSet("lol relay", flag.ExitOnError)
 	league := fs.String("l", "", "league slug")
 	once := fs.Bool("1", false, "render a single frame and exit (for screenshots/scripts)")
 	interval := fs.Duration("i", 2*time.Second, "feed poll interval (frames play out every 0.5s)")
-	src := fs.String("src", "", "minimap video source: page URL or file (default: the match's broadcast)")
-	icons := fs.String("icons", mmModeAuto, "minimap drawing: auto|kitty|blocks|text")
 	fs.Parse(args)
-
-	lid, ok := leagueID(*league)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", *league)
+	if *interval <= 0 {
+		fmt.Fprintln(os.Stderr, "error: -i must be > 0")
 		os.Exit(1)
 	}
-	mode, err := mmResolveMode(*icons)
+
+	lid, err := leagueID(*league)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -1140,32 +1111,22 @@ func cmdRelay(args []string) {
 	fd := newFeed(lid, *interval)
 	fd.FetchOnce()
 
-	mm := newMinimap(minimapCfg{Src: *src})
-	mm.SetLives(fd.LivesAt)
-	var kit kittyOut
 	tg := toggles{}
 	var prev *canvas
-	pl := &relayPlayout{fd: fd, mm: mm}
+	pl := &relayPlayout{fd: fd}
 	draw := func() {
 		now := time.Now()
-		pl.hidePanel = !tg.mm
 		fd.SetDetailsView(tg.view != 0)
-		s, view := pl.Tick(now, tg.video)
-		view.Mode = mode
-		view.CellW, view.CellH = termCellPx()
-		c := buildCanvas(s.Ev, s.W, s.Det, s.Game, now, max(t, minBoardW), h, *interval, tg, s.Series, view)
+		s := pl.Tick(now)
+		c := buildCanvas(s.Ev, s.W, s.Det, s.Game, now, max(t, minBoardW), h, *interval, tg, s.Series, s.view())
 		if !*once && (t < minBoardW || h < minTermH) {
 			c = tooSmallCanvas(t, h, minBoardW, minTermH)
 		}
 		if *once {
 			fmt.Print(canvasString(c))
-			if c.mm != nil {
-				fmt.Print(kittyOneShot(c.mm, c.h))
-			}
 			return
 		}
-		out := renderDiff(prev, c)
-		fmt.Print(out + kit.Frame(c.mm, prev == nil || prev.w != c.w || prev.h != c.h))
+		fmt.Print(renderDiff(prev, c))
 		prev = c
 	}
 
@@ -1176,27 +1137,22 @@ func cmdRelay(args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	keys, leave := enterFullscreen(func() { mm.Close(mmCloseWait); fmt.Print(kit.Delete()) })
+	keys, leave := enterFullscreen()
 	defer leave()
-	defer func() { fmt.Print(kit.Delete()) }()
-	defer mm.Close(mmCloseWait)
 
 	draw()
 	go func() {
 		// A panic here would kill the process without the main goroutine's deferred
-		// cleanup: stop the children and restore the terminal first, then crash as usual.
+		// cleanup: restore the terminal first, then crash as usual.
 		defer func() {
 			if r := recover(); r != nil {
-				mm.Close(mmCloseWait)
-				fmt.Print(kit.Delete())
 				leave()
 				panic(r)
 			}
 		}()
 		fd.Run(ctx)
 	}()
-	cadence := mmTickFor(tg.video && tg.mm)
-	tick := time.NewTicker(cadence)
+	tick := time.NewTicker(boardTick)
 	defer tick.Stop()
 	for {
 		select {
@@ -1206,17 +1162,18 @@ func cmdRelay(args []string) {
 				prev = nil
 			}
 			draw()
-		case k := <-keys:
+		case k, ok := <-keys:
+			if !ok { // stdin closed (pipe or redirect): nobody can press q
+				return
+			}
 			if k.Kind == keyCtrlC || (k.Kind == keyRune && (k.Rune == 'q' || k.Rune == 'Q')) {
 				return
 			}
 			boardKey(&tg, k, true)
-			prev = nil
+			if k.Kind == keyCtrl && k.Rune == 'l' {
+				prev = nil // ctrl+l: full repaint; other keys draw only the cells that changed
+			}
 			draw()
-		}
-		if d := mmTickFor(tg.video && tg.mm); d != cadence {
-			cadence = d
-			tick.Reset(d)
 		}
 	}
 }
@@ -1231,8 +1188,6 @@ func cmdDemo(args []string) {
 	bf := fs.Bool("b", false, "items view")
 	sf := fs.Bool("s", false, "show gold sparkline")
 	of := fs.Bool("o", false, "show objective map")
-	mf := fs.Bool("m", false, "show broadcast minimap (synthetic markers)")
-	icons := fs.String("icons", mmModeAuto, "minimap drawing: auto|kitty|blocks|text")
 	fs.Parse(args)
 	tw, th := termSize()
 	if *w > 0 {
@@ -1250,45 +1205,11 @@ func cmdDemo(args []string) {
 	} else if *bf {
 		v = 1
 	}
-	tg := toggles{view: v, spark: *sf, omap: *of, mm: *mf}
-	mode, err := mmResolveMode(*icons)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	view := demoMinimap()
-	mmPreloadAssets(3*time.Second, view.Ver, view.Icons)
-	view.Mode = mode
-	view.CellW, view.CellH = termCellPx()
-	c := demoCanvasAt(tw, th, time.Now(), 10*time.Second, detailsResp{}, tg, nil, view)
-	fmt.Print(canvasString(c))
-	if c.mm != nil {
-		fmt.Print(kittyOneShot(c.mm, c.h))
-	}
+	tg := toggles{view: v, spark: *sf, omap: *of}
+	fmt.Print(canvasString(demoCanvasAt(tw, th, time.Now(), 10*time.Second, detailsResp{}, tg, nil, boardView{})))
 }
 
-// demoMinimap places the demo champions at fixed spots in the lanes (blue starts bottom-left,
-// red top-right). The icon version is the latest Data Dragon one (empty offline: plain discs).
-func demoMinimap() mmView {
-	champs := []string{"Yasuo", "Skarner", "Aurora", "Varus", "Renata", "Gnar", "LeeSin", "Sylas", "Xayah", "Rakan"}
-	roles := []string{"top", "jungle", "mid", "bottom", "support"}
-	pos := [][2]float64{{0.12, 0.30}, {0.30, 0.62}, {0.46, 0.55}, {0.78, 0.90}, {0.74, 0.88},
-		{0.20, 0.12}, {0.62, 0.30}, {0.56, 0.44}, {0.90, 0.24}, {0.88, 0.20}}
-	refs := make([]champRef, len(champs))
-	for i, c := range champs {
-		refs[i] = champRef{PID: i + 1, Team: 100 + 100*(i/5), Champ: c, Role: roles[i%5]}
-	}
-	labels := mmLabels(refs)
-	v := mmView{Status: "demo · synthetic positions"}
-	v.Ver, _ = ddLatestVersion(context.Background())
-	for i, r := range refs {
-		v.Markers = append(v.Markers, mmMarker{Team: r.Team, Label: labels[r.PID], X: pos[i][0], Y: pos[i][1]})
-		v.Icons = append(v.Icons, mmIcon{Team: r.Team, Champ: r.Champ, Label: labels[r.PID], X: pos[i][0], Y: pos[i][1]})
-	}
-	return v
-}
-
-func demoCanvasAt(t, h int, now time.Time, interval time.Duration, det detailsResp, tg toggles, series []goldPt, mm mmView) *canvas {
+func demoCanvasAt(t, h int, now time.Time, interval time.Duration, det detailsResp, tg toggles, series []goldPt, bv boardView) *canvas {
 	ev := event{ID: "x", State: "inProgress", BlockName: "Knockouts"}
 	ev.League.Name = "MSI"
 	ev.League.Slug = "msi"
@@ -1342,7 +1263,7 @@ func demoCanvasAt(t, h int, now time.Time, interval time.Duration, det detailsRe
 	if tg.spark && len(series) == 0 {
 		series = syntheticSeries()
 	}
-	return buildCanvas(ev, w, det, game, now, t, h, interval, tg, series, mm)
+	return buildCanvas(ev, w, det, game, now, t, h, interval, tg, series, bv)
 }
 
 func pmetaRow(id int, n, c string) struct {
@@ -1378,8 +1299,8 @@ func cmdBench(args []string) {
 		t = 50
 	}
 	now := time.Now()
-	a := demoCanvasAt(t, h, now, 10*time.Second, detailsResp{}, toggles{}, nil, mmView{})
-	b := demoCanvasAt(t, h, now.Add(1*time.Second), 10*time.Second, detailsResp{}, toggles{}, nil, mmView{}) // clock +1s
+	a := demoCanvasAt(t, h, now, 10*time.Second, detailsResp{}, toggles{}, nil, boardView{})
+	b := demoCanvasAt(t, h, now.Add(1*time.Second), 10*time.Second, detailsResp{}, toggles{}, nil, boardView{}) // clock +1s
 
 	full := len(renderDiff(nil, a))
 	diff := len(renderDiff(a, b))

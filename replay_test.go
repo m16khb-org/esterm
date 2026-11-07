@@ -80,8 +80,8 @@ func (s *synthWindow) win(gid, start string) (windowResp, error) {
 func newSynthStore(sw *synthWindow) *replayStore {
 	st := newReplayStore("g1", replayT0, replayT0.Add(200*time.Second), 20*time.Millisecond)
 	st.pace = 0
-	st.win = sw.win
-	st.det = func(gid, start string) (detailsResp, error) { return detailsResp{}, nil }
+	st.win = func(_ context.Context, gid, start string) (windowResp, error) { return sw.win(gid, start) }
+	st.det = func(context.Context, string, string) (detailsResp, error) { return detailsResp{}, nil }
 	return st
 }
 
@@ -134,9 +134,6 @@ func TestReplayStoreFetchesEveryWindowOnceAroundTheFocusFirst(t *testing.T) {
 	if len(ps) != 1 || !ps[0].Start.Equal(replayT0.Add(60*time.Second)) || ps[0].Dur != 20*time.Second {
 		t.Errorf("pauses = %v, want one of 20 s at 60 s", ps)
 	}
-	if e := st.edge(); !e.Equal(st.end) {
-		t.Errorf("edge = %v, want the end %v", e, st.end)
-	}
 }
 
 func TestReplayStoreRetriesFailedWindowAfterCooldown(t *testing.T) {
@@ -151,16 +148,36 @@ func TestReplayStoreRetriesFailedWindowAfterCooldown(t *testing.T) {
 	}
 }
 
-func TestReplayKillsSkipUnknownGaps(t *testing.T) {
-	mk := func(sec float64, kills int) stamped[frame] {
-		var f frame
-		f.BlueTeam.TotalKills = kills
-		return stamped[frame]{replayT0.Add(time.Duration(sec * float64(time.Second))), f}
+// A window request still in flight when the replay closes must not hold Close for the HTTP
+// timeout, and the canceled window must stay retryable rather than be marked failed.
+func TestReplayStoreRunReturnsWhenCanceledMidFetch(t *testing.T) {
+	st := newReplayStore("g1", replayT0, replayT0.Add(200*time.Second), 20*time.Millisecond)
+	st.pace = 0
+	started := make(chan struct{}, 1)
+	st.win = func(ctx context.Context, gid, start string) (windowResp, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-ctx.Done() // a slow server: only the request's cancellation ends the call
+		return windowResp{}, ctx.Err()
 	}
-	fr := []stamped[frame]{mk(0, 0), mk(1, 1), mk(8, 2), mk(8.5, 3), mk(9, 5)}
-	ks := replayKills(fr)
-	if len(ks) != 2 || ks[0].Count != 1 || ks[1].Count != 3 {
-		t.Errorf("kills = %+v, want counts 1 and 3 (2 is across a 7 s gap, 5 skips a count)", ks)
+	st.det = func(context.Context, string, string) (detailsResp, error) { return detailsResp{}, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { st.run(ctx); close(done) }()
+	<-started
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run kept waiting on canceled window requests")
+	}
+	st.mu.Lock()
+	failed := len(st.failed)
+	st.mu.Unlock()
+	if failed != 0 {
+		t.Errorf("canceled windows recorded as failed: %d", failed)
 	}
 }
 
@@ -171,7 +188,7 @@ func TestReplayStoreSnapshot(t *testing.T) {
 		w, _ := sw.win("g1", startingTime(bucketStart(b)))
 		st.absorb(w, detailsResp{})
 	}
-	snap := st.snapshot(replayT0.Add(95*time.Second), 90*time.Second, 3500*time.Millisecond)
+	snap := st.snapshot(replayT0.Add(95*time.Second), 90*time.Second)
 	if len(snap.W.Frames) != 1 || snap.W.Frames[0].BlueTeam.TotalKills != 3 {
 		t.Fatalf("frame at 95 s = %+v", snap.W.Frames)
 	}
@@ -182,7 +199,7 @@ func TestReplayStoreSnapshot(t *testing.T) {
 	if last.gameMin != 1 { // 95 s − 3.5 s skew − 20 s pause = 71.5 s of game
 		t.Errorf("series ends at game minute %d, want 1", last.gameMin)
 	}
-	early := st.snapshot(replayT0.Add(-time.Hour), 0, 0)
+	early := st.snapshot(replayT0.Add(-time.Hour), 0)
 	if len(early.W.Frames) != 1 || early.W.Frames[0].BlueTeam.TotalKills != 0 {
 		t.Errorf("before the first frame the first frame shows, got %+v", early.W.Frames)
 	}
@@ -211,7 +228,6 @@ func testReplayOf(t *testing.T, frames []frame) (*replay, *fakeClock) {
 	}
 	clk := &fakeClock{t: replayT0.Add(time.Hour)}
 	r := &replay{now: clk.now, st: st, speed: 1, at: clk.t}
-	r.sy = newMMSync(st.spawn, mmFPS, st.pausesList)
 	r.total = r.gameOf(st.end.Sub(st.spawn))
 	return r, clk
 }
@@ -284,7 +300,7 @@ func TestReplayPlaybackControls(t *testing.T) {
 	}
 	r.TogglePause()
 	adv(20 * time.Second)
-	if s, _ := r.Tick(clk.t, false, false); s.Game != r.total {
+	if s := r.Tick(clk.t); s.Game != r.total {
 		t.Errorf("past the end the header clock stops at %v, got %v", r.total, s.Game)
 	}
 	if st := r.State(); !st.Paused || st.Pos != r.total {
@@ -296,10 +312,10 @@ func TestReplayPlaybackControls(t *testing.T) {
 	}
 }
 
-func TestReplayTickShowsPositionAndNoVideoStatus(t *testing.T) {
+func TestReplayTickShowsPosition(t *testing.T) {
 	r, clk := testReplay(t)
 	clk.t = clk.t.Add(100 * time.Second)
-	snap, view := r.Tick(clk.t, true, true)
+	snap := r.Tick(clk.t)
 	if snap.Game != 100*time.Second {
 		t.Errorf("header clock = %v, want the position 100 s", snap.Game)
 	}
@@ -307,19 +323,16 @@ func TestReplayTickShowsPositionAndNoVideoStatus(t *testing.T) {
 	if got := snap.W.Frames[0].BlueTeam.TotalKills; got != 4 {
 		t.Errorf("kills on the board = %d, want 4", got)
 	}
-	if !strings.Contains(view.Status, "no official VOD") || !strings.Contains(view.Status, "scoreboard only") {
-		t.Errorf("without a VOD the minimap status = %q", view.Status)
-	}
-	if st := r.State(); st.HasVideo || !strings.Contains(st.Status, "scoreboard only") {
-		t.Errorf("state = %+v", st)
+	if st := r.State(); st.Status != "" {
+		t.Errorf("a loaded game still reports %q", st.Status)
 	}
 }
 
-func TestReplayTickGivesBoardAndMapTheSameExactLives(t *testing.T) {
+func TestReplayTickShowsExactLives(t *testing.T) {
 	frames := synthFrames()
-	for i := range frames { // blue 1 dies at 45 s (the counter ticks first) and is back at 58 s of the feed
+	for i := range frames { // blue 1 (level 3: a 12 s timer) dies at 45 s (the counter ticks first) and is back at 58 s of the feed
 		sec := parseTime(frames[i].RFC460Timestamp).Sub(replayT0).Seconds()
-		p := participant{ParticipantID: 1, Level: 6, CurrentHealth: 1500, MaxHealth: 2000}
+		p := participant{ParticipantID: 1, Level: 3, CurrentHealth: 1500, MaxHealth: 2000}
 		if sec >= 45 {
 			p.Deaths = 1
 		}
@@ -330,52 +343,9 @@ func TestReplayTickGivesBoardAndMapTheSameExactLives(t *testing.T) {
 	}
 	r, clk := testReplayOf(t, frames)
 	clk.t = clk.t.Add(50 * time.Second) // 50 s of game = 53.5 s of feed
-	snap, view := r.Tick(clk.t, false, false)
-	for name, lives := range map[string]mmLives{"board snapshot": snap.Lives, "minimap view": view.Lives} {
-		if l := lives[1]; !l.Dead || !l.Exact || math.Abs(l.Secs-4.5) > 0.01 {
-			t.Errorf("%s: %+v, want dead with exactly 4.5 s left", name, l)
-		}
-	}
-}
-
-func TestReplayVideoPositionUsesEstimateUntilLocked(t *testing.T) {
-	r, _ := testReplay(t)
-	r.vods = []replayVod{{URL: "u", Label: "YouTube en-US", SpawnAt: 370}}
-	r.vid = newReplayVideo(r)
-	vt, known := r.videoOf(10)
-	if known || vt != 380 {
-		t.Errorf("before the lock: %v known=%v, want the estimate 380", vt, known)
-	}
-	r.haveO, r.oLock = true, -365
-	if vt, known = r.videoOf(10); !known || vt != 375 {
-		t.Errorf("after the lock: %v known=%v, want 375", vt, known)
-	}
-	r.forgetOffset()
-	if _, known = r.videoOf(10); known {
-		t.Error("forgetOffset keeps the offset")
-	}
-}
-
-func TestReplayInRange(t *testing.T) {
-	cases := []struct {
-		name          string
-		start, lo, hi float64
-		ok            bool
-		want          float64
-		in            bool
-	}{
-		{"starting up, at start", 100, 0, 0, false, 100, true},
-		{"starting up, target moved far", 100, 0, 0, false, 400, false},
-		{"playing along", 100, 100, 120, true, 125, true},
-		{"small seek back inside history", 100, 100, 120, true, 110, true},
-		{"seek back before the oldest decoded frame", 100, 100, 120, true, 80, false},
-		{"seek ahead a little: read through", 100, 100, 120, true, 135, true},
-		{"seek ahead far: restart", 100, 100, 120, true, 300, false},
-	}
-	for _, c := range cases {
-		if got := replayInRange(c.start, c.lo, c.hi, c.ok, c.want); got != c.in {
-			t.Errorf("%s: in range = %v, want %v", c.name, got, c.in)
-		}
+	snap := r.Tick(clk.t)
+	if l := snap.Lives[1]; !l.Dead || !l.Exact || math.Abs(l.Secs-4.5) > 0.01 {
+		t.Errorf("%+v, want dead with exactly 4.5 s left", l)
 	}
 }
 
@@ -428,7 +398,7 @@ func TestReplayKeys(t *testing.T) {
 }
 
 func TestReplayBarFitsWidth(t *testing.T) {
-	st := replayState{Pos: 90 * time.Second, Total: 1800 * time.Second, Speed: 2, Status: "YouTube en-US · sync ✓ ±0.4s"}
+	st := replayState{Pos: 90 * time.Second, Total: 1800 * time.Second, Speed: 2, Status: "loading game data 40%"}
 	for _, w := range []int{120, 80, 50} {
 		bar := replayBar(st, w, true)
 		if bar.vis() > w {
@@ -439,28 +409,24 @@ func TestReplayBarFitsWidth(t *testing.T) {
 	for _, s := range replayBar(st, 120, true) {
 		sb.WriteString(s.text)
 	}
-	for _, want := range []string{"1:30 / 30:00", "2×", "sync ✓"} {
+	for _, want := range []string{"1:30 / 30:00", "2×", "40%"} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("bar %q lacks %q", sb.String(), want)
 		}
 	}
 }
 
-// ---- event details and VODs ----------------------------------------------------
+// ---- event details -------------------------------------------------------------
 
 const replayEventJSON = `{"data":{"event":{"league":{"id":"L","slug":"worlds","name":"Worlds"},"match":{
  "strategy":{"count":5},
  "teams":[{"id":"T1","name":"MVK Esports","code":"MVK"},{"id":"T2","name":"FURIA","code":"FUR"}],
  "games":[
-  {"number":1,"id":"G1","state":"completed","teams":[{"id":"T2","side":"blue"},{"id":"T1","side":"red"}],"vods":[
-    {"parameter":"DE","locale":"de-DE","provider":"youtube","offset":0,"firstFrameTime":"2026-10-15T18:00:26.487Z","startMillis":18607000,"endMillis":21560000},
-    {"parameter":"EN","locale":"en-US","provider":"youtube","offset":0,"firstFrameTime":null,"startMillis":1000,"endMillis":2954000},
-    {"parameter":"TW","locale":"en-US","provider":"twitch","offset":0,"firstFrameTime":null,"startMillis":5000,"endMillis":2954000},
-    {"parameter":"AF","locale":"ko-KR","provider":"afreecatv","offset":0,"firstFrameTime":null,"startMillis":1000,"endMillis":2954000}]},
-  {"number":2,"id":"G2","state":"completed","teams":[],"vods":[]},
-  {"number":4,"id":"G4","state":"unneeded","teams":[],"vods":[]}]}}}}`
+  {"number":1,"id":"G1","state":"completed","teams":[{"id":"T2","side":"blue"},{"id":"T1","side":"red"}]},
+  {"number":2,"id":"G2","state":"completed","teams":[]},
+  {"number":4,"id":"G4","state":"unneeded","teams":[]}]}}}}`
 
-func TestReplayEventAndVods(t *testing.T) {
+func TestReplayEvent(t *testing.T) {
 	var er replayEventResp
 	if err := json.Unmarshal([]byte(replayEventJSON), &er); err != nil {
 		t.Fatal(err)
@@ -478,23 +444,37 @@ func TestReplayEventAndVods(t *testing.T) {
 	if _, _, err := replayEvent("M1", er, 3); err == nil {
 		t.Error("a game number the match does not have must fail")
 	}
+}
 
-	spawn := time.Date(2026, 10, 15, 23, 11, 17, 655e6, time.UTC)
-	vods := replayVods(g, spawn)
-	if len(vods) != 3 || !strings.HasSuffix(vods[0].URL, "EN") || !strings.HasSuffix(vods[1].URL, "DE") || !strings.HasSuffix(vods[2].URL, "TW") {
-		t.Fatalf("order = %+v, want English YouTube, German YouTube, English Twitch (afreecatv skipped)", vods)
+// newReplay sets the length from the first and last windows alone, so a game whose pauses
+// are revealed later (the store loads the rest in the background) played past its end: the
+// bar, seeking and the end-of-game pause all used a length that was too long.
+func TestReplayTotalShrinksByPausesLearnedAfterOpen(t *testing.T) {
+	sw := &synthWindow{frames: synthFrames()}
+	st := newSynthStore(sw)
+	w0, _ := sw.win("g1", startingTime(replayT0))
+	wEnd, _ := sw.win("g1", startingTime(bucketStart(bucketOf(replayT0.Add(200*time.Second)))))
+	st.absorb(w0, detailsResp{})
+	st.absorb(wEnd, detailsResp{})
+	now := replayT0.Add(300 * time.Second)
+	r := &replay{st: st, now: func() time.Time { return now }, speed: 1}
+	r.total = r.gameOf(st.end.Sub(st.spawn))
+	r.at = now
+	if want := 196500 * time.Millisecond; r.total != want {
+		t.Fatalf("length at open = %v, want %v before the pause is known", r.total, want)
 	}
-	if vods[0].SpawnAt != 1+replayVodLag {
-		t.Errorf("no first-frame time: estimate %v, want start + lag", vods[0].SpawnAt)
+
+	for b := st.first; b <= st.last; b++ { // the background load reveals the 20 s pause
+		w, _ := sw.win("g1", startingTime(bucketStart(b)))
+		st.absorb(w, detailsResp{})
 	}
-	// the German first-frame time lies inside its segment: spawn − firstFrame = 18651.168 s
-	if got := vods[1].SpawnAt; got < 18651 || got > 18652 {
-		t.Errorf("first-frame based estimate = %v, want 18651.2", got)
+	r.pos = r.total + 30*time.Second // a seek past the old end
+	s := r.State()
+	if want := 176500 * time.Millisecond; s.Total != want {
+		t.Fatalf("bar length = %v, want the paused game length %v", s.Total, want)
 	}
-	// a first-frame time outside the segment is not trusted
-	g.Vods[0].FirstFrameTime = "2026-10-16T18:00:00Z"
-	if got := replayVods(g, spawn)[1].SpawnAt; got != 18607+replayVodLag {
-		t.Errorf("first-frame time after the game: estimate %v, want start + lag", got)
+	if s.Pos != s.Total {
+		t.Fatalf("position = %v, want it pulled back to the end %v", s.Pos, s.Total)
 	}
 }
 
@@ -684,14 +664,5 @@ func TestReplayRefusesGameWithoutPublishedEnd(t *testing.T) {
 	_, err := newReplay(context.Background(), replayOpts{MatchID: "m", Game: 1, Poll: 20 * time.Millisecond})
 	if err == nil || !strings.Contains(err.Error(), "has no end in the feed yet") {
 		t.Fatalf("a game whose last frame is still in_game must not open: %v", err)
-	}
-}
-
-// Worlds YouTube uploads often carry four to five minutes of pre-game desk before the
-// game clock appears. The initial probe must scan past that lead-in instead of giving up
-// after three spans and leaving the minimap on "finding the game start" forever.
-func TestProbeWindowCoversPregameLeadIn(t *testing.T) {
-	if replayProbeGiveUp < 6*replayProbeSpan {
-		t.Fatalf("probe gives up after %.0fs, less than the pre-game lead-in", replayProbeGiveUp)
 	}
 }

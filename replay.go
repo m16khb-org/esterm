@@ -12,8 +12,7 @@ import (
 )
 
 // Replay of a finished game: the livestats frames play back on a position clock the viewer
-// controls (pause, ±10 s, 1×/2×/4×), and the official VOD's broadcast minimap follows the
-// same position through the video↔feed sync estimator.
+// controls (pause, ±10 s, 1×/2×/4×).
 //
 // The position is the game clock the header shows; the feed time of a position is
 // spawn + position + skew + the game pauses before it (feedOf), the inverse of the
@@ -21,11 +20,6 @@ import (
 
 const (
 	replaySeekStep = 10 * time.Second
-	// replayVodLag is the video seconds from a VOD segment's start to the game's first feed
-	// frame: 337–364 s measured on the official broadcasts. The first seek assumes the
-	// late end of that range: landing in the game, where the HUD clock reads, locks the sync
-	// within seconds; landing in the pre-game does not until the game starts.
-	replayVodLag = 370.0
 	// replayFeedLag is how far behind the wall clock the livestats feed publishes: a window
 	// whose end is less than ~20 s old is rejected, and a window spans 10 s. Asking for the
 	// newest published window finds the final frames of a game that just finished; a fixed
@@ -38,7 +32,6 @@ var replaySpeeds = []float64{1, 2, 4}
 type replayOpts struct {
 	MatchID string        // lolesports match id
 	Game    int           // 1-based game number in the match
-	Src     string        // optional video override (page URL or file); "" = official VOD from getEventDetails
 	Poll    time.Duration // how long a failed window waits before it is fetched again
 	Block   string        // optional header block name (e.g. "Play-Ins"); "" shows "Replay"
 }
@@ -48,31 +41,17 @@ type replayState struct {
 	Pos, Total time.Duration // game clock position and length
 	Paused     bool
 	Speed      float64
-	HasVideo   bool      // a VOD (or -src) is known for this game
-	Status     string    // loading progress, VOD and sync state, or why there is no video
+	Status     string    // loading progress while the game's windows load
 	Start      time.Time // when the game started (first feed frame)
 }
 
-// replayVod is one candidate video of the game.
-type replayVod struct {
-	URL     string
-	Label   string  // e.g. "YouTube en-US"
-	SpawnAt float64 // estimate of the video second showing the game's first feed frame
-}
-
 type replay struct {
-	o      replayOpts
-	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	now    func() time.Time
 
-	ev   event
-	st   *replayStore
-	sy   *mmSync
-	mm   *minimap
-	vid  *replayVideo
-	vods []replayVod
+	ev event
+	st *replayStore
 
 	mu      sync.Mutex
 	pos     time.Duration // game clock position at `at`
@@ -80,8 +59,6 @@ type replay struct {
 	paused  bool
 	speed   float64
 	total   time.Duration
-	haveO   bool    // the sync locked once: oLock maps feed time to video time from then on
-	oLock   float64 // video-to-feed offset (seconds) of the last lock
 	details bool
 }
 
@@ -121,15 +98,6 @@ type replayGameJSON struct {
 		ID   string `json:"id"`
 		Side string `json:"side"`
 	} `json:"teams"`
-	Vods []struct {
-		Parameter      string `json:"parameter"`
-		Locale         string `json:"locale"`
-		Provider       string `json:"provider"`
-		Offset         int    `json:"offset"`
-		FirstFrameTime string `json:"firstFrameTime"`
-		StartMillis    int64  `json:"startMillis"`
-		EndMillis      int64  `json:"endMillis"`
-	} `json:"vods"`
 }
 
 // replayEvent builds the header's event: the teams blue first, the game counter at game n.
@@ -186,50 +154,6 @@ func replayEvent(matchID string, er replayEventResp, n int) (event, replayGameJS
 		ev.Match.Games = append(ev.Match.Games, game{ID: fmt.Sprintf("%s-%d", matchID, i), State: state})
 	}
 	return ev, g, nil
-}
-
-// replayVods lists the game's videos best first: YouTube before Twitch, English before
-// other languages. The first seek is estimated from the VOD's own timing data.
-func replayVods(g replayGameJSON, spawn time.Time) []replayVod {
-	type ranked struct {
-		v    replayVod
-		rank int
-	}
-	var rs []ranked
-	for _, v := range g.Vods {
-		var url string
-		rank := 0
-		name := ""
-		switch v.Provider {
-		case "youtube":
-			url, name = "https://www.youtube.com/watch?v="+v.Parameter, "YouTube"
-		case "twitch":
-			url, name, rank = "https://www.twitch.tv/videos/"+v.Parameter, "Twitch", 2
-		default:
-			continue
-		}
-		if !strings.HasPrefix(v.Locale, "en") {
-			rank++
-		}
-		// The segment's start plus the measured lag; where the VOD gives a first-frame time
-		// that lands inside its own segment, that is far more exact (LCK: 0.6 s) — a
-		// first-frame time outside the segment (LEC) belongs to another upload.
-		start := float64(v.StartMillis) / 1000
-		at := start + replayVodLag
-		if ff := parseTime(v.FirstFrameTime); !ff.IsZero() {
-			if a := spawn.Sub(ff).Seconds() + float64(v.Offset); a >= start && a <= float64(v.EndMillis)/1000 {
-				at = a
-			}
-		}
-		label := name + " " + v.Locale
-		rs = append(rs, ranked{replayVod{URL: url, Label: label, SpawnAt: at}, rank})
-	}
-	sort.SliceStable(rs, func(i, j int) bool { return rs[i].rank < rs[j].rank })
-	out := make([]replayVod, len(rs))
-	for i, r := range rs {
-		out[i] = r.v
-	}
-	return out
 }
 
 // ---- construction --------------------------------------------------------------
@@ -294,44 +218,21 @@ func newReplay(ctx context.Context, o replayOpts) (*replay, error) {
 	spawn, end := st.spawn, st.end
 
 	rctx, cancel := context.WithCancel(ctx)
-	r := &replay{o: o, ctx: rctx, cancel: cancel, now: time.Now, ev: ev, speed: 1}
-	r.st = st
-	r.sy = newMMSync(spawn, mmFPS, r.st.pausesList)
-	r.mm = newMinimap(minimapCfg{Src: o.Src})
+	r := &replay{cancel: cancel, now: time.Now, ev: ev, st: st, speed: 1}
 	r.total = r.gameOf(end.Sub(spawn))
 	r.at = r.now()
 
-	switch {
-	case o.Src != "":
-		at := 0.0 // a source that is not one of the game's VODs is assumed to start with the game
-		for _, v := range replayVods(g, spawn) {
-			if id := v.URL[strings.LastIndexAny(v.URL, "=/")+1:]; id != "" && strings.Contains(o.Src, id) {
-				at = v.SpawnAt
-			}
-		}
-		r.vods = []replayVod{{URL: o.Src, Label: "source", SpawnAt: at}}
-	default:
-		r.vods = replayVods(g, spawn)
-	}
-
 	r.wg.Add(1)
 	go func() {
+		defer crashGuard()
 		defer r.wg.Done()
 		r.st.run(rctx)
 	}()
 	r.st.setFocus(spawn.Add(r.feedOf(0)), false)
-	if len(r.vods) > 0 {
-		r.vid = newReplayVideo(r)
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			r.vid.run()
-		}()
-	}
 	return r, nil
 }
 
-// Close stops the background work and the video processes, and waits for them.
+// Close stops the background loading and waits for it.
 func (r *replay) Close() {
 	r.cancel()
 	r.wg.Wait()
@@ -344,20 +245,36 @@ func (r *replay) Event() event { return r.ev }
 
 // feedOf returns the feed time (since spawn) at which the game clock shows g.
 func (r *replay) feedOf(g time.Duration) time.Duration {
-	skew, shift := r.sy.Skew(), time.Duration(0)
+	shift := time.Duration(0)
 	for _, p := range r.st.pausesList() {
 		st := p.Start.Sub(r.st.spawn)
-		if g+skew+shift <= st {
+		if g+feedSkew+shift <= st {
 			break
 		}
 		shift += p.Dur
 	}
-	return g + skew + shift
+	return g + feedSkew + shift
 }
 
 // gameOf returns the game clock at feed time x since spawn, never negative.
 func (r *replay) gameOf(x time.Duration) time.Duration {
-	return max(0, x-r.sy.Skew()-pauseShift(r.st.pausesList(), r.st.spawn.Add(x)))
+	return max(0, x-feedSkew-pauseShift(r.st.pausesList(), r.st.spawn.Add(x)))
+}
+
+// refreshTotal recomputes the game length from the store: newReplay sets it from the first
+// and last windows, before the pauses the rest of the game reveals are known, so a game
+// with late pauses would otherwise play past its end. A position past the new end is
+// pulled back to it.
+func (r *replay) refreshTotal() {
+	t := r.gameOf(r.st.end.Sub(r.st.spawn))
+	r.mu.Lock()
+	if t > 0 {
+		r.total = t
+	}
+	if r.pos > r.total {
+		r.pos = r.total
+	}
+	r.mu.Unlock()
 }
 
 // posAt is the position at now. Callers hold r.mu.
@@ -388,7 +305,6 @@ func (r *replay) TogglePause() {
 	}
 	r.paused = !r.paused
 	r.mu.Unlock()
-	r.pushTarget(now, false)
 }
 
 // Seek moves the position by d, clamped to the game.
@@ -398,7 +314,6 @@ func (r *replay) Seek(d time.Duration) {
 	r.commit(now)
 	r.pos = min(max(r.pos+d, 0), r.total)
 	r.mu.Unlock()
-	r.pushTarget(now, true)
 }
 
 // CycleSpeed steps 1× → 2× → 4× for dir > 0 and back for dir < 0; the ends stay.
@@ -419,7 +334,6 @@ func (r *replay) CycleSpeed(dir int) {
 	}
 	r.speed = replaySpeeds[i]
 	r.mu.Unlock()
-	r.pushTarget(now, false)
 }
 
 // SetDetailsView tells the replay whether the board on screen shows per-player details,
@@ -432,119 +346,29 @@ func (r *replay) SetDetailsView(on bool) {
 
 // State returns the player bar's data.
 func (r *replay) State() replayState {
+	r.refreshTotal()
 	r.mu.Lock()
 	now := r.now()
-	s := replayState{Pos: r.posAt(now), Total: r.total, Paused: r.paused, Speed: r.speed, HasVideo: len(r.vods) > 0, Start: r.st.spawn}
+	s := replayState{Pos: r.posAt(now), Total: r.total, Paused: r.paused, Speed: r.speed, Start: r.st.spawn}
 	r.mu.Unlock()
-	s.Status = r.status()
+	if p := r.st.progress(); p < 1 {
+		s.Status = fmt.Sprintf(tr("loading_game_data"), int(p*100))
+	}
 	return s
 }
 
-func (r *replay) status() string {
-	if p := r.st.progress(); p < 1 {
-		return fmt.Sprintf(tr("loading_game_data"), int(p*100))
-	}
-	switch {
-	case r.vid == nil:
-		return "no official VOD for this game · scoreboard only"
-	case !r.vid.enabled():
-		return "video off"
-	}
-	return r.vid.label() + " · " + r.sy.Status()
-}
-
-// ---- video position ------------------------------------------------------------
-
-// videoOf maps feed time x (seconds since spawn) to video seconds. known is false until the
-// sync has locked once: before that the mapping is the VOD's estimate.
-func (r *replay) videoOf(x float64) (vt float64, known bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.haveO {
-		return x - r.oLock, true
-	}
-	return x + r.vid.spawnAt(), false
-}
-
-// forgetOffset drops the learned offset: another VOD has its own timeline.
-func (r *replay) forgetOffset() {
-	r.mu.Lock()
-	r.haveO = false
-	r.mu.Unlock()
-}
-
-// offsetKnown reports whether the sync has locked once.
-func (r *replay) offsetKnown() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.haveO
-}
-
-// learnOffset keeps the sync's offset once it is trustworthy: it maps the whole game, also
-// after a seek made the estimator forget its samples.
-func (r *replay) learnOffset() {
-	if !r.sy.Locked() {
-		return
-	}
-	if o, _, ok := r.sy.Offset(); ok {
-		r.mu.Lock()
-		r.haveO, r.oLock = true, o
-		r.mu.Unlock()
-	}
-}
-
-// pushTarget hands the video the position it should show; jump marks a seek.
-func (r *replay) pushTarget(now time.Time, jump bool) {
-	if r.vid == nil {
-		return
-	}
-	r.mu.Lock()
-	p, rate := r.posAt(now), r.speed
-	if r.paused {
-		rate = 0
-	}
-	r.mu.Unlock()
-	vt, _ := r.videoOf(r.feedOf(p).Seconds())
-	r.vid.setTarget(vt, rate, now, jump)
-}
-
-// Tick returns the board state and minimap view for now; mode and cell size of the view are
-// the caller's to fill in. video and panel say whether the broadcast video runs and its
-// panel is on screen.
-func (r *replay) Tick(now time.Time, video, panel bool) (feedSnap, mmView) {
+// Tick returns the board state for now.
+func (r *replay) Tick(now time.Time) feedSnap {
+	r.refreshTotal()
 	r.mu.Lock()
 	r.commit(now)
 	p, details := r.pos, r.details
 	r.mu.Unlock()
-	x := r.feedOf(p)
-	T := r.st.spawn.Add(x)
+	T := r.st.spawn.Add(r.feedOf(p))
 	r.st.setFocus(T, details)
-	snap := r.st.snapshot(T, p, r.sy.Skew())
+	snap := r.st.snapshot(T, p)
 	snap.Ev = r.ev
-
-	var view mmView
-	switch {
-	case r.vid == nil:
-		view.Status = "no official VOD for this game · scoreboard only"
-	case !video:
-		r.vid.setEnabled(false)
-		view.Status = "video off"
-	default:
-		r.sy.ObserveFeedKills(r.st.killsList())
-		if t, ok := r.st.gameStart(); ok {
-			r.sy.ObserveGameStart(t)
-		}
-		r.sy.ObserveFeedLatest(r.st.edge())
-		r.learnOffset()
-		r.vid.setEnabled(true)
-		r.vid.setPanel(panel)
-		r.pushTarget(now, false)
-		vt, known := r.videoOf(x.Seconds())
-		view = r.vid.view(vt, known, snap.Lives)
-	}
-	view.Lives = snap.Lives
-	view.Obj = snap.Obj
-	return snap, view
+	return snap
 }
 
 // ---- command -------------------------------------------------------------------
@@ -553,8 +377,6 @@ func cmdReplay(args []string) {
 	fs := flag.NewFlagSet("lol replay", flag.ExitOnError)
 	matchID := fs.String("match", "", "lolesports match id (without it: recent completed matches are listed)")
 	gameNo := fs.Int("g", 1, "game number in the match")
-	src := fs.String("src", "", "video source: page URL or file (default: the official VOD)")
-	icons := fs.String("icons", mmModeAuto, "minimap drawing: auto|kitty|blocks|text")
 	league := fs.String("l", "", "league slug for the match list")
 	fs.Parse(args)
 
@@ -562,29 +384,24 @@ func cmdReplay(args []string) {
 		listRecentMatches(*league)
 		return
 	}
-	mode, err := mmResolveMode(*icons)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rp, err := newReplay(ctx, replayOpts{MatchID: *matchID, Game: *gameNo, Src: *src})
+	rp, err := newReplay(ctx, replayOpts{MatchID: *matchID, Game: *gameNo})
 	if err != nil {
 		cancel() // os.Exit skips the deferred cancel
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	defer rp.Close()
-	runReplayScreen(rp, mode)
+	runReplayScreen(rp)
 }
 
 // listRecentMatches prints recent completed matches with the ids replay takes.
 func listRecentMatches(slug string) {
-	lid, ok := leagueID(slug)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "unknown league:", slug)
-		return
+	lid, err := leagueID(slug)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
 	url := gwBase + "/getSchedule?hl=en-US"
 	if lid != "" {
@@ -593,7 +410,7 @@ func listRecentMatches(slug string) {
 	var sr scheduleResp
 	if err := getJSON(url, &sr); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return
+		os.Exit(1)
 	}
 	var done []event
 	for _, ev := range sr.Data.Schedule.Events {
@@ -606,48 +423,43 @@ func listRecentMatches(slug string) {
 		fmt.Println("  (no completed matches — try -l <league>)")
 		return
 	}
-	fmt.Printf("  %-20s %-5s %-6s %s\n", "MATCH ID", "DATE", "LEAGUE", "MATCH")
+	fmt.Printf("  %-20s %-10s %-6s %s\n", "MATCH ID", "DATE (KST)", "LEAGUE", "MATCH")
 	for _, ev := range done[:min(len(done), 15)] {
 		l, rt := "TBD", "TBD"
 		if len(ev.Match.Teams) >= 2 {
 			l, rt = codeOr(ev.Match.Teams[0].Code, "TBD"), codeOr(ev.Match.Teams[1].Code, "TBD")
 		}
-		fmt.Printf("  %-20s %-5s %-6s %s\n", ev.Match.ID, parseTime(ev.StartTime).In(kst).Format("01-02"),
+		fmt.Printf("  %-20s %-10s %-6s %s\n", ev.Match.ID, parseTime(ev.StartTime).In(kst).Format("2006-01-02"),
 			strings.ToUpper(ev.League.Slug), l+" vs "+rt)
 	}
 	fmt.Println("\n  lolterm lol replay -match <MATCH ID> [-g N]")
 }
 
 // runReplayScreen shows the replay fullscreen until q or ctrl+c.
-func runReplayScreen(rp *replay, mode string) {
-	var kit kittyOut
-	keys, leave := enterFullscreen(func() { rp.Close(); fmt.Print(kit.Delete()) })
+func runReplayScreen(rp *replay) {
+	keys, leave := enterFullscreen()
 	defer leave()
-	defer func() { fmt.Print(kit.Delete()) }()
 
 	t, h := termSize()
-	tg := toggles{video: true, mm: true}
+	tg := toggles{}
 	var prev *canvas
 	draw := func() {
 		now := time.Now()
 		rp.SetDetailsView(tg.view != 0)
 		st := rp.State()
 		tg.replay = &st
-		s, view := rp.Tick(now, tg.video, tg.mm)
-		view.Mode = mode
-		view.CellW, view.CellH = termCellPx()
+		s := rp.Tick(now)
 		var c *canvas
 		if t < minBoardW || h < minTermH {
 			c = tooSmallCanvas(t, h, minBoardW, minTermH)
 		} else {
-			c = buildCanvas(rp.Event(), s.W, s.Det, s.Game, now, t, h-1, 2*time.Second, tg, s.Series, view)
+			c = buildCanvas(rp.Event(), s.W, s.Det, s.Game, now, t, h-1, 2*time.Second, tg, s.Series, s.view())
 			c = withPlayerBar(c, replayBar(st, t, true))
 		}
-		fmt.Print(renderDiff(prev, c) + kit.Frame(c.mm, prev == nil || prev.w != c.w || prev.h != c.h))
+		fmt.Print(renderDiff(prev, c))
 		prev = c
 	}
-	cadence := mmTickFor(tg.video && tg.mm)
-	tick := time.NewTicker(cadence)
+	tick := time.NewTicker(boardTick)
 	defer tick.Stop()
 	draw()
 	for {
@@ -658,16 +470,14 @@ func runReplayScreen(rp *replay, mode string) {
 				prev = nil
 			}
 			draw()
-		case k := <-keys:
-			if replayKey(rp, &tg, k) {
+		case k, ok := <-keys:
+			if !ok || replayKey(rp, &tg, k) { // !ok: stdin closed, nobody can press q
 				return
 			}
-			prev = nil
+			if k.Kind == keyCtrl && k.Rune == 'l' {
+				prev = nil // ctrl+l: full repaint; other keys draw only the cells that changed
+			}
 			draw()
-		}
-		if d := mmTickFor(tg.video && tg.mm); d != cadence {
-			cadence = d
-			tick.Reset(d)
 		}
 	}
 }
@@ -740,7 +550,6 @@ func replayBar(st replayState, w int, keys bool) line {
 func withPlayerBar(c *canvas, bar line) *canvas {
 	out := newCanvas(c.w, c.h+1)
 	copy(out.buf, c.buf)
-	out.mm = c.mm
 	out.drawLine(c.h, bar)
 	return out
 }

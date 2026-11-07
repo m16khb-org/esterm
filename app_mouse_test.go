@@ -136,12 +136,12 @@ func TestMouseMenuClickCyclesAndCloses(t *testing.T) {
 	// a click outside closes without applying
 	r.press(key{Kind: keyRune, Rune: ','})
 	a.Render(time.Now())
-	mode := a.opt.Mode
+	opt := a.opt
 	a.Mouse(mouseEvent{X: 0, Y: 0, Btn: mouseLeft})
 	if a.menu != nil {
 		t.Fatal("outside click left the menu open")
 	}
-	if a.opt.Mode != mode {
-		t.Fatalf("outside click changed the mode to %s", a.opt.Mode)
+	if a.opt != opt {
+		t.Fatalf("outside click changed the options to %+v", a.opt)
 	}
 }

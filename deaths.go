@@ -38,6 +38,11 @@ const (
 	// deathTickLead is how far the counter tick leads the health reaching 0 (median 0.52 s):
 	// the respawn time runs from the death itself, so the estimate starts that much later.
 	deathTickLead = 500 * time.Millisecond
+	// deathReviveSlack is how much sooner than the timer the health may come back for the
+	// death to end: the timer is within 1.5 s of the frames on its fitted deaths, so a
+	// champion back well before its time was revived in place (Sion's Glory in Death
+	// reports the zombie's fresh health bar), and it is still dead.
+	deathReviveSlack = 2 * time.Second
 )
 
 // deathTimer is the respawn time of a champion that died at the given level and game minute.
@@ -54,6 +59,14 @@ func deathTimer(level int, minutes float64) time.Duration {
 		}
 	}
 	return time.Duration(base * (1 + math.Min(factor, deathFactorCap)) * float64(time.Second))
+}
+
+// deathSpan is the game time of the death at the tick frame fr[c] and the game time the
+// timer gives the champion back: the tick leads the death by deathTickLead.
+func deathSpan(fr []stamped[frame], c, pid int, game func(time.Time) time.Duration) (start, due time.Duration) {
+	start = game(fr[c].ts) + deathTickLead
+	p, _ := participantIn(fr[c].v, pid)
+	return start, start + deathTimer(p.Level, max(start, 0).Minutes())
 }
 
 // low reports whether the participant is below half health. A dead champion reads 0 or a
@@ -88,7 +101,7 @@ func consecutive(a, b stamped[frame]) bool {
 // after t are used as well (a replay holds the whole game): the respawn of a dead champion
 // is then that frame, exact unless a hole hides it. Without it (live) the respawn is the
 // death timer's estimate from the tick, and a frame with health ends it at once.
-func livesAt(fr []stamped[frame], t time.Time, game func(time.Time) time.Duration, lookahead bool) mmLives {
+func livesAt(fr []stamped[frame], t time.Time, game func(time.Time) time.Duration, lookahead bool) champLives {
 	if len(fr) == 0 {
 		return nil
 	}
@@ -97,10 +110,10 @@ func livesAt(fr []stamped[frame], t time.Time, game func(time.Time) time.Duratio
 	if at.Before(fr[0].ts) {
 		at = fr[0].ts
 	}
-	out := mmLives{}
+	out := champLives{}
 	for _, team := range [2][]participant{fr[i].v.BlueTeam.Participants, fr[i].v.RedTeam.Participants} {
 		for _, p := range team {
-			out[p.ParticipantID] = lifeOf(fr, i, p, at, game, lookahead)
+			out[p.ParticipantID] = lifeNow(fr, i, p, at, game, lookahead)
 		}
 	}
 	if len(out) == 0 {
@@ -109,41 +122,37 @@ func livesAt(fr []stamped[frame], t time.Time, game func(time.Time) time.Duratio
 	return out
 }
 
-// lifeOf is the life of participant cur, as frame fr[i] shows it, at feed time at.
-func lifeOf(fr []stamped[frame], i int, cur participant, at time.Time, game func(time.Time) time.Duration, lookahead bool) mmLife {
-	lf := lifeNow(fr, i, cur, at, game, lookahead)
-	lf.Level = cur.Level
-	if cur.MaxHealth > 0 {
-		lf.HP = float64(cur.CurrentHealth) / float64(cur.MaxHealth)
-	}
-	return lf
+// champLife is what the feed says about one champion at the shown instant.
+type champLife struct {
+	Dead  bool
+	Secs  float64 // while Dead: seconds until the respawn, 0 when it is due
+	Exact bool    // Secs is the feed's own respawn time (replay), not the death-timer estimate
 }
 
-// lifeNow is lifeOf without the level and health.
-func lifeNow(fr []stamped[frame], i int, cur participant, at time.Time, game func(time.Time) time.Duration, lookahead bool) mmLife {
+// champLives maps livestats participant ids to their life at the shown instant; nil means
+// nothing is known.
+type champLives map[int]champLife
+
+// lifeNow is the life of participant cur, as frame fr[i] shows it, at feed time at.
+func lifeNow(fr []stamped[frame], i int, cur participant, at time.Time, game func(time.Time) time.Duration, lookahead bool) champLife {
 	pid := cur.ParticipantID
-	if cur.Deaths == 0 { // the counter never ticked: alive since the first frame
-		return mmLife{AliveFor: at.Sub(fr[0].ts).Seconds()}
+	if cur.Deaths == 0 { // the counter never ticked
+		return champLife{}
 	}
 	c, found := lastTick(fr, i, pid, at)
-	if !found { // no death in the stretch looked at; c is the oldest frame looked at
-		return mmLife{AliveFor: at.Sub(fr[c].ts).Seconds()}
+	if !found { // no death in the stretch looked at
+		return champLife{}
 	}
-	end, j := followDeath(fr, c, i, pid, lookahead)
-	switch {
-	case end == deathFalse:
-		return mmLife{AliveFor: at.Sub(fr[0].ts).Seconds()}
-	case end == deathRespawned && j <= i:
-		return mmLife{AliveFor: at.Sub(fr[j].ts).Seconds()}
+	end, j, up := followDeath(fr, c, i, pid, lookahead, game)
+	if end == deathFalse || up >= 0 || (end == deathRespawned && j <= i) {
+		return champLife{}
 	}
 	now := game(at)
 	if end == deathRespawned {
-		return mmLife{Dead: true, Secs: max(0, (game(fr[j].ts) - now).Seconds()), Exact: true}
+		return champLife{Dead: true, Secs: max(0, (game(fr[j].ts) - now).Seconds()), Exact: true}
 	}
-	first, _ := participantIn(fr[c].v, pid)
-	start := game(fr[c].ts) + deathTickLead
-	due := start + deathTimer(first.Level, max(start, 0).Minutes())
-	return mmLife{Dead: true, Secs: max(0, (due - now).Seconds())}
+	_, due := deathSpan(fr, c, pid, game)
+	return champLife{Dead: true, Secs: max(0, (due - now).Seconds())}
 }
 
 // lastTick finds the latest frame at or before fr[i] where the deaths counter of
@@ -175,9 +184,16 @@ const (
 
 // followDeath walks participant pid's frames from the counter tick at fr[c] on, up to the
 // shown frame fr[i], and beyond it while lookahead is set and the frames have no hole.
-// The champion is first waiting for its health to fall, then for it to come back.
-func followDeath(fr []stamped[frame], c, i, pid int, lookahead bool) (deathEnd, int) {
+// The champion is first waiting for its health to fall, then for it to come back: back
+// again well before the death timer runs out is a revive in place (Sion's Glory in Death
+// reports the zombie's fresh health bar), so the champion is up at up and the death goes on
+// to the respawn at back.
+func followDeath(fr []stamped[frame], c, i, pid int, lookahead bool, game func(time.Time) time.Duration) (end deathEnd, back, up int) {
+	_, due := deathSpan(fr, c, pid, game)
+	respawn := due - deathReviveSlack // game time from which a return to health is a respawn
 	down := false
+	upI := -1 // the revive the shown frame is inside
+	up = -1   // the revive the walk is inside
 	for j := c; j < len(fr); j++ {
 		if j > i && (!lookahead || !consecutive(fr[j-1], fr[j])) {
 			break
@@ -187,10 +203,24 @@ func followDeath(fr []stamped[frame], c, i, pid int, lookahead bool) (deathEnd, 
 		case !down && p.low():
 			down = true
 		case !down && fr[j].ts.Sub(fr[c].ts) > deathDropWithin:
-			return deathFalse, 0
+			return deathFalse, 0, -1
+		case down && p.low():
+			up = -1 // the revive is over: down again
 		case down && !p.low():
-			return deathRespawned, j
+			if game(fr[j].ts) < respawn {
+				if up < 0 {
+					up = j
+				}
+				break
+			}
+			if j <= i {
+				return deathRespawned, j, -1 // back at the shown frame
+			}
+			return deathRespawned, j, upI
+		}
+		if j == i {
+			upI = up
 		}
 	}
-	return deathOpen, 0
+	return deathOpen, 0, upI
 }

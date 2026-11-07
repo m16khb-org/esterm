@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -17,19 +16,14 @@ import (
 // ---------------- options ----------------
 
 type appOptions struct {
-	Mode     string        // minimap drawing: auto|kitty|blocks|text
-	Video    bool          // broadcast video sync (minimap panel on a board)
 	Poll     time.Duration // live feed poll interval
 	HideLeft bool          // hide the left column while a board is focused
 }
 
-var (
-	appModes = []string{mmModeAuto, mmModeKitty, mmModeBlocks, mmModeText}
-	appPolls = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
-)
+var appPolls = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
 
 func defaultAppOptions() appOptions {
-	return appOptions{Mode: mmModeAuto, Video: true, Poll: appPolls[0]}
+	return appOptions{Poll: appPolls[0]}
 }
 
 // ---------------- data ----------------
@@ -92,17 +86,14 @@ func (d *leagueData) add(evs []event) {
 type gameRow struct {
 	No    int
 	State string
-	Vods  int
-	Known bool // Vods is known (the match details arrived)
 }
 
 // ---------------- boards ----------------
 
 // board is what the main pane plays: a live relay or a replay.
 type board interface {
-	// Draw renders the board into a canvas of exactly w×h cells; its kitty slot is
-	// relative to the canvas.
-	Draw(now time.Time, w, h int, tg *toggles, mode string) *canvas
+	// Draw renders the board into a canvas of exactly w×h cells.
+	Draw(now time.Time, w, h int, tg *toggles) *canvas
 	// Key applies a board-specific key (playback) and reports whether it was one.
 	Key(k key) bool
 	// Hints lists the board-specific keys for the hint bar and the help popup.
@@ -112,7 +103,6 @@ type board interface {
 
 type liveBoard struct {
 	fd     *feed
-	mm     *minimap
 	pl     *relayPlayout
 	cancel context.CancelFunc
 	poll   time.Duration
@@ -122,42 +112,35 @@ func newLiveBoard(lid, matchID string, poll time.Duration) *liveBoard {
 	fd := newFeed(lid, poll)
 	fd.matchID = matchID
 	fd.FetchOnce()
-	mm := newMinimap(minimapCfg{})
-	mm.SetLives(fd.LivesAt)
 	ctx, cancel := context.WithCancel(context.Background())
-	go fd.Run(ctx)
-	return &liveBoard{fd: fd, mm: mm, pl: &relayPlayout{fd: fd, mm: mm}, cancel: cancel, poll: poll}
+	go func() {
+		defer crashGuard()
+		fd.Run(ctx)
+	}()
+	return &liveBoard{fd: fd, pl: &relayPlayout{fd: fd}, cancel: cancel, poll: poll}
 }
 
-func (b *liveBoard) Draw(now time.Time, w, h int, tg *toggles, mode string) *canvas {
-	b.pl.hidePanel = !tg.mm
+func (b *liveBoard) Draw(now time.Time, w, h int, tg *toggles) *canvas {
 	b.fd.SetDetailsView(tg.view != 0)
-	s, view := b.pl.Tick(now, tg.video)
-	view.Mode = mode
-	view.CellW, view.CellH = termCellPx()
-	return buildCanvas(s.Ev, s.W, s.Det, s.Game, now, w, h, b.poll, *tg, s.Series, view)
+	s := b.pl.Tick(now)
+	return buildCanvas(s.Ev, s.W, s.Det, s.Game, now, w, h, b.poll, *tg, s.Series, s.view())
 }
 
 func (b *liveBoard) Key(key) bool { return false }
 
 func (b *liveBoard) Hints() []hint { return nil }
 
-func (b *liveBoard) Close() {
-	b.cancel()
-	b.mm.Close(mmCloseWait)
-}
+func (b *liveBoard) Close() { b.cancel() }
 
 type replayBoard struct{ rp *replay }
 
-func (b replayBoard) Draw(now time.Time, w, h int, tg *toggles, mode string) *canvas {
+func (b replayBoard) Draw(now time.Time, w, h int, tg *toggles) *canvas {
 	b.rp.SetDetailsView(tg.view != 0)
 	st := b.rp.State()
 	t := *tg
 	t.replay = &st
-	s, view := b.rp.Tick(now, t.video, t.mm)
-	view.Mode = mode
-	view.CellW, view.CellH = termCellPx()
-	c := buildCanvas(b.rp.Event(), s.W, s.Det, s.Game, now, w, h-1, 0, t, s.Series, view)
+	s := b.rp.Tick(now)
+	c := buildCanvas(b.rp.Event(), s.W, s.Det, s.Game, now, w, h-1, 0, t, s.Series, s.view())
 	return withPlayerBar(c, replayBar(st, w, false))
 }
 
@@ -295,15 +278,13 @@ func refreshAppTabs() { appTabs = [3]string{tr("live"), tr("upcoming"), tr("rece
 type app struct {
 	deps appDeps
 	opt  appOptions
-	// autoMode is what "auto" drawing resolved to at start (the terminal probe must run
-	// before the key reader starts).
-	autoMode string
 
 	W, H  int
 	focus appFocus
 	zoom  bool
 
 	leagues  []leagueRow
+	lstarted bool // the league list arrived: an empty list is "no leagues", not "loading"
 	lerr     string
 	lv       listView
 	tab      int
@@ -315,30 +296,32 @@ type app struct {
 	gamesFor string // match whose games the games pane shows
 
 	board      board
-	boardTitle string
+	boardTitle func() string
 	loading    string // what the main pane is opening ("" = nothing)
+	opening    string // "match:game" of the board being built, so Enter auto-repeat is a no-op
 	boardSeq   int
 	reopen     func() // reopens the running board (options that need a restart)
 	tg         toggles
+	keepSel    string // match id a reload should keep selected
 
-	help bool
-	menu *menu
-	msg  string
+	help    bool
+	helpTop int // first help line shown when the popup is taller than the screen
+	menu    *menu
+	msg     string
 
 	// mouse double-click tracking (one list row, or the main pane for a zoom toggle)
 	clickAt    time.Time
 	clickFocus appFocus
 	clickIdx   int
 
-	msgs    chan func(*app) // results of background work, applied by the main loop
-	done    chan struct{}
-	inline  bool // tests: background work runs inline
-	closing sync.WaitGroup
+	msgs   chan func(*app) // results of background work, applied by the main loop
+	done   chan struct{}
+	inline bool // tests: background work runs inline
 }
 
 func newApp(deps appDeps, opt appOptions) *app {
 	return &app{
-		deps: deps, opt: opt, autoMode: mmModeBlocks, W: 120, H: 40,
+		deps: deps, opt: opt, W: 120, H: 40,
 		data: map[string]*leagueData{}, det: map[string]replayEventResp{}, detBusy: map[string]bool{},
 		msgs: make(chan func(*app), 16), done: make(chan struct{}),
 	}
@@ -353,6 +336,7 @@ func (a *app) async(work func() func(*app)) {
 		return
 	}
 	go func() {
+		defer crashGuard()
 		if f := work(); f != nil {
 			select {
 			case a.msgs <- f:
@@ -367,6 +351,7 @@ func (a *app) start() {
 	a.async(func() func(*app) {
 		rows, err := a.deps.leagues()
 		return func(a *app) {
+			a.lstarted = true
 			if err != nil {
 				a.lerr = err.Error()
 				return
@@ -375,13 +360,6 @@ func (a *app) start() {
 			a.sync()
 		}
 	})
-}
-
-func (a *app) resolveMode() string {
-	if a.opt.Mode == mmModeAuto {
-		return a.autoMode
-	}
-	return a.opt.Mode
 }
 
 // ---------------- selection ----------------
@@ -430,7 +408,7 @@ func (a *app) games() []gameRow {
 	var rows []gameRow
 	if d, ok := a.det[ev.Match.ID]; ok && len(d.Data.Event.Match.Games) > 0 {
 		for _, g := range d.Data.Event.Match.Games {
-			rows = append(rows, gameRow{No: g.Number, State: g.State, Vods: len(g.Vods), Known: true})
+			rows = append(rows, gameRow{No: g.Number, State: g.State})
 		}
 		return rows
 	}
@@ -486,6 +464,10 @@ func (a *app) leagueLoaded(lid string, p leaguePage, err error, more bool) {
 	}
 	d.busy = false
 	if err != nil {
+		if more {
+			a.msg = tr("error_prefix") + err.Error() // the rows on screen stay; the message says why
+			return
+		}
 		d.err, d.loaded = err.Error(), true // r reloads
 		return
 	}
@@ -502,6 +484,17 @@ func (a *app) leagueLoaded(lid string, p leaguePage, err error, more bool) {
 			a.tab = 1
 		}
 		a.mv = listView{}
+	}
+	if !more && a.keepSel != "" {
+		if l := a.selLeague(); l != nil && l.ID == lid {
+			for i, ev := range a.curEvents() {
+				if ev.Match != nil && ev.Match.ID == a.keepSel {
+					a.mv.Sel = i
+					break
+				}
+			}
+		}
+		a.keepSel = ""
 	}
 	a.sync()
 }
@@ -543,25 +536,14 @@ func (a *app) loadMore() {
 func (a *app) closeBoard() {
 	a.boardSeq++
 	a.loading = ""
+	a.opening = ""
 	a.reopen = nil
-	if a.board != nil {
-		a.reap(a.board)
-		a.board = nil
+	b := a.board
+	a.board = nil
+	if b != nil {
+		b.Close()
 	}
 	a.zoom = false
-}
-
-// reap closes a board in the background; quitting waits for all of them.
-func (a *app) reap(b board) {
-	if a.inline {
-		b.Close()
-		return
-	}
-	a.closing.Add(1)
-	go func() {
-		defer a.closing.Done()
-		b.Close()
-	}()
 }
 
 func (a *app) matchTitle(ev event) string {
@@ -606,45 +588,68 @@ func (a *app) gameState(ev event, no int) string {
 	return ""
 }
 
-func (a *app) beginBoard(title, loading string, reopen func()) int {
+func (a *app) beginBoard(title func() string, loading string, reopen func()) int {
 	a.closeBoard()
 	a.boardTitle, a.loading, a.reopen = title, loading, reopen
 	a.focus = fMain
-	a.tg = toggles{video: a.opt.Video, mm: a.opt.Video, embed: true}
+	a.tg = toggles{embed: true}
 	return a.boardSeq
 }
 
 func (a *app) openLive(ev event) {
-	title := tr("live") + " · " + a.matchTitle(ev)
+	if a.loading != "" && a.opening == ev.Match.ID+":0" {
+		return // Enter auto-repeat / a second double-click on the row already loading
+	}
+	title := func() string { return tr("live") + " · " + a.matchTitle(ev) }
 	seq := a.beginBoard(title, tr("opening_live"), func() { a.openLive(ev) })
+	a.opening = ev.Match.ID + ":0"
 	opt := a.opt
 	a.async(func() func(*app) {
 		b, err := a.deps.openLive(ev, opt)
-		return func(a *app) { a.boardReady(seq, b, err) }
+		return a.boardResult(seq, b, err)
 	})
 }
 
 func (a *app) openReplay(ev event, game int) {
-	title := fmt.Sprintf("%s · %s · G%d", tr("replay"), a.matchTitle(ev), game)
+	if a.loading != "" && a.opening == ev.Match.ID+":"+itoa(game) {
+		return // Enter auto-repeat / a second double-click on the row already loading
+	}
+	title := func() string { return fmt.Sprintf("%s · %s · G%d", tr("replay"), a.matchTitle(ev), game) }
 	seq := a.beginBoard(title, fmt.Sprintf(tr("loading_game"), game), nil)
+	a.opening = ev.Match.ID + ":" + itoa(game)
 	opt := a.opt
 	a.async(func() func(*app) {
 		b, err := a.deps.openReplay(ev, game, opt)
-		return func(a *app) { a.boardReady(seq, b, err) }
+		return a.boardResult(seq, b, err)
 	})
+}
+
+// boardResult is the async result of a board being constructed: a board built while the
+// app is shutting down is closed here, because nobody will apply the result.
+func (a *app) boardResult(seq int, b board, err error) func(*app) {
+	if b != nil {
+		select {
+		case <-a.done:
+			b.Close()
+			return nil
+		default:
+		}
+	}
+	return func(a *app) { a.boardReady(seq, b, err) }
 }
 
 func (a *app) boardReady(seq int, b board, err error) {
 	if seq != a.boardSeq {
 		if b != nil {
-			a.reap(b)
+			b.Close()
 		}
 		return
 	}
+	a.opening = ""
 	a.loading = ""
 	if err != nil {
 		a.msg = fmt.Sprintf(tr("cannot_open"), err.Error())
-		a.boardTitle, a.reopen = "", nil
+		a.boardTitle, a.reopen = nil, nil
 		a.focus = fMatches
 		return
 	}
@@ -656,19 +661,11 @@ func (a *app) boardReady(seq int, b board, err error) {
 func cycleIdx(i, n, dir int) int { return ((i+dir)%n + n) % n }
 
 func (a *app) menuItems() []menuItem {
-	onOff := func(b bool) string {
-		if b {
-			return tr("on")
-		}
-		return tr("off")
-	}
 	left := tr("shown")
 	if a.opt.HideLeft {
 		left = tr("hidden")
 	}
 	return []menuItem{
-		{tr("minimap_drawing"), a.opt.Mode, tr("desc_drawing")},
-		{tr("video_sync"), onOff(a.opt.Video), tr("desc_video")},
 		{tr("poll_interval"), a.opt.Poll.String(), tr("desc_poll")},
 		{tr("left_column"), left, tr("desc_left")},
 		{tr("language"), langNames[currentLang], tr("lang_hint")},
@@ -686,29 +683,16 @@ func (a *app) cycleOption(i, dir int) {
 	switch i {
 	case 0:
 		k := 0
-		for j, m := range appModes {
-			if m == a.opt.Mode {
-				k = j
-			}
-		}
-		a.opt.Mode = appModes[cycleIdx(k, len(appModes), dir)]
-	case 1:
-		a.opt.Video = !a.opt.Video
-	case 2:
-		k := 0
 		for j, p := range appPolls {
 			if p == a.opt.Poll {
 				k = j
 			}
 		}
 		a.opt.Poll = appPolls[cycleIdx(k, len(appPolls), dir)]
-	case 3:
+	case 1:
 		a.opt.HideLeft = !a.opt.HideLeft
-	case 4:
+	case 2:
 		setLanguage(langID(cycleIdx(int(currentLang), len(langNames), dir)))
-	}
-	if a.opt.Video != prev.Video && a.board != nil {
-		a.tg.video, a.tg.mm = a.opt.Video, a.opt.Video
 	}
 	if a.opt.Poll != prev.Poll && a.reopen != nil {
 		a.reopen() // the live feed's poll interval is fixed when it starts
@@ -735,17 +719,24 @@ func (a *app) Key(k key) (quit bool) {
 		a.menuKey(k)
 		return false
 	case a.help:
-		a.help = false
+		switch {
+		case k.Kind == keyUp || isRune(k, "k"):
+			a.scrollHelp(-1)
+		case k.Kind == keyDown || isRune(k, "j"):
+			a.scrollHelp(1)
+		default:
+			a.help = false
+		}
 		return false
 	}
-	if a.focus == fMain && a.board != nil && a.boardKey(k) {
+	if a.focus == fMain && a.boardKey(k) {
 		return false
 	}
 	switch {
 	case isRune(k, "qQ"):
 		return true
 	case isRune(k, "?"):
-		a.help = true
+		a.help, a.helpTop = true, 0
 	case isRune(k, ","):
 		a.openMenu()
 	case k.Kind == keyEsc:
@@ -757,8 +748,8 @@ func (a *app) Key(k key) (quit bool) {
 	case isRune(k, "1230"):
 		a.focus = map[rune]appFocus{'1': fLeagues, '2': fMatches, '3': fGames, '0': fMain}[k.Rune]
 	case isRune(k, "fF"):
-		if a.board != nil {
-			a.zoom, a.focus = !a.zoom, fMain
+		if a.focus == fMain && a.board != nil {
+			a.zoom = !a.zoom
 		}
 	case k.Kind == keyEnter:
 		a.enter()
@@ -773,12 +764,14 @@ func (a *app) Key(k key) (quit bool) {
 	return false
 }
 
-// boardKey handles the keys a focused board owns; the rest falls through to the app.
+// boardKey handles the keys a focused board owns; the rest falls through to the app. While
+// a board is loading there is none yet, so the app keeps its own keys.
 func (a *app) boardKey(k key) bool {
 	if a.loading != "" {
 		return false
 	}
-	return a.board.Key(k) || boardKey(&a.tg, k, false)
+	b := a.board
+	return b != nil && (b.Key(k) || boardKey(&a.tg, k, false))
 }
 
 // back is esc: leave a popup, then the zoom, then the board's focus, then the board.
@@ -906,8 +899,12 @@ func (a *app) tabAfterLeague() int {
 	return a.tab
 }
 
-// reload forgets the selected league's matches and the match details and fetches them again.
+// reload forgets the selected league's matches and the match details and fetches them again,
+// keeping the selected match selected when it is still in the list.
 func (a *app) reload() {
+	if ev := a.selEvent(); ev != nil {
+		a.keepSel = ev.Match.ID
+	}
 	if l := a.selLeague(); l != nil {
 		delete(a.data, l.ID)
 	}
@@ -929,10 +926,10 @@ type appLayout struct {
 
 func (a *app) narrow() bool { return a.W < 80 || a.H < 24 }
 
-// layout places the panes: a left column of three lists (30% of the width on wide
-// terminals, 26 columns on mid-size ones) and the main pane; while a board has the focus
-// the left column makes way for it (always when the terminal is small, zoomed, or the
-// option says so), and a small terminal shows either the lists or the board.
+// layout places the panes: a left column of three lists (26% of the width, clamped to
+// 26..44 columns) and the main pane; while a board has the focus the left column makes way
+// for it (always when the terminal is small, zoomed, or the option says so), and a small
+// terminal shows either the lists or the board.
 func (a *app) layout() appLayout {
 	W, H := a.W, a.H
 	body := rect{0, 0, W, max(H-1, 0)}
@@ -946,10 +943,7 @@ func (a *app) layout() appLayout {
 		lay.leagues, lay.matches, lay.games = splitLeft(body)
 		return lay
 	}
-	lw := 26
-	if W >= 120 {
-		lw = min(max(W*30/100, 28), 44)
-	}
+	lw := min(max(W*26/100, 26), 44) // one ramp: widening the terminal never shrinks the board
 	left := rect{0, 0, lw, body.H}
 	lay.leagues, lay.matches, lay.games = splitLeft(left)
 	lay.main = rect{lw, 0, W - lw, body.H}
@@ -971,7 +965,7 @@ func splitLeft(r rect) (leagues, matches, games rect) {
 func (a *app) Resize(w, h int) { a.W, a.H = max(w, 1), max(h, 1) }
 
 // layoutSig changes whenever the pane geometry or the board's presence does, which needs
-// a full repaint (stale kitty images, cells under a former popup).
+// a full repaint (cells under a former popup).
 func (a *app) layoutSig() string {
 	return fmt.Sprint(a.layout(), a.board != nil, a.loading != "", a.help, a.menu != nil)
 }
@@ -996,10 +990,8 @@ func (a *app) Render(now time.Time) *canvas {
 	switch {
 	case a.menu != nil:
 		a.menu.Draw(c, screen)
-		c.mm = nil // the popup covers the images: kitty removes them until it closes
 	case a.help:
-		drawPopup(c, screen, tr("keybindings"), a.helpLines())
-		c.mm = nil
+		drawPopup(c, screen, tr("keybindings"), a.helpView(screen.H-3))
 	}
 	return c
 }
@@ -1009,10 +1001,16 @@ func (a *app) drawLeague(c *canvas, r rect) {
 		return
 	}
 	in := drawPane(c, r, pane{Num: 1, Title: tr("leagues"), Focused: a.focus == fLeagues})
+	if in.empty() {
+		return
+	}
 	if len(a.leagues) == 0 {
 		msg := tr("loading")
-		if a.lerr != "" {
+		switch {
+		case a.lerr != "":
 			msg = "error: " + a.lerr
+		case a.lstarted:
+			msg = tr("no_leagues")
 		}
 		c.text(in.Y, in.X, truncLine(line{C(msg, cDim)}, in.W), in.W)
 		return
@@ -1050,6 +1048,9 @@ func (a *app) drawMatches(c *canvas, r rect) {
 	}
 	c.text(in.Y, in.X, truncLine(tabs, in.W), in.W)
 	body := rect{in.X, in.Y + 1, in.W, in.H - 1}
+	if body.empty() {
+		return
+	}
 	evs := a.curEvents()
 	if len(evs) == 0 {
 		msg := fmt.Sprintf(tr("no_matches"), strings.ToLower(appTabs[a.tab]))
@@ -1074,6 +1075,9 @@ func (a *app) drawGames(c *canvas, r rect) {
 		return
 	}
 	in := drawPane(c, r, pane{Num: 3, Title: tr("games"), Focused: a.focus == fGames})
+	if in.empty() {
+		return
+	}
 	rows := a.games()
 	if len(rows) == 0 {
 		c.text(in.Y, in.X, truncLine(line{C(tr("select_match"), cDim)}, in.W), in.W)
@@ -1091,29 +1095,24 @@ func (a *app) drawMain(c *canvas, r rect, now time.Time) {
 		return
 	}
 	title := "[0] " + tr("preview")
-	if a.boardTitle != "" {
-		title = "[0] " + a.boardTitle
+	if a.boardTitle != nil {
+		title = "[0] " + a.boardTitle()
 	}
 	in := drawPane(c, r, pane{Title: title, Focused: a.focus == fMain})
 	if in.empty() {
 		return
 	}
+	b := a.board
 	switch {
 	case a.loading != "":
 		c.text(in.Y, in.X+1, line{C(a.loading, cYel)}, in.W-1)
-	case a.board != nil:
-		if in.W < 50 {
-			c.text(in.Y, in.X+1, truncLine(line{C(tr("narrow_board"), cDim)}, in.W-1), in.W-1)
+	case b != nil:
+		if in.W < minBoardW {
+			msg := fmt.Sprintf(tr("narrow_board"), minBoardW)
+			c.text(in.Y, in.X+1, truncLine(line{C(msg, cDim)}, in.W-1), in.W-1)
 			return
 		}
-		bc := a.board.Draw(now, in.W, in.H, &a.tg, a.resolveMode())
-		c.blit(bc, in)
-		if s := bc.mm; s != nil {
-			o := *s // the slot is board-relative; the terminal wants absolute cells
-			o.Row += in.Y
-			o.Col += in.X
-			c.mm = &o
-		}
+		c.blit(b.Draw(now, in.W, in.H, &a.tg), in)
 	default:
 		for i, l := range a.previewLines() {
 			if i >= in.H {
@@ -1170,14 +1169,7 @@ func gameLine(g gameRow) line {
 	default:
 		st = C(tr("not_played"), cDim)
 	}
-	l := line{S(fmt.Sprintf("G%d ", g.No)), st}
-	switch {
-	case g.Vods > 0:
-		l = append(l, C("  VOD", cCyan))
-	case g.Known && g.State == "completed":
-		l = append(l, C("  "+tr("no_vod"), cDim))
-	}
-	return l
+	return line{S(fmt.Sprintf("G%d ", g.No)), st}
 }
 
 // previewLines describes the selection and what enter will do.
@@ -1220,20 +1212,6 @@ func (a *app) previewLines() []line {
 		line{C(padR(tr("score_label"), 7), cGray), S(score + "  (" + state + ")")},
 		line{C(padR(tr("start_label"), 7), cGray), S(parseTime(ev.StartTime).In(kst).Format("2006-01-02 15:04") + " KST")},
 	)
-	if d, ok := a.det[m.ID]; ok && len(d.Data.Event.Match.Games) > 0 {
-		vods, played := 0, 0
-		for _, g := range d.Data.Event.Match.Games {
-			if len(g.Vods) > 0 {
-				vods++
-			}
-			if g.State == "completed" {
-				played++
-			}
-		}
-		if played > 0 {
-			out = append(out, line{C(padR(tr("vods_label"), 7), cGray), S(fmt.Sprintf(tr("vods_count"), vods, played))})
-		}
-	}
 	out = append(out, nil, line{C("enter ▸ ", cGreen), S(a.enterDoes(*ev))})
 	return out
 }
@@ -1257,7 +1235,8 @@ func (a *app) hints() []hint {
 }
 
 // hintParts splits the key hints into the context ones (cut first on a narrow screen) and
-// the fixed ones that always stay: back, help, quit. An open popup shows only its own keys.
+// the fixed ones that always stay: help and quit, plus back while esc has something to
+// leave. An open popup shows only its own keys.
 func (a *app) hintParts() (ctx, fixed []hint) {
 	switch {
 	case a.menu != nil:
@@ -1266,10 +1245,15 @@ func (a *app) hintParts() (ctx, fixed []hint) {
 		return nil, []hint{{"esc", tr("close")}}
 	}
 	fixed = []hint{{"?", tr("help")}, {"q", tr("quit")}}
-	if a.focus == fMain && a.board != nil {
-		ctx = append(a.board.Hints(), hint{"f", tr("zoom")}, hint{",", tr("options")},
-			hint{"b", tr("view")}, hint{"s", tr("spark")}, hint{"o", tr("obj")}, hint{"m", tr("map")}, hint{"v", tr("video")})
-		return ctx, append([]hint{{"esc", tr("back")}}, fixed...)
+	if a.zoom || a.loading != "" || a.board != nil {
+		fixed = append([]hint{{"esc", tr("back")}}, fixed...)
+	}
+	if a.focus == fMain {
+		if b := a.board; b != nil {
+			// one grouped hint keeps every board toggle on the bar at 80 columns
+			ctx = append(b.Hints(), hint{"f", tr("zoom")}, hint{",", tr("options")}, hint{"b s o", tr("toggles")})
+			return ctx, fixed
+		}
 	}
 	switch a.focus {
 	case fMatches:
@@ -1278,9 +1262,25 @@ func (a *app) hintParts() (ctx, fixed []hint) {
 		ctx = []hint{{"enter", tr("open")}, {"tab", tr("pane")}, {",", tr("options")}}
 	default:
 		ctx = []hint{{"j/k", tr("move")}, {"enter", tr("open")}, {"tab", tr("pane")}, {",", tr("options")}}
-		fixed = append([]hint{{"esc", tr("back")}}, fixed...)
 	}
 	return ctx, fixed
+}
+
+// scrollHelp moves the help window by n lines; helpView clamps it to the body.
+func (a *app) scrollHelp(n int) { a.helpTop = max(a.helpTop+n, 0) }
+
+// helpView slices the help body to the rows the popup can show and marks the lines below
+// the window on its last row, so no line is silently lost.
+func (a *app) helpView(rows int) []line {
+	body := a.helpLines()
+	if rows <= 0 || len(body) <= rows {
+		a.helpTop = 0
+		return body
+	}
+	top := min(max(a.helpTop, 0), len(body)-rows+1)
+	a.helpTop = top
+	out := append([]line(nil), body[top:top+rows-1]...)
+	return append(out, line{C(fmt.Sprintf(tr("help_more"), top+rows-1, len(body)), cDim)})
 }
 
 func (a *app) helpLines() []line {
@@ -1304,11 +1304,10 @@ func (a *app) helpLines() []line {
 		k("r", tr("help_reload")),
 		k("enter", tr("help_open")),
 	}
-	if a.board != nil {
+	if b := a.board; b != nil {
 		out = append(out, nil, line{C(tr("board_help"), cBold)},
-			k("b", tr("help_stats")), k("s", tr("help_spark")), k("o", tr("help_obj")),
-			k("m", tr("help_map")), k("v", tr("help_video")), k("f", tr("help_zoom")))
-		if len(a.board.Hints()) > 0 {
+			k("b", tr("help_stats")), k("s", tr("help_spark")), k("o", tr("help_obj")), k("f", tr("help_zoom")))
+		if len(b.Hints()) > 0 {
 			out = append(out, k("space", tr("help_pause")), k("←/→", tr("help_seek")), k("+/-", tr("help_speed")))
 		}
 	}
@@ -1323,14 +1322,9 @@ func cmdApp() {
 }
 
 func (a *app) runApp() {
-	// The kitty probe reads the terminal: it runs before the key reader starts.
-	if m, err := mmResolveMode(mmModeAuto); err == nil {
-		a.autoMode = m
-	}
-	var kit kittyOut
-	keys, leave := enterFullscreenMouse(func() { a.shutdown(&kit) })
+	keys, leave := enterFullscreenMouse()
 	defer leave()
-	defer a.shutdown(&kit)
+	defer a.shutdown()
 
 	var prev *canvas
 	sig := ""
@@ -1341,13 +1335,12 @@ func (a *app) runApp() {
 			sig, prev = s, nil
 		}
 		c := a.Render(time.Now())
-		fmt.Print(renderDiff(prev, c) + kit.Frame(c.mm, prev == nil || prev.w != c.w || prev.h != c.h))
+		fmt.Print(renderDiff(prev, c))
 		prev = c
 	}
 	a.start()
 	draw()
-	cadence := a.tickInterval()
-	tick := time.NewTicker(cadence)
+	tick := time.NewTicker(boardTick)
 	defer tick.Stop()
 	for {
 		select {
@@ -1362,27 +1355,11 @@ func (a *app) runApp() {
 			}
 			draw()
 		}
-		if d := a.tickInterval(); d != cadence {
-			cadence = d
-			tick.Reset(d)
-		}
 	}
 }
 
-// tickInterval is how often the screen is redrawn (see mmTickFor).
-func (a *app) tickInterval() time.Duration {
-	return mmTickFor(a.board != nil && a.tg.video && a.tg.mm)
-}
-
-// shutdown ends the boards (their children are reaped before it returns) and removes the
-// kitty images; it is safe to call more than once.
-func (a *app) shutdown(kit *kittyOut) {
-	select {
-	case <-a.done:
-	default:
-		close(a.done)
-	}
+// shutdown stops the background work and ends the board.
+func (a *app) shutdown() {
+	close(a.done)
 	a.closeBoard()
-	a.closing.Wait()
-	fmt.Print(kit.Delete())
 }

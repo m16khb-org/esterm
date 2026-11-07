@@ -98,10 +98,3 @@ func isTTY(f *os.File) bool {
 	var m uint32
 	return syscall.GetConsoleMode(syscall.Handle(f.Fd()), &m) == nil
 }
-
-// winsizeCellPx returns 0, 0: the console reports no pixel size.
-func winsizeCellPx() (cellW, cellH int) { return 0, 0 }
-
-// ttyQuery returns nil: console input has no timed read, so the terminal is not asked.
-// Kitty graphics are then chosen from TERM_PROGRAM (WezTerm) only, with 8x16 cells.
-func ttyQuery(query string, reads int) []byte { return nil }

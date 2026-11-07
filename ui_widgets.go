@@ -366,8 +366,8 @@ func popupBox(screen rect, title string, body []line) (outer, inner rect) {
 	if w > screen.W {
 		w = screen.W
 	}
-	if h > screen.H {
-		h = screen.H
+	if h > screen.H-1 { // the hint bar row always survives the popup
+		h = max(screen.H-1, 0)
 	}
 	r := rect{screen.X + (screen.W-w)/2, screen.Y + (screen.H-h)/2, w, h}
 	return r, rect{r.X + 1, r.Y + 1, max(w-2, 0), max(h-2, 0)}
@@ -405,13 +405,21 @@ func (m *menu) Draw(c *canvas, screen rect) {
 	drawPopup(c, screen, m.Title, m.body())
 }
 
-// body is the popup content, shared by Draw and the mouse hit test.
+// body is the popup content, shared by Draw and the mouse hit test. Every row is padded to
+// the same width (the widest item row or description), so the popup does not jump sideways
+// while the selection moves.
 func (m *menu) body() []line {
 	lw := 0
 	for _, it := range m.Items {
-		if v := runeLen(it.Label); v > lw {
-			lw = v
+		lw = max(lw, runeLen(it.Label))
+	}
+	w := 0
+	for _, it := range m.Items {
+		row := 2 + lw
+		if it.Value != "" {
+			row += 2 + runeLen(it.Value)
 		}
+		w = max(max(w, row), runeLen(it.Desc))
 	}
 	var body []line
 	for i, it := range m.Items {
@@ -426,7 +434,7 @@ func (m *menu) body() []line {
 		body = append(body, l)
 	}
 	if m.Sel >= 0 && m.Sel < len(m.Items) && m.Items[m.Sel].Desc != "" {
-		body = append(body, nil, line{C(m.Items[m.Sel].Desc, cGray)})
+		body = append(body, nil, line{C(padR(m.Items[m.Sel].Desc, w), cGray)})
 	}
 	return body
 }
