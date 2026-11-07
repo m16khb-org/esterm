@@ -675,6 +675,37 @@ func TestBuildCanvasReplayHeaderAndFooter(t *testing.T) {
 	}
 }
 
+// getLive lists a series' teams in one fixed order whatever side each plays. In T1-KC
+// game 3 (Worlds 2026 quarterfinal) KC was blue while getLive listed T1 first: the board
+// put T1's name over KC's kills, gold and players.
+func TestLiveHeaderPutsTheBlueSideTeamLeft(t *testing.T) {
+	ev := appEvent("m", "inProgress", "T1", "KC", 2, 1, time.Now())
+	ev.ID = "m"
+	ev.Match.Teams[0].ID, ev.Match.Teams[1].ID = "t1", "kc"
+	var w windowResp
+	w.GameMetadata.BlueTeamMetadata.EsportsTeamID = "kc"
+	w.GameMetadata.RedTeamMetadata.EsportsTeamID = "t1"
+	fr := frame{RFC460Timestamp: "2026-11-07T00:40:00.000Z", GameState: "in_game"}
+	fr.BlueTeam.TotalKills, fr.RedTeam.TotalKills = 7, 3
+	w.Frames = []frame{fr}
+	text := appPlain(buildCanvas(ev, w, detailsResp{}, 20*time.Minute, time.Now(), 100, 30, 2*time.Second, toggles{}, nil, boardView{}))
+	var teams, kills string
+	for _, l := range strings.Split(text, "\n") {
+		switch {
+		case strings.Contains(l, "BO3"):
+			teams = l
+		case strings.Contains(l, "KILLS"):
+			kills = l
+		}
+	}
+	if k, t1 := strings.Index(teams, "KC Team [1]"), strings.Index(teams, "[2] T1 Team"); k < 0 || t1 < k {
+		t.Errorf("team row %q: want blue KC [1] left, red T1 [2] right", teams)
+	}
+	if f := strings.Fields(kills); len(f) < 5 || f[2] != "7" || f[len(f)-2] != "3" { // ║ KILLS 7 bar 3 ║
+		t.Errorf("kills row %q: want blue 7 left, red 3 right", kills)
+	}
+}
+
 func TestReplayEventSeriesWinsOnlyAtTheFinalGame(t *testing.T) {
 	var er replayEventResp
 	m := &er.Data.Event.Match

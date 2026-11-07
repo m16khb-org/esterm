@@ -676,13 +676,19 @@ func buildFramed(ev event, w windowResp, det detailsResp, game time.Duration, no
 		lwins, rwins = "-", "-" // a replay knows the series score only when the final game is shown
 	}
 	if ev.Match != nil && len(ev.Match.Teams) >= 2 {
-		lname = or(ev.Match.Teams[0].Name, or(ev.Match.Teams[0].Code, "TBD"))
-		rname = or(ev.Match.Teams[1].Name, or(ev.Match.Teams[1].Code, "TBD"))
-		if ev.Match.Teams[0].Result != nil {
-			lwins = itoa(ev.Match.Teams[0].Result.GameWins)
+		lt, rt := ev.Match.Teams[0], ev.Match.Teams[1]
+		// getLive lists the series' teams in a fixed order; the game decides who is blue.
+		// Kills, gold and the players below are blue left, so the names must be too.
+		if blue := w.GameMetadata.BlueTeamMetadata.EsportsTeamID; blue != "" && rt.ID == blue {
+			lt, rt = rt, lt
 		}
-		if ev.Match.Teams[1].Result != nil {
-			rwins = itoa(ev.Match.Teams[1].Result.GameWins)
+		lname = or(lt.Name, or(lt.Code, "TBD"))
+		rname = or(rt.Name, or(rt.Code, "TBD"))
+		if lt.Result != nil {
+			lwins = itoa(lt.Result.GameWins)
+		}
+		if rt.Result != nil {
+			rwins = itoa(rt.Result.GameWins)
 		}
 	}
 	gameNo, totalGames := 0, 0
