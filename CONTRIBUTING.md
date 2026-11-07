@@ -15,20 +15,17 @@ go test -count=1 ./...
 go build -o ~/.local/bin/lolterm .
 ```
 
-미니맵 관련 작업을 하려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno`, `bun`, `node` 중 하나)이 필요합니다.
-의존성과 PATH 설정은 [INSTALL.md](INSTALL.md)를 참고하세요.
+외부 도구는 필요 없습니다. PATH 설정은 [INSTALL.md](INSTALL.md)를 참고하세요.
 
 ## 테스트
 
 ```bash
 go test -count=1 ./...                 # 단위 테스트
-go test -tags backtest -run TestBacktest -timeout 3h -v . \
-  -backtest.out=/tmp/backtest.json     # 방송 영상 백테스트 (선택)
 ```
 
 - 동작을 바꾸는 변경에는 회귀 테스트를 함께 추가합니다.
 - UI 변경은 스크린샷이나 짧은 영상을 PR 본문에 첨부합니다.
-- 미니맵 변경은 사용한 경기 ID, 세트 번호, 재현 시각을 적습니다.
+- 보드 값을 바꾸는 변경은 사용한 경기 ID, 세트 번호, 재현 시각을 적습니다. lolterm은 livestats 피드에 있는 값만 보여 주는 것이 원칙입니다.
 - 테스트를 실행하지 못했다면 PR 본문에 이유와 확인한 범위를 적습니다.
 
 ## 코드 스타일
@@ -43,7 +40,7 @@ go test -tags backtest -run TestBacktest -timeout 3h -v . \
 Conventional Commits 형식을 사용합니다.
 
 ```text
-feat(minimap): ...
+feat(board): ...
 fix(replay): ...
 docs(readme): ...
 test(feed): ...
@@ -55,8 +52,9 @@ test(feed): ...
 
 버그를 제보할 때는 다음 정보를 포함해 주세요.
 
+- `lolterm -version` 출력
 - 경기 ID와 세트 번호
-- 사용한 명령과 `-icons` 모드
+- 사용한 명령
 - 터미널 종류와 크기
 - 재현 시각과 기대한 동작
 - 가능하면 스크린샷이나 로그

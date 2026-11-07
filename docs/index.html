@@ -4,10 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lolterm — League of Legends esports in your terminal</title>
-<meta name="description" content="Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.">
+<meta name="description" content="Live boards and replays that show only exact livestats-feed values. One Go binary, from Worlds to the LCK.">
 <meta property="og:title" content="lolterm — LoL esports terminal CLI">
-<meta property="og:description" content="Live boards, replays, broadcast minimap tracking. One Go binary.">
-<meta property="og:image" content="assets/hero.png">
+<meta property="og:description" content="Live boards and replays with exact feed values only. One Go binary.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23090d0c'/%3E%3Ctext x='32' y='44' font-family='monospace' font-size='34' font-weight='700' fill='%234de1ff' text-anchor='middle'%3Ee%3C/text%3E%3C/svg%3E">
 <style>
@@ -76,15 +75,10 @@
   .term .bar i:nth-child(2) { background: #e7c34d; opacity: .68; }
   .term .bar i:nth-child(3) { background: #54d68b; opacity: .68; }
   .term .bar span { margin-left: 8px; color: var(--dim); font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .term video, .term img { display: block; width: 100%; background: #080b0a; }
+  .term pre { margin: 0; padding: 16px 12px; border: 0; border-radius: 0; background: #080b0a;
+    font-size: 11px; line-height: 1.45; color: #cfe0d6; }
   .demo-col { min-width: 0; }
-  .demo-note { margin: 10px 2px 0; text-align: right; font-size: 12px; color: var(--dim); }
 
-  .stats { border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05);
-    background: #0b100e; }
-  .stats .wrap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding-top: 20px; padding-bottom: 20px; }
-  .stat b { display: block; font: 700 24px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--cyan); }
-  .stat span { color: var(--dim); font-size: 12px; }
 
   section { padding: 76px 0; }
   section[id] { scroll-margin-top: 76px; }
@@ -98,19 +92,12 @@
   .card h3 { margin: 0 0 7px; font-size: 16px; letter-spacing: -.2px; }
   .card p { margin: 0; color: var(--muted); font-size: 14px; }
 
-  .split { display: grid; grid-template-columns: 1.02fr 1fr; gap: 44px; align-items: center; }
-  .split > * { min-width: 0; }
-  .split.img-first { grid-template-columns: 1.25fr .85fr; }
-  .split img { max-width: 100%; height: auto; }
-  .wide-img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #0a0d0c; }
   .legend { display: grid; gap: 9px; }
   .legend.row { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 16px; }
   .legend div { display: flex; align-items: center; gap: 10px; color: #c3d0c7; font-size: 14px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
   .c-cyan { background: var(--cyan); } .c-purple { background: var(--purple); } .c-red { background: var(--red); }
   .c-green { background: var(--green); } .c-grey { background: #9aa39c; }
-  .split h3 { margin: 0 0 12px; font-size: 26px; letter-spacing: -.7px; }
-  .split p { color: var(--muted); margin: 0 0 18px; }
 
   .install { background: #0b100e; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); }
   .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
@@ -121,12 +108,6 @@
   .req { color: var(--muted); font-size: 14px; }
   .req b { color: var(--text); }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid #1d2723; }
-  th { color: var(--dim); font: 600 11px/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-  td { color: #cdd9d1; }
-  tr:last-child td { border-bottom: 0; }
-  .table-wrap { border: 1px solid var(--line); border-radius: 13px; overflow-x: auto; background: var(--panel); }
 
   footer { padding: 44px 0 56px; border-top: 1px solid rgba(255,255,255,.05); color: var(--dim); font-size: 13px; }
   footer .wrap { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
@@ -134,9 +115,8 @@
   footer .sp { margin-left: auto; }
 
   @media (max-width: 900px) {
-    .hero .wrap, .split, .split.img-first, .install-grid { grid-template-columns: 1fr; }
+    .hero .wrap, .install-grid { grid-template-columns: 1fr; }
     .cards { grid-template-columns: 1fr 1fr; }
-    .stats .wrap { grid-template-columns: 1fr 1fr; }
     .term { order: -1; }
   }
   @media (max-width: 600px) {
@@ -146,7 +126,6 @@
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .term video { display: none; }
   }
 
   .releasebar { background: linear-gradient(90deg, rgba(77,225,255,.10), rgba(180,107,255,.10));
@@ -164,9 +143,6 @@
   .hero-meta .tag { color: var(--cyan); border-color: #1d4a4a; }
 
   .native { background: #0b100e; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); }
-  .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #0a0d0c;
-    box-shadow: 0 24px 70px rgba(0,0,0,.35); }
-  .shot img { display: block; width: 100%; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
   .chips span { border: 1px solid var(--line); background: #0d1411; color: #c3d0c7;
     border-radius: 999px; padding: 6px 10px; font: 11px/1 ui-monospace, monospace; }
@@ -214,9 +190,9 @@
 <body>
 <div class="releasebar">
   <div class="wrap">
-    <span class="tag">v0.1.0</span>
-    <span data-i18n="release_text">새 이름 lolterm · 텔레포트 도착 지점 · Windows 지원</span>
-    <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0" data-i18n="release_notes">릴리스 노트 →</a>
+    <span class="tag">v0.3.0</span>
+    <span data-i18n="release_text">창 크기별 레이아웃 · 일시정지 보정 · Windows 네이티브</span>
+    <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.3.0" data-i18n="release_notes">릴리스 노트 →</a>
   </div>
 </div>
 <nav>
@@ -224,7 +200,7 @@
     <a class="brand" href="#top">lol<span>term</span></a>
     <div class="links">
       <a href="#features" data-i18n="nav_features">기능</a>
-      <a href="#minimap" data-i18n="nav_minimap">미니맵</a>
+      <a href="#board" data-i18n="nav_board">보드</a>
       <a href="#how" data-i18n="nav_how">작동 방식</a>
       <a href="#install" data-i18n="nav_install">설치</a>
       <div class="langs" role="group" aria-label="Language">
@@ -243,13 +219,13 @@
       <div class="eyebrow">Esports terminal cli</div>
       <h1>lol<span>term</span></h1>
       <div class="hero-meta">
-        <span class="tag">v0.1.0</span>
+        <span class="tag">v0.3.0</span>
         <span>Go 1.21+</span>
         <span>GPL-3.0</span>
         <span>macOS · Linux · Windows</span>
       </div>
       <p class="tagline" data-i18n-html="hero_tagline">리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.</p>
-      <p class="lede" data-i18n="hero_lede">라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
+      <p class="lede" data-i18n="hero_lede">라이브 보드와 공식 경기 다시 보기. livestats 피드가 주는 정확한 값만 보여 줍니다. Worlds부터 LCK까지 단일 Go 바이너리로.</p>
       <div class="cmd"><b>$</b> go install github.com/m16khb-org/lolterm@latest
         <button type="button" id="copy" data-i18n="copy" aria-label="Copy install command">복사</button>
       </div>
@@ -260,48 +236,52 @@
     </div>
     <div class="demo-col">
       <div class="term">
-        <div class="bar"><i></i><i></i><i></i><span>lolterm lol replay · GEN vs LYON</span></div>
-        <video autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.png" aria-label="lolterm actual run">
-          <source src="assets/demo.mp4" type="video/mp4">
-          <img src="assets/demo-poster.png" alt="lolterm actual run">
-        </video>
+        <div class="bar"><i></i><i></i><i></i><span>lolterm lol demo</span></div>
+<pre aria-label="lolterm board">╔══════════════════════════════════════════════════════════════════════╗
+║ ● LIVE  MSI · Knockouts                                      ◷ 31:42 ║
+║ G2 Esports [2]                 BO5·G4                         [1] T1 ║
+║ KILLS  18 ███████████████████████████████████████████████████████ 27 ║
+║ GOLD  57.9k ██████████████████████████████████████████████████ 64.7k ║
+║ DRG 2 ── 4 ★SOUL     BRN 0 ── 1     TWR 4 ── 7     INB 0 ── 1        ║
+║ PLAYER         CHAMP        K/D/A   CS   GOLD       HP     #         ║
+║ G2 BrokenBlade Yasuo        5/8/3  205  10.6k ░░░░░░░░     0         ║
+║ G2 SkewMond    Skarner     4/6/10  175  11.5k ░░░░░░░░     0         ║
+║ G2 Caps        Aurora       3/3/5  296  12.5k ░░░░░░░░     0         ║
+║ G2 Hans Sama   Varus        6/5/8  265  15.5k ░░░░░░░░     0         ║
+║ G2 Labrov      Renata      0/5/13   22   7.8k ░░░░░░░░     0         ║
+║ T1 Doran       Gnar        4/4/12  228  12.6k ███░░░░░  1375         ║
+║ T1 Oner        LeeSin      4/5/13  211  12.8k ██████░░  2356         ║
+║ T1 Faker       Sylas       6/4/15  210  12.0k ██████░░  2085         ║
+║ T1 Peyz        Xayah       13/4/7  305  19.0k ██████░░  2348         ║
+║ T1 Keria       Rakan       0/1/20   21   8.3k ██░░░░░░   636         ║
+║ ◷ live feed · 10:44:17 KST                     ↻ 10s  b s o · q quit ║
+╚══════════════════════════════════════════════════════════════════════╝</pre>
       </div>
-      <p class="demo-note"><a href="assets/demo.mp4" data-i18n="video_link">15초 실제 구동 영상 (MP4)</a></p>
     </div>
   </div>
 </header>
-
-<div class="stats">
-  <div class="wrap">
-    <div class="stat"><b>94.0%</b><span data-i18n="stat_detect">생존 챔피언 검출 (16경기)</span></div>
-    <div class="stat"><b>0.00%</b><span data-i18n="stat_dead">죽은 챔피언 오검출</span></div>
-    <div class="stat"><b>97.2%</b><span data-i18n="stat_flip">킬 플립 동기 오차 ≤1초</span></div>
-    <div class="stat"><b>13 / 16</b><span data-i18n="stat_pass">백테스트 기준 통과</span></div>
-  </div>
-</div>
 
 <section id="features">
   <div class="wrap">
     <div class="section-head">
       <h2 data-i18n="features_title">경기 전체를 한 화면에</h2>
-      <p data-i18n="features_sub">점수판, 선수 스탯, 오브젝트, 미니맵을 같은 게임 시각에 맞춰 재생합니다.</p>
+      <p data-i18n="features_sub">점수판, 선수 스탯, 오브젝트 타이머를 피드의 값 그대로 보여 줍니다.</p>
     </div>
     <div class="cards">
       <div class="card"><div class="ico">◉</div><h3 data-i18n="f1_title">라이브 보드</h3><p data-i18n="f1_desc">킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신합니다.</p></div>
-      <div class="card"><div class="ico">▶</div><h3 data-i18n="f2_title">다시 보기</h3><p data-i18n="f2_desc">공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.</p></div>
-      <div class="card"><div class="ico">◎</div><h3 data-i18n="f3_title">방송 미니맵</h3><p data-i18n="f3_desc">공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.</p></div>
-      <div class="card"><div class="ico">✕</div><h3 data-i18n="f4_title">상태 구분</h3><p data-i18n-html="f4_desc">사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.</p></div>
-      <div class="card"><div class="ico">R</div><h3 data-i18n="f5_title">채널링 색</h3><p data-i18n-html="f5_desc">귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>이고 도착 지점도 그립니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 도착 지점이 보이면 <span class="mono">T</span>, 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.</p></div>
-      <div class="card"><div class="ico">⏱</div><h3 data-i18n="f6_title">오브젝트 타이머</h3><p data-i18n="f6_desc">용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
+      <div class="card"><div class="ico">▶</div><h3 data-i18n="f2_title">다시 보기</h3><p data-i18n="f2_desc">livestats 피드로 끝난 세트를 되감아 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.</p></div>
+      <div class="card"><div class="ico">◷</div><h3 data-i18n="f3_title">게임 시계</h3><p data-i18n="f3_desc">일시정지를 뺀 게임 시계입니다. 일시정지가 지난 뒤에 보드를 열어도 그 전의 일시정지를 피드 기록에서 찾아 반영합니다.</p></div>
+      <div class="card"><div class="ico">☠</div><h3 data-i18n="f4_title">부활 카운트다운</h3><p data-i18n-html="f4_desc">사망한 선수는 <span class="mono">☠ ~Ns</span>로 표시합니다. 라이브는 추정(<span class="mono">~</span>), 다시 보기는 피드에서 읽은 정확한 시각입니다.</p></div>
+      <div class="card"><div class="ico">⏱</div><h3 data-i18n="f5_title">오브젝트 타이머</h3><p data-i18n="f5_desc">용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.</p></div>
+      <div class="card"><div class="ico">⇄</div><h3 data-i18n="f6_title">보기 전환</h3><p data-i18n="f6_desc">stats → items → runes, 골드 차이 스파크라인, 오브젝트 맵을 키 하나로 전환합니다.</p></div>
     </div>
   </div>
 </section>
 
 
 <section class="native">
-  <div class="wrap split img-first">
-    <div class="shot"><img src="assets/demo-poster.png" alt="lolterm 리플레이 보드" loading="lazy"></div>
-    <div>
+  <div class="wrap">
+    <div class="section-head">
       <div class="eyebrow" data-i18n="native_eyebrow">Terminal native</div>
       <h2 data-i18n="native_title">키보드, 마우스, 세 가지 언어</h2>
       <p data-i18n="native_desc">lazygit처럼 창을 누르고, 행을 고르고, 휠로 스크롤합니다. 더블클릭으로 경기를 열고, 같은 화면에서 한국어·영어·중국어를 전환합니다.</p>
@@ -314,33 +294,17 @@
     </div>
   </div>
 </section>
-<section id="minimap">
+
+<section id="board">
   <div class="wrap">
     <div class="section-head">
-      <h2 data-i18n="map_title">챔피언이 사라져도, 이유를 알려 줍니다</h2>
-      <p data-i18n-html="map_desc">사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.</p>
+      <h2 data-i18n="board_title">피드에 있는 값만 보여 줍니다</h2>
+      <p data-i18n="board_desc">킬·골드·오브젝트·KDA·CS·체력은 livestats 피드 그대로입니다. 영상에서 읽은 추정값은 쓰지 않습니다.</p>
     </div>
-    <img class="wide-img" src="assets/states.png" alt="Live, dead, lost and mixed minimap states">
     <div class="legend row">
-      <div><span class="dot c-green"></span><span data-i18n="legend_live">라이브: 초상화 · 팀 링 · 라인 배지</span></div>
-      <div><span class="dot c-red"></span><span data-i18n="legend_dead">사망: X + 아이콘에 붙은 부활 초</span></div>
-      <div><span class="dot c-grey"></span><span data-i18n-html="legend_lost">놓침: 흐린 초상화 + <span class="mono">?</span></span></div>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap split img-first">
-    <img class="wide-img" src="assets/channels-panel.png" alt="Recall R, Teleport T and red-team channel ? on the minimap">
-    <div>
-      <h3 data-i18n="chan_title">귀환과 텔레포트를 색으로</h3>
-      <p data-i18n="chan_desc">팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.</p>
-      <div class="legend">
-        <div><span class="dot c-cyan"></span><b class="mono">R</b><span data-i18n="chan_recall">귀환 · 팀 색 아우라 (청록 또는 빨강)</span></div>
-        <div><span class="dot c-purple"></span><b class="mono">T</b><span data-i18n="chan_teleport">텔레포트 · 보라 아우라, 도착 지점에 옅은 팀 색 원</span></div>
-        <div><span class="dot c-red"></span><b class="mono">?</b><span data-i18n="chan_red">레드 팀 채널링 · 빨강 아우라, 도착 지점 없이 5초 미만</span></div>
-      </div>
-      <p style="margin-top:16px;font-size:13px;color:var(--dim)" data-i18n="chan_note">레드 팀은 귀환과 텔레포트가 같은 빨간 링입니다. 방송이 텔레포트 도착 지점에 그리는 빨간 소용돌이가 보이면 텔레포트, 없이 5초를 넘기면 귀환입니다.</p>
+      <div><span class="dot c-green"></span><span data-i18n="legend_exact">정확: 킬 · 골드 · 오브젝트 · KDA · CS · 체력</span></div>
+      <div><span class="dot c-cyan"></span><span data-i18n="legend_dead">부활: ☠ + 초. 라이브는 추정(~), 다시 보기는 정확</span></div>
+      <div><span class="dot c-grey"></span><span data-i18n="legend_none">없음: 챔피언 위치 · 텔레포트·귀환 · 밴픽 (피드에 없음)</span></div>
     </div>
   </div>
 </section>
@@ -350,14 +314,14 @@
   <div class="wrap">
     <div class="section-head">
       <div class="eyebrow" data-i18n="how_eyebrow">Under the hood</div>
-      <h2 data-i18n="how_title">방송에서 미니맵까지</h2>
-      <p data-i18n="how_sub">점수판은 피드에서, 챔피언 위치는 방송 화면에서. 두 시계를 같은 게임 시각으로 맞춥니다.</p>
+      <h2 data-i18n="how_title">피드에서 보드까지</h2>
+      <p data-i18n="how_sub">모든 값은 livestats 피드에서 옵니다. 영상은 쓰지 않습니다.</p>
     </div>
     <ol class="steps">
-      <li class="step"><b>01</b><h3 data-i18n="how1_title">피드</h3><p data-i18n="how1_desc">공식 경기·세트·VOD를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.</p></li>
-      <li class="step"><b>02</b><h3 data-i18n="how2_title">방송</h3><p data-i18n="how2_desc">공식 1080p VOD를 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.</p></li>
-      <li class="step"><b>03</b><h3 data-i18n="how3_title">추적</h3><p data-i18n="how3_desc">미니맵 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이를 잇습니다.</p></li>
-      <li class="step"><b>04</b><h3 data-i18n="how4_title">정렬</h3><p data-i18n="how4_desc">방송 시계와 킬 이벤트를 대조해 오프셋을 보정하고, 모든 패널을 같은 게임 시각에 맞춥니다.</p></li>
+      <li class="step"><b>01</b><h3 data-i18n="how1_title">피드</h3><p data-i18n="how1_desc">공식 경기와 세트를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.</p></li>
+      <li class="step"><b>02</b><h3 data-i18n="how2_title">재생</h3><p data-i18n="how2_desc">피드를 10초 분량씩 받아 두고, 화면은 0.5초마다 쌓인 프레임을 재생합니다. 지연은 자동으로 조절됩니다.</p></li>
+      <li class="step"><b>03</b><h3 data-i18n="how3_title">게임 시계</h3><p data-i18n="how3_desc">일시정지 구간을 빼서 계산합니다. 보드를 늦게 열어도 그 전의 일시정지를 피드 기록에서 찾습니다.</p></li>
+      <li class="step"><b>04</b><h3 data-i18n="how4_title">다시 보기</h3><p data-i18n="how4_desc">끝난 세트의 프레임을 10초 창 단위로 받아 저장하고, 같은 창은 한 번만 받습니다.</p></li>
     </ol>
   </div>
 </section>
@@ -366,7 +330,7 @@
   <div class="wrap">
     <div class="section-head">
       <h2 data-i18n="install_title">설치</h2>
-      <p data-i18n="install_sub">Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.</p>
+      <p data-i18n="install_sub">Go 1.21 이상. 다른 도구는 필요 없습니다.</p>
     </div>
     <div class="install-grid">
       <pre data-i18n-html="install_code1"><span class="c"># 바이너리 설치</span>
@@ -378,37 +342,12 @@
 <span class="c"># 최근 Worlds 경기</span>
 <span class="p">$</span> lolterm lol schedule -l worlds -a -n 8</pre>
       <div>
-        <pre data-i18n-html="install_code2"><span class="c"># 미니맵 의존성 (macOS)</span>
-<span class="p">$</span> brew install yt-dlp ffmpeg deno
-
-<span class="c"># 소스 빌드</span>
+        <pre data-i18n-html="install_code2"><span class="c"># 소스 빌드</span>
 <span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git
 <span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .</pre>
         <p class="req" style="margin-top:16px"><span data-i18n="install_req">자세한 사전 점검과 PATH 설정은</span> <a href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md">INSTALL.md</a><span data-i18n="install_req2">를 참고하세요.</span></p>
       </div>
     </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <div class="section-head">
-      <h2 data-i18n="verify_title">숫자로 확인한 미니맵</h2>
-      <p data-i18n="verify_sub">공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.</p>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th data-i18n="th_league">리그</th><th data-i18n="th_games">경기</th><th data-i18n="th_detect">생존 검출</th><th data-i18n="th_dead">죽은 챔피언 오검출</th><th data-i18n="th_flip">킬 플립 ≤1초</th></tr></thead>
-        <tbody>
-          <tr><td>Worlds</td><td>7</td><td>94.4%</td><td>0.00%</td><td>98.0%</td></tr>
-          <tr><td>LCK</td><td>3</td><td>94.2%</td><td>0.00%</td><td>97.5%</td></tr>
-          <tr><td>LPL</td><td>3</td><td>91.2%</td><td>0.00%</td><td>91.7%</td></tr>
-          <tr><td>LEC</td><td>3</td><td>95.8%</td><td>0.00%</td><td>100%</td></tr>
-          <tr><td><b data-i18n="all">전체</b></td><td><b>16</b></td><td><b>94.0%</b></td><td><b>0.00%</b></td><td><b>97.2%</b></td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p style="color:var(--dim);font-size:13px;margin-top:14px"><span data-i18n="verify_note">13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은</span> <a href="https://github.com/m16khb-org/lolterm/blob/main/docs/internals.md" data-i18n="internals_link">구현 상세</a><span data-i18n="verify_note2">에 있습니다.</span></p>
   </div>
 </section>
 
@@ -418,11 +357,11 @@
     <div class="section-head">
       <div class="eyebrow" data-i18n="docs_eyebrow">Documentation</div>
       <h2 data-i18n="docs_title">문서</h2>
-      <p data-i18n="docs_sub">설치부터 미니맵 파이프라인, 기여 규칙까지 저장소 안에 정리해 두었습니다.</p>
+      <p data-i18n="docs_sub">설치부터 구현 상세, 기여 규칙까지 저장소 안에 정리해 두었습니다.</p>
     </div>
     <div class="docs-grid">
-      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md"><span class="k">01 · setup</span><h3 data-i18n="doc_install_title">설치</h3><p data-i18n="doc_install_desc">사전 점검, PATH, 미니맵 의존성, 검증 체크리스트</p></a>
-      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/docs/internals.md"><span class="k">02 · internals</span><h3 data-i18n="doc_internals_title">구현 상세</h3><p data-i18n="doc_internals_desc">미니맵 파이프라인, 동기화, 백테스트 전체 수치</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md"><span class="k">01 · setup</span><h3 data-i18n="doc_install_title">설치</h3><p data-i18n="doc_install_desc">사전 점검, PATH, 검증 체크리스트</p></a>
+      <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/docs/internals.md"><span class="k">02 · internals</span><h3 data-i18n="doc_internals_title">구현 상세</h3><p data-i18n="doc_internals_desc">피드, 재생 지연, 일시정지, 사망·부활, 오브젝트 타이머</p></a>
       <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/CONTRIBUTING.md"><span class="k">03 · contribute</span><h3 data-i18n="doc_contrib_title">기여 가이드</h3><p data-i18n="doc_contrib_desc">개발 환경, 테스트, 커밋과 PR 규칙</p></a>
       <a class="doc" href="https://github.com/m16khb-org/lolterm/blob/main/.issueops/ARCHITECTURE.md"><span class="k">04 · design</span><h3 data-i18n="doc_arch_title">아키텍처</h3><p data-i18n="doc_arch_desc">구조와 설계 결정, 검증 기준</p></a>
     </div>
@@ -446,11 +385,11 @@
 <footer>
   <div class="wrap">
     <span data-i18n="footer_tag">lolterm · League of Legends esports terminal CLI</span>
-    <span data-i18n="footer_version">v0.1.0 · GPL-3.0-or-later</span>
+    <span data-i18n="footer_version">v0.3.0 · GPL-3.0-or-later</span>
     <a href="https://github.com/m16khb-org/lolterm">GitHub</a>
     <a href="https://github.com/m16khb-org/lolterm/releases" data-i18n="footer_releases">릴리스</a>
     <a href="https://github.com/m16khb-org/lolterm/blob/main/INSTALL.md" data-i18n="nav_install">설치</a>
-    <span class="sp" data-i18n="footer_note">개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용</span>
+    <span class="sp" data-i18n="footer_note">lolesports.com 비공식 엔드포인트 사용</span>
   </div>
   <div class="wrap fine" data-i18n="footer_disclaimer">Riot Games와 공식적인 관련이 없습니다.</div>
 </footer>
@@ -459,177 +398,147 @@
 const I18N = {
   ko: {
     page_title: "lolterm — 리그 오브 레전드 e스포츠를 터미널에서",
-    nav_features: "기능", nav_minimap: "미니맵", nav_install: "설치",
-    release_text: "새 이름 lolterm · 텔레포트 도착 지점 · Windows 지원", release_notes: "릴리스 노트 →", nav_how: "작동 방식",
+    nav_features: "기능", nav_board: "보드", nav_install: "설치",
+    release_text: "창 크기별 레이아웃 · 일시정지 보정 · Windows 네이티브", release_notes: "릴리스 노트 →", nav_how: "작동 방식",
     native_eyebrow: "Terminal native", native_title: "키보드, 마우스, 세 가지 언어",
     native_desc: "lazygit처럼 창을 누르고, 행을 고르고, 휠로 스크롤합니다. 더블클릭으로 경기를 열고, 같은 화면에서 한국어·영어·중국어를 전환합니다.",
     chip_click: "클릭 · 선택", chip_double: "더블클릭 · 열기", chip_wheel: "휠 · 스크롤",
-    how_eyebrow: "Under the hood", how_title: "방송에서 미니맵까지",
-    how_sub: "점수판은 피드에서, 챔피언 위치는 방송 화면에서. 두 시계를 같은 게임 시각으로 맞춥니다.",
-    how1_title: "피드", how1_desc: "공식 경기·세트·VOD를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.",
-    how2_title: "방송", how2_desc: "공식 1080p VOD를 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.",
-    how3_title: "추적", how3_desc: "미니맵 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이를 잇습니다.",
-    how4_title: "정렬", how4_desc: "방송 시계와 킬 이벤트를 대조해 오프셋을 보정하고, 모든 패널을 같은 게임 시각에 맞춥니다.",
+    how_eyebrow: "Under the hood", how_title: "피드에서 보드까지",
+    how_sub: "모든 값은 livestats 피드에서 옵니다. 영상은 쓰지 않습니다.",
+    how1_title: "피드", how1_desc: "공식 경기와 세트를 찾고, livestats에서 점수판·게임 시계·선수 스탯을 가져옵니다.",
+    how2_title: "재생", how2_desc: "피드를 10초 분량씩 받아 두고, 화면은 0.5초마다 쌓인 프레임을 재생합니다. 지연은 자동으로 조절됩니다.",
+    how3_title: "게임 시계", how3_desc: "일시정지 구간을 빼서 계산합니다. 보드를 늦게 열어도 그 전의 일시정지를 피드 기록에서 찾습니다.",
+    how4_title: "다시 보기", how4_desc: "끝난 세트의 프레임을 10초 창 단위로 받아 저장하고, 같은 창은 한 번만 받습니다.",
     docs_eyebrow: "Documentation", docs_title: "문서",
-    docs_sub: "설치부터 미니맵 파이프라인, 기여 규칙까지 저장소 안에 정리해 두었습니다.",
-    doc_install_title: "설치", doc_install_desc: "사전 점검, PATH, 미니맵 의존성, 검증 체크리스트",
-    doc_internals_title: "구현 상세", doc_internals_desc: "미니맵 파이프라인, 동기화, 백테스트 전체 수치",
+    docs_sub: "설치부터 구현 상세, 기여 규칙까지 저장소 안에 정리해 두었습니다.",
+    doc_install_title: "설치", doc_install_desc: "사전 점검, PATH, 검증 체크리스트",
+    doc_internals_title: "구현 상세", doc_internals_desc: "피드, 재생 지연, 일시정지, 사망·부활, 오브젝트 타이머",
     doc_contrib_title: "기여 가이드", doc_contrib_desc: "개발 환경, 테스트, 커밋과 PR 규칙",
     doc_arch_title: "아키텍처", doc_arch_desc: "구조와 설계 결정, 검증 기준",
     contrib_eyebrow: "Open source", contrib_title: "같이 만들어요",
     contrib_sub: "버그 제보, 경기별 검증 결과, 문서 수정, 새 아이디어 모두 환영합니다. 재현 정보를 함께 적어 주시면 큰 도움이 됩니다.",
     contrib_issue: "이슈 열기", contrib_guide: "기여 가이드",
-    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "릴리스",
+    footer_version: "v0.3.0 · GPL-3.0-or-later", footer_releases: "릴리스",
     footer_disclaimer: "Riot Games와 공식적인 관련이 없습니다.",
 
     hero_tagline: "리그 오브 레전드 e스포츠를<br>터미널에서, 실시간으로.",
-    hero_lede: "라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치. Worlds부터 LCK까지 단일 Go 바이너리로.",
-    copy: "복사", start: "시작하기", github_view: "GitHub에서 보기", video_link: "15초 실제 구동 영상 (MP4)",
-    stat_detect: "생존 챔피언 검출 (16경기)", stat_dead: "죽은 챔피언 오검출",
-    stat_flip: "킬 플립 동기 오차 ≤1초", stat_pass: "백테스트 기준 통과",
+    hero_lede: "라이브 보드와 공식 경기 다시 보기. livestats 피드가 주는 정확한 값만 보여 줍니다. Worlds부터 LCK까지 단일 Go 바이너리로.",
+    copy: "복사", start: "시작하기", github_view: "GitHub에서 보기",
     features_title: "경기 전체를 한 화면에",
-    features_sub: "점수판, 선수 스탯, 오브젝트, 미니맵을 같은 게임 시각에 맞춰 재생합니다.",
+    features_sub: "점수판, 선수 스탯, 오브젝트 타이머를 피드의 값 그대로 보여 줍니다.",
     f1_title: "라이브 보드", f1_desc: "킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신합니다.",
-    f2_title: "다시 보기", f2_desc: "공식 VOD와 피드를 같은 시각에 맞춰 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.",
-    f3_title: "방송 미니맵", f3_desc: "공식 1080p 방송의 미니맵을 직접 읽어 10명의 위치를 추적합니다. 초당 5프레임.",
-    f4_title: "상태 구분", f4_desc: '사망은 X와 부활 초, 놓친 챔피언은 흐린 초상화와 <span class="mono">?</span>로 구분합니다.',
-    f5_title: "채널링 색", f5_desc: '귀환은 팀 색 <span class="mono">R</span>, 텔레포트는 보라 <span class="mono">T</span>이고 도착 지점도 그립니다. 레드 팀의 빨간 링은 <span class="mono">?</span>로 시작해 도착 지점이 보이면 <span class="mono">T</span>, 5초를 넘기면 <span class="mono">R</span>이 됩니다. 팀 링 바깥에 물결 아우라로 표시합니다.',
-    f6_title: "오브젝트 타이머", f6_desc: "용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.",
-    map_title: "챔피언이 사라져도, 이유를 알려 줍니다",
-    map_desc: '사망은 X 아이콘과 부활 초, 트래커가 놓친 챔피언은 흐린 초상화와 회색 <span class="mono">?</span>로 표시합니다. 방송이 리플레이·데스크로 넘어가면 챔피언을 숨기고 그 이유를 패널에 적습니다.',
-    legend_live: "라이브: 초상화 · 팀 링 · 라인 배지",
-    legend_dead: "사망: X + 아이콘에 붙은 부활 초",
-    legend_lost: '놓침: 흐린 초상화 + <span class="mono">?</span>',
-    chan_title: "귀환과 텔레포트를 색으로",
-    chan_desc: "팀 링 바깥 아우라의 색을 읽어 채널링을 판정합니다. 같은 색이 두 프레임 연속 잡혀야 인정하고, 라인 배지 대신 상태 문자를 붙입니다.",
-    chan_recall: "귀환 · 팀 색 아우라 (청록 또는 빨강)", chan_teleport: "텔레포트 · 보라 아우라, 도착 지점에 옅은 팀 색 원", chan_red: "레드 팀 채널링 · 빨강 아우라, 도착 지점 없이 5초 미만",
-    chan_note: "레드 팀은 귀환과 텔레포트가 같은 빨간 링입니다. 방송이 텔레포트 도착 지점에 그리는 빨간 소용돌이가 보이면 텔레포트, 없이 5초를 넘기면 귀환입니다.",
-    install_title: "설치", install_sub: "Go 1.21 이상. 미니맵을 쓰려면 yt-dlp, ffmpeg, JS 런타임이 필요합니다.",
+    f2_title: "다시 보기", f2_desc: "livestats 피드로 끝난 세트를 되감아 재생합니다. 일시정지, ±10초, 1×/2×/4× 배속.",
+    f3_title: "게임 시계", f3_desc: "일시정지를 뺀 게임 시계입니다. 일시정지가 지난 뒤에 보드를 열어도 그 전의 일시정지를 피드 기록에서 찾아 반영합니다.",
+    f4_title: "부활 카운트다운", f4_desc: '사망한 선수는 <span class="mono">☠ ~Ns</span>로 표시합니다. 라이브는 추정(<span class="mono">~</span>), 다시 보기는 피드에서 읽은 정확한 시각입니다.',
+    f5_title: "오브젝트 타이머", f5_desc: "용·엘더·바론의 다음 등장과 소울 포인트를 게임 시계 기준으로 계산합니다.",
+    f6_title: "보기 전환", f6_desc: "stats → items → runes, 골드 차이 스파크라인, 오브젝트 맵을 키 하나로 전환합니다.",
+    board_title: "피드에 있는 값만 보여 줍니다",
+    board_desc: "킬·골드·오브젝트·KDA·CS·체력은 livestats 피드 그대로입니다. 영상에서 읽은 추정값은 쓰지 않습니다.",
+    legend_exact: "정확: 킬 · 골드 · 오브젝트 · KDA · CS · 체력",
+    legend_dead: "부활: ☠ + 초. 라이브는 추정(~), 다시 보기는 정확",
+    legend_none: "없음: 챔피언 위치 · 텔레포트·귀환 · 밴픽 (피드에 없음)",
+    install_title: "설치", install_sub: "Go 1.21 이상. 다른 도구는 필요 없습니다.",
     install_code1: '<span class="c"># 바이너리 설치</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># 대화형 앱</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># 최근 Worlds 경기</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># 미니맵 의존성 (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
+    install_code2: '<span class="c"># 소스 빌드</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "자세한 사전 점검과 PATH 설정은", install_req2: "를 참고하세요.",
-    verify_title: "숫자로 확인한 미니맵",
-    verify_sub: "공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌린 백테스트입니다.",
-    th_league: "리그", th_games: "경기", th_detect: "생존 검출", th_dead: "죽은 챔피언 오검출", th_flip: "킬 플립 ≤1초",
-    all: "전체", verify_note: "13/16 경기가 기준을 통과했습니다. 전체 수치와 기준은", verify_note2: "에 있습니다.",
-    internals_link: "구현 상세", footer_tag: "lolterm · League of Legends esports terminal CLI",
-    footer_note: "개인 시청 목적 · lolesports.com 비공식 엔드포인트 사용"
+    footer_tag: "lolterm · League of Legends esports terminal CLI",
+    footer_note: "lolesports.com 비공식 엔드포인트 사용"
   },
   en: {
     page_title: "lolterm — League of Legends esports in your terminal",
-    nav_features: "Features", nav_minimap: "Minimap", nav_install: "Install",
-    release_text: "Renamed to lolterm · Teleport destinations · Windows support", release_notes: "Release notes →", nav_how: "How it works",
+    nav_features: "Features", nav_board: "Board", nav_install: "Install",
+    release_text: "Layouts for every window size · Pause-corrected clock · Native Windows", release_notes: "Release notes →", nav_how: "How it works",
     native_eyebrow: "Terminal native", native_title: "Keyboard, mouse, three languages",
     native_desc: "Click a pane, pick a row, scroll with the wheel like lazygit. Double-click to open a match, and switch between Korean, English and Chinese on the same screen.",
     chip_click: "Click · select", chip_double: "Double-click · open", chip_wheel: "Wheel · scroll",
-    how_eyebrow: "Under the hood", how_title: "From broadcast to minimap",
-    how_sub: "The scoreboard comes from the feed; champion positions come from the broadcast. Both clocks are aligned to the same game time.",
-    how1_title: "Feed", how1_desc: "Find the official match, games and VOD, then read the scoreboard, game clock and player stats from livestats.",
-    how2_title: "Broadcast", how2_desc: "Open the official 1080p VOD and identify the layout from the game-clock font at the top.",
-    how3_title: "Tracking", how3_desc: "Template-match minimap portraits, then link frames with Hungarian assignment and a Kalman filter.",
-    how4_title: "Alignment", how4_desc: "Compare the broadcast clock with kill events, correct the offset, and put every pane on the same game time.",
+    how_eyebrow: "Under the hood", how_title: "From feed to board",
+    how_sub: "Every value comes from the livestats feed. No video is used.",
+    how1_title: "Feed", how1_desc: "Find the official match and games, then read the scoreboard, game clock and player stats from livestats.",
+    how2_title: "Playout", how2_desc: "Fetch the feed in 10-second windows and play the buffered frames every 0.5 s. The delay adapts automatically.",
+    how3_title: "Game clock", how3_desc: "Game pauses are subtracted. Even a board opened late finds the earlier pauses in the feed history.",
+    how4_title: "Replay", how4_desc: "A finished game is fetched in 10-second windows and kept; each window is requested only once.",
     docs_eyebrow: "Documentation", docs_title: "Docs",
-    docs_sub: "Setup, the minimap pipeline and contribution rules live in the repository.",
-    doc_install_title: "Install", doc_install_desc: "Preflight, PATH, minimap dependencies and a verification checklist",
-    doc_internals_title: "Internals", doc_internals_desc: "Minimap pipeline, sync and full backtest numbers",
+    docs_sub: "Setup, internals and contribution rules live in the repository.",
+    doc_install_title: "Install", doc_install_desc: "Preflight, PATH and a verification checklist",
+    doc_internals_title: "Internals", doc_internals_desc: "Feed, playout delay, pauses, deaths and objective timers",
     doc_contrib_title: "Contributing", doc_contrib_desc: "Development setup, tests, commit and PR rules",
     doc_arch_title: "Architecture", doc_arch_desc: "Structure, design decisions and verification criteria",
     contrib_eyebrow: "Open source", contrib_title: "Build it with us",
     contrib_sub: "Bug reports, per-match verification results, documentation fixes and new ideas are all welcome. Reproduction details help a lot.",
     contrib_issue: "Open an issue", contrib_guide: "Contributing guide",
-    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "Releases",
+    footer_version: "v0.3.0 · GPL-3.0-or-later", footer_releases: "Releases",
     footer_disclaimer: "Not affiliated with Riot Games.",
 
     hero_tagline: "League of Legends esports,<br>in your terminal.",
-    hero_lede: "Live boards, official VOD replays, and champion positions read from the broadcast minimap. One Go binary, from Worlds to the LCK.",
-    copy: "Copy", start: "Get started", github_view: "View on GitHub", video_link: "15-second actual run (MP4)",
-    stat_detect: "Alive champion detection (16 games)", stat_dead: "Dead champion false positives",
-    stat_flip: "Kill-flip sync within 1s", stat_pass: "Backtest pass",
+    hero_lede: "Live boards and replays of official matches, showing exactly the values the livestats feed provides. One Go binary, from Worlds to the LCK.",
+    copy: "Copy", start: "Get started", github_view: "View on GitHub",
     features_title: "The whole match on one screen",
-    features_sub: "Scoreboard, player stats, objectives and the minimap play on the same game clock.",
+    features_sub: "Scoreboard, player stats and objective timers, with the feed's values as they are.",
     f1_title: "Live board", f1_desc: "Kill and gold bars, objective counts and per-player KDA, CS, gold and HP, refreshed every 0.5s.",
-    f2_title: "Replays", f2_desc: "Official VOD and feed aligned to the same game time. Pause, ±10s, 1×/2×/4× speed.",
-    f3_title: "Broadcast minimap", f3_desc: "Reads the official 1080p minimap and tracks all ten champions at 5 fps.",
-    f4_title: "State clarity", f4_desc: 'A dead champion shows X and respawn seconds; a lost champion is a dim portrait with <span class="mono">?</span>.',
-    f5_title: "Channel colours", f5_desc: 'Recall is <span class="mono">R</span> in the team colour, Teleport purple <span class="mono">T</span> with its destination drawn too. A red-team red ring starts as <span class="mono">?</span>, becomes <span class="mono">T</span> once its destination shows and <span class="mono">R</span> after 5 seconds. The wavy aura sits outside the team ring.',
-    f6_title: "Objective timers", f6_desc: "Next dragon, elder and baron spawn, plus soul point, on the game clock.",
-    map_title: "Even when a champion is gone, the reason is visible",
-    map_desc: 'Dead is an X with respawn seconds; a lost champion is a dim portrait and a grey <span class="mono">?</span>. When the broadcast cuts to a replay or desk, the panel hides the champions and says why.',
-    legend_live: "Live: portrait · team ring · lane badge",
-    legend_dead: "Dead: X and respawn seconds attached to the icon",
-    legend_lost: 'Lost: dim portrait + <span class="mono">?</span>',
-    chan_title: "Recall and Teleport by colour",
-    chan_desc: "Reads the aura colour outside the team ring. A colour must persist for two frames; the badge replaces the lane letter.",
-    chan_recall: "Recall · team-colour aura (cyan or red)", chan_teleport: "Teleport · purple aura, a faint team-colour disc at the destination", chan_red: "Red-team channel · red aura, no destination, under 5 s",
-    chan_note: "On the red team, Recall and Teleport share the red ring. The red swirl the broadcast draws at a Teleport's destination tells the Teleport apart; a red ring that lasts past 5 seconds without one is a Recall.",
-    install_title: "Install", install_sub: "Go 1.21+. The minimap needs yt-dlp, ffmpeg and a JS runtime.",
+    f2_title: "Replays", f2_desc: "Rewind a finished game from the livestats feed. Pause, ±10s, 1×/2×/4× speed.",
+    f3_title: "Game clock", f3_desc: "A game clock with pauses removed. Open the board after a pause and the earlier pauses are still found in the feed history.",
+    f4_title: "Respawn countdown", f4_desc: 'A dead player shows <span class="mono">☠ ~Ns</span>. Live is an estimate (<span class="mono">~</span>); a replay reads the exact time from the feed.',
+    f5_title: "Objective timers", f5_desc: "Next dragon, elder and baron spawn, plus soul point, on the game clock.",
+    f6_title: "View toggles", f6_desc: "Switch stats → items → runes, the gold-lead sparkline and the objective map with one key each.",
+    board_title: "Only values the feed has",
+    board_desc: "Kills, gold, objectives, KDA, CS and health are the livestats feed's values as they are. Nothing is estimated from video.",
+    legend_exact: "Exact: kills · gold · objectives · KDA · CS · health",
+    legend_dead: "Respawn: ☠ + seconds. Live is estimated (~), replay is exact",
+    legend_none: "Not shown: champion positions · teleports and recalls · bans and picks (not in the feed)",
+    install_title: "Install", install_sub: "Go 1.21+. No other tools are needed.",
     install_code1: '<span class="c"># install the binary</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># interactive app</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># recent Worlds matches</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># minimap dependencies (macOS)</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
+    install_code2: '<span class="c"># build from source</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "See", install_req2: "for the full preflight and PATH setup.",
-    verify_title: "A minimap measured, not guessed",
-    verify_sub: "A backtest over 16 official games (7 Worlds, 3 LCK, 3 LPL, 3 LEC), run over the full broadcast video.",
-    th_league: "League", th_games: "Games", th_detect: "Alive detection", th_dead: "Dead false positives", th_flip: "Kill flips ≤1s",
-    all: "All", verify_note: "13 of 16 games passed. Full numbers and criteria are in", verify_note2: ".",
-    internals_link: "the implementation notes", footer_tag: "lolterm · League of Legends esports terminal CLI",
-    footer_note: "Personal viewing only · uses the unofficial lolesports.com endpoints"
+    footer_tag: "lolterm · League of Legends esports terminal CLI",
+    footer_note: "Uses the unofficial lolesports.com endpoints"
   },
   zh: {
     page_title: "lolterm — 在终端里看英雄联盟电竞赛事",
-    nav_features: "功能", nav_minimap: "小地图", nav_install: "安装",
-    release_text: "更名为 lolterm · 传送落点 · 支持 Windows", release_notes: "发布说明 →", nav_how: "工作原理",
+    nav_features: "功能", nav_board: "看板", nav_install: "安装",
+    release_text: "适配各种窗口尺寸 · 暂停校正的时钟 · 原生支持 Windows", release_notes: "发布说明 →", nav_how: "工作原理",
     native_eyebrow: "Terminal native", native_title: "键盘、鼠标、三种语言",
     native_desc: "像 lazygit 一样点击面板、选择行、用滚轮滚动。双击打开比赛，并在同一界面切换韩语、英语和中文。",
     chip_click: "单击 · 选择", chip_double: "双击 · 打开", chip_wheel: "滚轮 · 滚动",
-    how_eyebrow: "Under the hood", how_title: "从直播到小地图",
-    how_sub: "记分板来自数据流，英雄位置来自直播画面。两个时钟对齐到同一游戏时间。",
-    how1_title: "数据流", how1_desc: "查找官方比赛、对局和 VOD，并从 livestats 读取记分板、游戏时钟和选手数据。",
-    how2_title: "直播", how2_desc: "打开官方 1080p VOD，通过顶部的游戏时钟字体识别直播布局。",
-    how3_title: "追踪", how3_desc: "对小地图头像做模板匹配，再用匈牙利匹配和卡尔曼滤波连接相邻帧。",
-    how4_title: "对齐", how4_desc: "用击杀事件校正直播时钟的偏移，让所有面板指向同一游戏时间。",
+    how_eyebrow: "Under the hood", how_title: "从数据流到看板",
+    how_sub: "所有数值都来自 livestats 数据流，不使用视频。",
+    how1_title: "数据流", how1_desc: "查找官方比赛和对局，并从 livestats 读取记分板、游戏时钟和选手数据。",
+    how2_title: "回放", how2_desc: "按 10 秒一段获取数据流，屏幕每 0.5 秒回放缓冲的帧，延迟会自动调节。",
+    how3_title: "游戏时钟", how3_desc: "扣除游戏暂停的时间。即使晚打开看板，也会从数据流历史中找出此前的暂停。",
+    how4_title: "回看", how4_desc: "按 10 秒一段获取并保存已结束对局的帧，同一段只请求一次。",
     docs_eyebrow: "Documentation", docs_title: "文档",
-    docs_sub: "安装、小地图管线和贡献规则都整理在仓库里。",
-    doc_install_title: "安装", doc_install_desc: "预检、PATH、小地图依赖和验证清单",
-    doc_internals_title: "实现细节", doc_internals_desc: "小地图管线、同步和完整回测数据",
+    docs_sub: "安装、实现细节和贡献规则都整理在仓库里。",
+    doc_install_title: "安装", doc_install_desc: "预检、PATH 和验证清单",
+    doc_internals_title: "实现细节", doc_internals_desc: "数据流、回放延迟、暂停、阵亡与复活、资源计时",
     doc_contrib_title: "贡献指南", doc_contrib_desc: "开发环境、测试、提交和 PR 规则",
     doc_arch_title: "架构", doc_arch_desc: "结构、设计决策和验证标准",
     contrib_eyebrow: "Open source", contrib_title: "一起构建",
     contrib_sub: "欢迎提交问题、逐场验证结果、文档修改和新想法。附上复现信息会很有帮助。",
     contrib_issue: "提交问题", contrib_guide: "贡献指南",
-    footer_version: "v0.1.0 · GPL-3.0-or-later", footer_releases: "发布",
+    footer_version: "v0.3.0 · GPL-3.0-or-later", footer_releases: "发布",
     footer_disclaimer: "与 Riot Games 无官方关联。",
 
     hero_tagline: "在终端里看<br>英雄联盟电竞赛事。",
-    hero_lede: "直播看板、官方 VOD 回放，以及从直播小地图读取的英雄位置。一个 Go 二进制，覆盖 Worlds 到 LCK。",
-    copy: "复制", start: "开始使用", github_view: "在 GitHub 查看", video_link: "15 秒实际运行视频（MP4）",
-    stat_detect: "存活英雄检测（16 场）", stat_dead: "阵亡英雄误检",
-    stat_flip: "击杀翻转同步误差 ≤1 秒", stat_pass: "回测达标",
+    hero_lede: "官方比赛的直播看板与回放，只显示 livestats 数据流提供的准确数值。一个 Go 二进制，覆盖 Worlds 到 LCK。",
+    copy: "复制", start: "开始使用", github_view: "在 GitHub 查看",
     features_title: "一场比赛，一屏尽览",
-    features_sub: "记分板、选手数据、资源和 小地图按同一游戏时钟回放。",
+    features_sub: "记分板、选手数据和资源计时，直接显示数据流中的数值。",
     f1_title: "直播看板", f1_desc: "击杀/金币比例条、资源计数，以及每位选手的 KDA、补刀、金币和生命值，每 0.5 秒刷新。",
-    f2_title: "回放", f2_desc: "官方 VOD 与数据流对齐到同一游戏时间。暂停、±10 秒、1×/2×/4×。",
-    f3_title: "直播小地图", f3_desc: "读取官方 1080p 小地图，以每秒 5 帧追踪十名英雄。",
-    f4_title: "状态区分", f4_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和 <span class="mono">?</span>。',
-    f5_title: "引导颜色", f5_desc: '回城为队伍颜色 <span class="mono">R</span>，传送为紫色 <span class="mono">T</span>，并标出落点。红队的红色光环先显示 <span class="mono">?</span>，出现落点后变为 <span class="mono">T</span>，超过 5 秒变为 <span class="mono">R</span>。以队伍光环外侧的波浪光环显示。',
-    f6_title: "资源计时", f6_desc: "按游戏时钟计算下一条小龙、远古龙和大龙的刷新，以及龙魂点。",
-    map_title: "英雄消失时，也告诉你原因",
-    map_desc: '阵亡显示 X 和复活秒数；跟丢的英雄显示变暗的头像和灰色 <span class="mono">?</span>。直播切到回放或解说台时，面板会隐藏英雄并说明原因。',
-    legend_live: "存活：头像 · 队伍光环 · 分路徽标",
-    legend_dead: "阵亡：X 和图标上的复活秒数",
-    legend_lost: '跟丢：变暗的头像 + <span class="mono">?</span>',
-    chan_title: "用颜色区分回城与传送",
-    chan_desc: "读取队伍光环外侧光环的颜色。同一颜色需连续出现两帧；徽标会替代分路字母。",
-    chan_recall: "回城 · 队伍颜色光环（青色或红色）", chan_teleport: "传送 · 紫色光环，落点为浅色队伍颜色圆", chan_red: "红队引导 · 红色光环，无落点且不足 5 秒",
-    chan_note: "红队的回城与传送共用红色光环。直播在传送落点画出的红色漩涡可区分传送；没有落点且红色光环超过 5 秒即为回城。",
-    install_title: "安装", install_sub: "需要 Go 1.21+。小地图还需要 yt-dlp、ffmpeg 和 JS 运行时。",
+    f2_title: "回放", f2_desc: "用 livestats 数据流回放已结束的对局。暂停、±10 秒、1×/2×/4×。",
+    f3_title: "游戏时钟", f3_desc: "扣除暂停时间的游戏时钟。即使暂停之后才打开看板，也能从数据流历史中找到此前的暂停。",
+    f4_title: "复活倒计时", f4_desc: '阵亡选手显示 <span class="mono">☠ ~Ns</span>。实时为估算（<span class="mono">~</span>），回放则读取数据流中的准确时刻。',
+    f5_title: "资源计时", f5_desc: "按游戏时钟计算下一条小龙、远古龙和大龙的刷新，以及龙魂点。",
+    f6_title: "视图切换", f6_desc: "一个按键切换 stats → items → runes、金币差曲线和资源地图。",
+    board_title: "只显示数据流里有的数值",
+    board_desc: "击杀、金币、资源、KDA、补刀和生命值都直接来自 livestats 数据流。不使用从视频估算的值。",
+    legend_exact: "精确：击杀 · 金币 · 资源 · KDA · 补刀 · 生命值",
+    legend_dead: "复活：☠ + 秒数。实时为估算（~），回放为精确",
+    legend_none: "不显示：英雄位置 · 传送与回城 · 禁用与选用（数据流中没有）",
+    install_title: "安装", install_sub: "需要 Go 1.21+，无需其他工具。",
     install_code1: '<span class="c"># 安装二进制</span>\n<span class="p">$</span> go install github.com/m16khb-org/lolterm@latest\n\n<span class="c"># 交互式应用</span>\n<span class="p">$</span> lolterm\n\n<span class="c"># 最近的 Worlds 比赛</span>\n<span class="p">$</span> lolterm lol schedule -l worlds -a -n 8',
-    install_code2: '<span class="c"># 小地图依赖（macOS）</span>\n<span class="p">$</span> brew install yt-dlp ffmpeg deno\n\n<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
+    install_code2: '<span class="c"># 从源码构建</span>\n<span class="p">$</span> git clone https://github.com/m16khb-org/lolterm.git\n<span class="p">$</span> cd lolterm &amp;&amp; go build -o ~/.local/bin/lolterm .',
     install_req: "完整的预检和 PATH 设置请参阅", install_req2: "。",
-    verify_title: "用数字验证的小地图",
-    verify_sub: "对 16 场官方比赛（Worlds 7、LCK 3、LPL 3、LEC 3）的完整直播视频进行回测。",
-    th_league: "联赛", th_games: "场次", th_detect: "存活检测", th_dead: "阵亡误检", th_flip: "击杀翻转 ≤1 秒",
-    all: "全部", verify_note: "16 场中有 13 场达标。完整数字和标准见", verify_note2: "。",
-    internals_link: "实现细节", footer_tag: "lolterm · League of Legends esports terminal CLI",
-    footer_note: "仅供个人观看 · 使用 lolesports.com 非官方接口"
+    footer_tag: "lolterm · League of Legends esports terminal CLI",
+    footer_note: "使用 lolesports.com 非官方接口"
   }
 };
 
@@ -671,11 +580,6 @@ if (copy) {
     catch { copy.textContent = "!"; }
     setTimeout(() => { copy.textContent = I18N[lang].copy; }, 1600);
   });
-}
-if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-  document.querySelectorAll("video").forEach(v => { v.removeAttribute("autoplay"); v.pause(); });
-} else {
-  document.querySelectorAll("video").forEach(v => v.play().catch(() => {}));
 }
 </script>
 </body>

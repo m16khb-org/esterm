@@ -4,10 +4,10 @@
 
 **리그 오브 레전드 e스포츠를 터미널에서 보는 CLI**
 
-라이브 보드, 공식 VOD 다시 보기, 방송 미니맵에서 직접 읽는 챔피언 위치
+라이브 보드와 공식 경기 다시 보기. livestats 피드가 주는 정확한 값만 보여 줍니다
 
 <p>
-  <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/lolterm?style=flat-square&label=release&color=4de1ff"></a>
+  <a href="https://github.com/m16khb-org/lolterm/releases/tag/v0.3.0"><img alt="release" src="https://img.shields.io/github/v/release/m16khb-org/lolterm?style=flat-square&label=release&color=4de1ff"></a>
   <a href="go.mod"><img alt="go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
   <a href="https://github.com/m16khb-org/lolterm/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/m16khb-org/lolterm?style=flat-square&color=4de1ff"></a>
@@ -17,52 +17,45 @@
 
 <sub>macOS · Linux · Windows · Go 1.21+</sub>
 
-<img src="docs/assets/hero.png" alt="lolterm 미니맵: 팀 링 바깥의 귀환 R, 텔레포트 T, 레드 팀 채널링 ? 아우라" width="100%" />
 
 </div>
 
-> **v0.1.0** — 첫 공개 릴리스입니다. 이름이 esterm에서 lolterm으로 바뀌었고, 텔레포트 도착 지점 표시와 Windows 네이티브 지원이 들어 있습니다. [릴리스 노트](https://github.com/m16khb-org/lolterm/releases/tag/v0.1.0)에서 변경 사항과 설치 방법을 확인하세요.
+> **v0.3.0** — 공개 릴리스입니다. 창 크기마다 레이아웃을 다듬었고, 네트워크가 끊기거나 일시정지가 있는 경기에서도 보드가 안정적으로 이어집니다. Windows 네이티브 지원도 들어 있습니다. [릴리스 노트](https://github.com/m16khb-org/lolterm/releases/tag/v0.3.0)에서 변경 사항과 설치 방법을 확인하세요.
 
 [왜 lolterm](#왜-lolterm인가) · [한눈에](#한눈에) · [설치](#설치) · [빠른 시작](#빠른-시작) ·
-[대화형 앱](#대화형-앱) · [미니맵](#미니맵) · [작동 방식](#작동-방식) · [검증](#검증) ·
-[터미널 설정](#터미널-설정) · [문서](#문서) · [기여](#기여) · [라이선스](#라이선스)
+[대화형 앱](#대화형-앱) · [보드](#보드) · [작동 방식](#작동-방식) · [검증](#검증) ·
+[문서](#문서) · [기여](#기여) · [라이선스](#라이선스)
 
 ## 왜 lolterm인가
 
-Riot의 livestats 피드는 점수와 오브젝트는 알려 주지만 챔피언 좌표는 주지 않습니다. lolterm은 공식 방송 화면에서 미니맵을 직접 읽어 이 빈칸을 채웁니다.
+Riot의 livestats 피드는 점수, 오브젝트, 선수 스탯을 정확하게 알려 줍니다. lolterm은 그 값만 터미널에 그대로 옮깁니다. 영상에서 추정한 값은 쓰지 않습니다.
 
-- **방송을 읽습니다.** 공식 1080p 방송의 미니맵과 게임 시계를 인식하고, 초상화 템플릿 매칭·칼만 필터·메인 뷰 체력바를 함께 사용해 10명의 위치를 추정합니다.
+- **피드의 값만 씁니다.** 킬·골드·오브젝트·KDA·CS·체력은 피드 그대로이고, 게임 시계는 일시정지를 반영해 보정합니다. 추정값은 `~`로 표시합니다(라이브 부활 시간).
 - **터미널에서 끝납니다.** 라이브 보드와 다시 보기를 한 화면에서 보고, 클릭·더블클릭·휠로 조작합니다. UI는 한국어·영어·중국어를 지원합니다.
-- **숫자로 확인합니다.** Worlds·LCK·LPL·LEC 16경기 백테스트에서 생존 챔피언 검출 94.0%, 죽은 챔피언 오검출 0.00%를 기록했습니다.
-
-<p align="center">
-  <a href="docs/assets/demo.mp4"><img src="docs/assets/demo.gif" alt="lolterm 실제 구동 화면: Worlds 리플레이 보드와 실시간 미니맵" width="100%" /></a>
-</p>
-<p align="center"><sub>Worlds 리플레이 보드 · 15초 실제 구동 영상 · <a href="docs/assets/demo.mp4">MP4</a></sub></p>
+- **설치가 가볍습니다.** Go 표준 라이브러리만 쓰는 단일 바이너리이고 외부 도구가 필요 없습니다.
 
 ## 한눈에
 
 | 기능 | 내용 |
 |---|---|
-| **라이브 보드** | 킬·골드 비례 바, 오브젝트 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신 |
-| **다시 보기** | 공식 VOD 영상과 livestats 피드를 같은 게임 시각에 맞춰 재생. `Space`·`←`·`→`·배속 지원 |
-| **방송 미니맵** | 공식 1080p 방송 4종(Worlds·LCK·LPL·LEC) 레이아웃 자동 인식, 초당 5프레임 추적 |
-| **상태 표시** | 사망 `✕`+부활 초, 놓침은 흐린 초상화+`?`, 귀환 `R`·텔레포트 `T`와 도착 지점 |
+| **라이브 보드** | 킬·골드 비례 바, 용·바론·타워·억제기 수, 선수별 KDA·CS·골드·HP 바를 0.5초마다 갱신 |
+| **다시 보기** | 끝난 세트를 livestats 피드로 되감아 재생. `Space`·`←`·`→`·배속 지원 |
+| **오브젝트 타이머** | 용·바론이 나오기까지 남은 시간 (피드의 처치 시각과 패치 규칙으로 계산) |
+| **부활 카운트다운** | 사망한 선수의 `☠ ~Ns`. 라이브는 추정(`~`), 다시 보기는 피드에서 읽은 정확한 시각 |
 | **마우스 조작** | 클릭으로 창 선택과 항목 이동, 더블클릭으로 열기, 휠로 목록 스크롤 |
 | **3개 언어** | 한국어·영어·중국어 UI. `-lang ko\|en\|zh` 또는 `LOLTERM_LANG`, 옵션 메뉴에서 전환 |
-| **단일 바이너리** | Go 표준 라이브러리만 사용. 외부 의존성은 미니맵용 `yt-dlp`·`ffmpeg`·JS 런타임뿐 |
+| **단일 바이너리** | Go 표준 라이브러리만 사용. 외부 의존성 없음 |
 
 ## 설치
 
-Go 1.21 이상이 필요합니다. 미니맵을 쓰려면 `yt-dlp`, `ffmpeg`, JS 런타임(`deno` 권장, 없으면 `bun` 또는 `node`)이 필요합니다.
+Go 1.21 이상이 필요합니다. 다른 도구는 필요 없습니다.
 
 ```bash
 go install github.com/m16khb-org/lolterm@latest
 # $(go env GOPATH)/bin 이 PATH 에 있어야 합니다
 ```
 
-미니맵 의존성은 macOS에서 `brew install yt-dlp ffmpeg deno`, Linux에서 `apt install ffmpeg`와 `pipx install yt-dlp`로 설치합니다.
-Windows 10 1809 이상에서도 네이티브로 빌드하고 실행합니다. 저장소에서 `go install .` 한 뒤 `lolterm`을 실행하고, 도구는 `winget`으로 설치합니다.
+Windows 10 1809 이상에서도 네이티브로 빌드하고 실행합니다. 저장소에서 `go install .` 한 뒤 `lolterm`을 실행합니다.
 자세한 사전 점검·PATH·검증 절차는 **[INSTALL.md](INSTALL.md)** 에 있습니다.
 
 <details>
@@ -85,10 +78,11 @@ lolterm -lang ko                     # 한국어 UI (en, zh)
 lolterm lol replay                   # 최근 종료 경기와 -match 에 쓸 id 목록
 lolterm lol replay -match 115660588583040710 -g 1
 lolterm lol relay -l msi             # MSI 풀스크린 실시간 중계
+lolterm lol demo                     # 라이브 경기 없이 보드 한 프레임 미리보기
+lolterm -version                     # 설치된 버전 (버그 제보에 첨부)
 ```
 
 대화형 앱에서 리그를 고르고 `Enter`로 경기를 열면 라이브 보드나 다시 보기가 시작됩니다.
-방송 미니맵은 공식 1080p 방송에서만 동작하며, 리플레이·데스크·밴픽 화면에서는 챔피언을 숨기고 이유를 표시합니다.
 
 ## 대화형 앱
 
@@ -105,123 +99,73 @@ lolterm lol relay -l msi             # MSI 풀스크린 실시간 중계
 | 클릭 | 창 포커스와 행 선택 |
 | 더블클릭 | 경기·세트 열기, 보드 확대 전환 |
 | 휠 | 포인터 아래 목록 스크롤 |
-| `,` | 옵션 메뉴 (미니맵 그리기, 영상 동기화, 폴링 간격, 언어) |
-| `?` | 현재 문맥의 키 도움말 |
+| `,` | 옵션 메뉴 (폴링 간격, 왼쪽 열 표시, 언어) |
+| `?` | 현재 문맥의 키 도움말 (화면보다 길면 `↑` `↓`로 스크롤) |
 | `q` / `Ctrl+C` | 종료 |
 
 언어는 `lolterm -lang ko`, `lolterm -lang zh`처럼 실행하거나 `LOLTERM_LANG=ko`를 설정합니다.
 기본값은 영어이고, 옵션 메뉴의 `Language` 항목에서도 바꿀 수 있습니다.
+화면은 최소 40×12, 보드는 50열 이상이 필요합니다. 대화형 화면은 표준 입출력이 터미널일 때만 열리고,
+파이프나 리디렉션으로 실행하면 오류로 끝납니다. 한 프레임만 필요하면 `lolterm lol relay -1`을 씁니다.
 
-보드에 포커스가 있을 때는 `Space` 일시정지, `←` `→` ±10초, `+` `-` 배속, `b` stats→items→runes,
-`s` 골드 스파크라인, `o` 오브젝트 맵, `m` 미니맵 패널, `v` 방송 영상 동기화, `f` 확대를 씁니다.
+보드에 포커스가 있을 때는 `Space` 일시정지, `←` `→` ±10초, `+` `-` 배속(1×/2×/4×, 다시 보기), `b` stats→items→runes,
+`s` 골드 스파크라인, `o` 오브젝트 맵, `f` 확대를 씁니다.
+단독 실행한 `relay`·`replay` 보드에서는 `Ctrl+L`로 화면 전체를 다시 그립니다.
 
-## 미니맵
+## 보드
 
-`m` 토글 또는 `lolterm lol minimap`은 방송 영상의 미니맵에서 챔피언 위치를 직접 검출합니다.
-검출은 순수 Go로 합니다: Data Dragon/CommunityDragon 초상화 템플릿, 헝가리안 배정, 칼만 필터, 메인 뷰 체력바 융합.
+보드의 모든 값은 livestats 피드에서 옵니다.
 
-<p align="center">
-  <img src="docs/assets/states.png" alt="라이브, 사망, 놓침, 혼합 상태의 미니맵" width="100%" />
-</p>
-
-| 상태 | 표시 |
+| 줄 | 내용 |
 |---|---|
-| 라이브 | 초상화 + 팀 색 링 + 라인 배지 `T` `J` `M` `B` `S` |
-| 사망 | 회색 X 아이콘 + 아이콘에 붙은 부활 초. 피드의 사망 수로 판단합니다 |
-| 놓침 | 흐린 초상화 + 회색 `?`. 마지막 측정 위치를 추정해 유지합니다 |
-| 귀환 | 팀 링 바깥 팀 색 아우라 + `R`. 블루 팀은 청록, 레드 팀은 빨강입니다 |
-| 텔레포트 | 팀 링 바깥 보라 아우라 + `T` |
-| 텔레포트 도착 지점 | 옅게 칠한 팀 색 원 + 보라 아우라, 시전자를 알면 그 라인 배지. `blocks`·`text` 모드는 팀 색 `@`입니다 |
-| 레드 팀 채널링 | 팀 링 바깥 빨강 아우라 + `?`. 도착 지점이 이어지면 `T`, 5초를 넘기면 귀환 `R`로 바뀝니다 |
+| 헤더 | 리그, 블록, 게임 시계, 패치. 게임 시계는 일시정지 구간을 뺀 값이며, 보드를 연 뒤 일어난 일시정지뿐 아니라 연 시점 이전의 일시정지도 피드 기록에서 찾아 반영합니다 |
+| 팀 | 블루 팀이 왼쪽입니다. 팀 순서는 피드의 `blueTeamMetadata`가 정합니다 |
+| 킬·골드 | 킬 수와 골드 비례 바 |
+| 오브젝트 | 용·바론·타워·억제기 수. 영혼 획득은 `★SOUL` |
+| 타이머 | 용·바론이 나오기까지 남은 시간(`UP`은 지금 구덩이에 있음) |
+| 선수 | K/D/A, CS, 골드, HP 바, 사망 시 `☠ ~Ns` 부활 카운트다운 |
 
-<p align="center">
-  <img src="docs/assets/channels.png" alt="팀 링 바깥 아우라로 귀환 R, 텔레포트 T, 레드 팀 채널링 ?를 표시한 미니맵" width="100%" />
-</p>
+부활 카운트다운은 라이브에서 레벨과 게임 시간으로 계산한 추정이라 `~`가 붙고, 다시 보기에서는 피드에서 읽은 정확한 시각입니다.
+용·바론 타이머는 피드가 알려 준 처치 시각에 패치 규칙의 재등장 시간을 더해 계산합니다.
+`b`는 stats → items → runes 보기를, `s`는 골드 차이 스파크라인을, `o`는 오브젝트 맵을 켜고 끕니다.
 
-채널링은 아이콘 바깥 링의 **색**을 읽어 판정합니다. 팀 색 링은 그대로 두고 그 바깥에 물결 모양 아우라를 그립니다.
-밝은 링이 2프레임 연속 잡혀야 시작하고, 링이 흐려져도 챔피언이 그 자리에 있는 동안은 유지합니다.
-방송은 블루 팀 귀환을 청록, 블루 팀 텔레포트를 초록으로 그리지만 레드 팀은 둘 다 빨강입니다.
-대신 텔레포트는 채널링을 시작할 때부터 돌진할 때까지 도착 지점(아군 미니언·와드·포탑)에 팀 색 소용돌이 링을 그립니다. 블루 팀은 초록, 레드 팀은 빨강입니다.
-챔피언이 없는 자리에서 이 링이 1초 이어지면 도착 지점으로 표시합니다. 채널링 중인 챔피언의 링은 추적기가 아이콘을 놓쳐도 도착 지점으로 보지 않습니다.
-채널링이 시작된 자리와 링 안의 초상화로 그 챔피언의 링인지 가립니다.
-시전자는 같은 팀에서 도착 지점보다 4초 안쪽 앞이나 그 뒤에 채널링을 시작한 챔피언입니다. 링 안에서 초상화가 확인된 챔피언도 시전자 후보입니다.
-우물에서 쓰면 아이콘이 겹쳐 시전자가 안 보이므로, 우물을 떠나 돌진할 때 시전자를 잇습니다.
-시전자는 도착 지점이 사라질 때까지 `T`로 그리고, 레드 팀의 빨간 링은 이때 `T`가 됩니다.
-귀환은 8초, 텔레포트는 3초 동안 채널링하므로 도착 지점 없이 5초를 넘긴 빨간 링은 귀환 `R`이고, 그보다 짧으면 `?`로 남습니다(취소한 귀환, 바론 버프의 4초 귀환).
-한타 중 여러 아이콘에 덮인 도착 지점은 찾지 못합니다.
+### 하지 않는 것
 
-```bash
-lolterm lol minimap -src https://www.youtube.com/watch?v=UWBRuboiCXk \
-  -ss 1500 -game 115660588583040711 -n 20 -json
-```
-
-`-json`은 프레임마다 한 줄을 출력합니다. `present`(레이아웃 잠금), `clock`, `kills`, `visible`,
-`champions[{pid,champ,role,team,visible,x,y,score,chan}]`, `teleports[{team,pid,x,y}]`(도착 지점, `pid`는 시전자를 알 때만)을 담습니다. 좌표는 게임 단위입니다.
+챔피언 위치, 텔레포트·귀환, 밴픽은 공식 피드에 들어 있지 않으므로 lolterm은 보여 주지 않습니다. 방송 영상을 읽어 추정하지도 않습니다.
 
 ## 작동 방식
 
-1. **피드** — `getEventDetails`로 경기·세트·VOD를 찾고, livestats 피드에서 점수판·게임 시계·선수 스탯을 가져옵니다.
-2. **방송** — 공식 VOD에서 1080p 스트림을 열고, 상단 게임 시계 글꼴로 방송 레이아웃을 판별합니다.
-3. **추적** — 미니맵 영역을 잘라 초상화를 템플릿 매칭하고, 헝가리안 배정과 칼만 필터로 프레임 사이의 이동을 잇습니다. 메인 뷰 체력바와 피드의 사망·부활 정보를 함께 씁니다.
-4. **정렬** — 방송 시계와 피드의 킬 이벤트를 대조해 오프셋을 계속 보정합니다. 점수판·선수 스탯·오브젝트·미니맵이 같은 게임 시각을 가리킵니다.
+1. **피드** — `getLive`·`getSchedule`·`getEventDetails`로 경기와 세트를 찾고, livestats 피드(`window`·`details`)에서 점수판·게임 시계·선수 스탯을 가져옵니다.
+2. **재생** — 피드는 10초 분량씩 백그라운드에서 받아 두고, 화면은 네트워크를 건드리지 않고 0.5초마다 쌓인 프레임을 재생합니다. 지연은 최근 수신 지연에 맞춰 자동 조절됩니다.
+3. **게임 시계** — 피드의 일시정지 구간을 빼서 계산합니다. 경기 중간에 보드를 열어도 그 전의 일시정지를 피드 기록에서 찾아 반영합니다.
+4. **다시 보기** — 끝난 세트의 프레임을 10초 창 단위로 받아 저장하고, 재생 위치에 맞는 프레임을 보여 줍니다. 같은 창은 한 번만 받습니다.
 
 ```text
-lolesports API ──▶ livestats feed ──▶ scoreboard · clock · deaths
-                                      │
-official VOD ──▶ ffmpeg ──▶ minimap ──┴──▶ template match ──▶ Kalman ──▶ terminal
-                              + game clock        (Go, pure)
+lolesports API ──▶ livestats feed ──▶ playout (0.5s) ──▶ board
+                                      ├─ game clock (pauses removed)
+                                      ├─ deaths · respawn
+                                      └─ dragon / baron timers
 ```
 
 ## 검증
 
-완료된 공식 경기 16경기(Worlds 7, LCK 3, LPL 3, LEC 3)를 방송 영상 전체로 돌리는 백테스트가 있습니다.
-앱과 같은 `mmPipeline`·`mmSync`·사망 로직을 사용하고, livestats 피드를 정답으로 삼습니다.
-
-```bash
-go test -tags backtest -run TestBacktest -timeout 3h -v . -backtest.out=/tmp/backtest.json
-```
-
-| 리그 | 경기 | 생존 검출 | 죽은 챔피언 오검출 | 킬 플립 ≤1초 | 5초↑ 공백(건/초) |
-|---|---|---|---|---|---|
-| worlds | 7 | 약 94.4% | 0.00% | 98.0% | 532/11498 |
-| lck | 3 | 94.2% | 0.00% | 97.5% | 299/6536 |
-| lpl | 3 | 91.2% | 0.00% | 91.7% | 256/5364 |
-| lec | 3 | 95.8% | 0.00% | 100% | 249/4708 |
-| **전체** | **16** | **약 94.0%** | **0.00%** | **97.2%** | **1336/28106** |
-
-- 16경기 중 13경기가 기준을 통과했습니다.
-- 부활 추정 중앙값 0.24초·p90 0.45초, 시계 판독 94.8~98.9%, 틀린 재잠금 0회.
-- 프로세스 CPU는 프레임당 21~28ms(5fps, 메인 뷰 포함)로 영상 시간의 7.5~9.2배 속도입니다.
-
-자세한 측정 기준과 경기별 수치는 **[구현 상세](docs/internals.md)** 에 있습니다.
-
-## 터미널 설정
-
-`-icons auto|kitty|blocks|text` (기본 `auto` = kitty → blocks → text).
-
-| 모드 | 내용 |
-|---|---|
-| `kitty` | 픽셀 지도 + 챔피언 초상화. kitty, Ghostty, WezTerm, herdr에서 동작 |
-| `blocks` | 트루컬러 반블록 지도 + 라인 글자. 작은 화면에 적합 |
-| `text` | 점자 지도 + 라인 글자. 트루컬러가 없을 때의 마지막 대안 |
-
-`auto`는 `TERM_PROGRAM`(ghostty/wezterm/herdr), `KITTY_WINDOW_ID`, `TERM=xterm-kitty`를 보고 kitty를 고릅니다.
-환경변수로 판단이 안 되면 시작할 때 kitty 그래픽 질의를 보내 최대 0.2초 기다립니다.
+`go test ./...`가 확인하는 것은 피드 파싱과 일시정지 처리, 사망·부활 계산, 오브젝트 타이머, 다시 보기 저장소, 키·마우스·폭 계산, UI 번역입니다.
+단위 테스트이며, 화면은 `lolterm lol demo`로 합성 프레임을 그려 볼 수 있습니다.
 
 ## 문서
 
 | 문서 | 용도 |
 |---|---|
-| [INSTALL.md](INSTALL.md) | 사전 점검, PATH, 미니맵 의존성, 검증 체크리스트 |
-| [구현 상세](docs/internals.md) | 미니맵 파이프라인, 동기화, 백테스트 전체 수치, 데이터 소스 |
+| [INSTALL.md](INSTALL.md) | 사전 점검, PATH, 검증 체크리스트 |
+| [구현 상세](docs/internals.md) | 피드, 재생 지연, 일시정지, 사망·부활, 오브젝트 타이머, 다시 보기, 데이터 소스 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 개발 환경, 테스트, 커밋·PR 규칙 |
 | [.issueops/ARCHITECTURE.md](.issueops/ARCHITECTURE.md) | 구조와 설계 결정 |
 | [.issueops/TESTING.md](.issueops/TESTING.md) | 검증 기준 |
-| [웹 소개](https://m16khb-org.github.io/lolterm/) | 스크린샷과 설치 안내 (한국어·영어·중국어) |
+| [웹 소개](https://m16khb-org.github.io/lolterm/) | 소개와 설치 안내 (한국어·영어·중국어) |
 
 ## 기여
 
-이슈와 PR을 환영합니다. 버그를 재현했다면 경기 ID·세트 번호·터미널·`-icons` 모드·재현 시각을 함께 적어 주세요.
+이슈와 PR을 환영합니다. 버그를 재현했다면 경기 ID·세트 번호·터미널·재현 시각을 함께 적어 주세요.
 
 ```bash
 go test -count=1 ./...          # 전체 테스트
@@ -237,5 +181,4 @@ GPL-3.0-or-later. 전문은 [LICENSE](LICENSE)를 참고합니다.
 
 Copyright (C) 2026 m16khb
 
-> lolesports.com의 비공식 엔드포인트를 사용합니다. 영상은 **개인 시청 목적**으로만 처리하며,
-> 녹화·저장·재배포하지 마세요. 각 플랫폼의 약관을 따릅니다. Riot Games와 공식적인 관련이 없습니다.
+> lolesports.com의 비공식 엔드포인트를 사용합니다. Riot Games와 공식적인 관련이 없습니다.
